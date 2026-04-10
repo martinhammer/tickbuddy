@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	  xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>tickbuddy</id>
+	<name>Tickbuddy</name>
+	<summary>Tickbuddy is a daily habit tracker aka micro-journal</summary>
+	<description><![CDATA[Tickbuddy is a daily habit tracker also known as a "micro-journal"]]></description>
+	<version>1.0.0</version>
+	<licence>AGPL-3.0-or-later</licence>
+	<author mail="mtg@martinthetallguy.com" homepage="">Martin Hammer</author>
+	<namespace>Tickbuddy</namespace>
+	<category>organization</category>
+	<bugs>https://github.com/martinhammer/Tickbuddy</bugs>
+	<dependencies>
+		<nextcloud min-version="31" max-version="32"/>
+	</dependencies>
+	<navigations>
+		<navigation>
+			<id>tickbuddy</id>
+			<name>Tickbuddy</name>
+			<route>tickbuddy.page.index</route>
+			<icon>app.svg</icon>
+			<type>link</type>
+		</navigation>
+	</navigations>
+</info>
