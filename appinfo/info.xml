@@ -3,8 +3,8 @@
 	  xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
 	<id>tickbuddy</id>
 	<name>Tickbuddy</name>
-	<summary>Tickbuddy is a daily habit tracker aka micro-journal</summary>
-	<description><![CDATA[Tickbuddy is a daily habit tracker also known as a "micro-journal"]]></description>
+	<summary>Tickbuddy is a daily habit tracker aka one-bit journal </summary>
+	<description><![CDATA[Tickbuddy is a daily habit tracker also known as a one bit journal. It is inspired by the Android app Tickmate.]]></description>
 	<version>1.0.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="mtg@martinthetallguy.com" homepage="">Martin Hammer</author>

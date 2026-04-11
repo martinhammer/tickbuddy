@@ -1,25 +1,29 @@
 # Tickbuddy
 
-A template to get started with Nextcloud app development.
+Tickbuddy is a Nextcloud application for daily habit or occurence tracking. It is inspired by the "one-bit journal" Android app [Tickmate](https://github.com/lordi/tickmate). 
 
-## Usage
+The application enables users to record whether a specific event has occured or not on daily basis. The events can be arbitrary habits or occurences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
-- To get started easily use the [Appstore App generator](https://apps.nextcloud.com/developer/apps/generate) to
-  dynamically generate an App based on this repository with all the constants prefilled.
-- Alternatively you can use the "Use this template" button on the top of this page to create a new repository based on
-  this repository. Afterwards adjust all the necessary constants like App ID, namespace, descriptions etc.
+### Features
+Some of the key features which are planned:
 
-Once your app is ready follow the [instructions](https://nextcloudappstore.readthedocs.io/en/latest/developer.html) to
-upload it to the Appstore.
+* Define events to be tracked
+* Provide ability to track events on daily basis
+* Import/export data in an open format 
+* Import/export data in a format compatible with Tickmate
+* Analytics views
+* Companion mobile app
 
-## Resources
+### Motivation
 
-### Documentation for developers:
+This is a personal hobby project which I am using to learn about Nextcloud app development and AI-assisted development. Significant portion of the code has been written by Claude Code. 
 
-- General documentation and tutorials: https://nextcloud.com/developer
-- Technical documentation: https://docs.nextcloud.com/server/latest/developer_manual
+Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem. 
 
-### Help for developers:
+### Found a bug?
 
-- Official community chat: https://cloud.nextcloud.com/call/xs25tz5y
-- Official community forum: https://help.nextcloud.com/c/dev/11
+Feel free to get in touch and/or submit an issue.
+
+### Screenshots
+
+Coming soon!
