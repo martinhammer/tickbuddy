@@ -14,6 +14,6 @@ final class ApiTest extends TestCase {
 		$request = $this->createMock(IRequest::class);
 		$controller = new ApiController(Application::APP_ID, $request);
 
-		$this->assertEquals('Hello world!', $controller->index()->getData()['message']);
+		$this->assertEquals('Tickbuddy', $controller->index()->getData()['message']);
 	}
 }

@@ -25,7 +25,7 @@ class ApiController extends OCSController {
 	#[ApiRoute(verb: 'GET', url: '/api')]
 	public function index(): DataResponse {
 		return new DataResponse(
-			['message' => 'Hello world!']
+			['message' => 'Tickbuddy']
 		);
 	}
 }

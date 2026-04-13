@@ -14,6 +14,10 @@
 	<dependencies>
 		<nextcloud min-version="31" max-version="32"/>
 	</dependencies>
+	<settings>
+		<personal>OCA\Tickbuddy\Settings\PersonalSettings</personal>
+		<personal-section>OCA\Tickbuddy\Settings\PersonalSection</personal-section>
+	</settings>
 	<navigations>
 		<navigation>
 			<id>tickbuddy</id>
