@@ -79,6 +79,15 @@ class TrackService {
 	}
 
 	/**
+	 * @param int[] $trackIds Ordered list of track IDs
+	 * @return Track[]
+	 */
+	public function reorder(array $trackIds, string $userId): array {
+		$this->trackMapper->reorder($userId, $trackIds);
+		return $this->trackMapper->findAllByUser($userId);
+	}
+
+	/**
 	 * @throws DoesNotExistException
 	 */
 	public function delete(int $id, string $userId): void {

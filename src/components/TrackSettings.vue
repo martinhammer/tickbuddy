@@ -20,6 +20,8 @@ const newTrackType = ref<'boolean' | 'counter'>('boolean')
 const loading = ref(false)
 const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
+const dragIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
 
 const apiUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 
@@ -75,15 +77,77 @@ async function togglePrivate(track: Track) {
 	track.private = newValue
 }
 
+function onDragStart(index: number, event: DragEvent) {
+	dragIndex.value = index
+	if (event.dataTransfer) {
+		event.dataTransfer.effectAllowed = 'move'
+	}
+}
+
+function onDragOver(index: number, event: DragEvent) {
+	event.preventDefault()
+	if (event.dataTransfer) {
+		event.dataTransfer.dropEffect = 'move'
+	}
+	dragOverIndex.value = index
+}
+
+function onDragLeave() {
+	dragOverIndex.value = null
+}
+
+async function onDrop(toIndex: number) {
+	const fromIndex = dragIndex.value
+	dragIndex.value = null
+	dragOverIndex.value = null
+	if (fromIndex === null || fromIndex === toIndex) return
+
+	const moved = tracks.value.splice(fromIndex, 1)[0]
+	tracks.value.splice(toIndex, 0, moved)
+
+	const trackIds = tracks.value.map(t => t.id)
+	const params = new URLSearchParams()
+	trackIds.forEach(id => params.append('trackIds[]', String(id)))
+	const response = await axios.put(`${apiUrl}/reorder`, params)
+	tracks.value = response.data.ocs.data
+}
+
+function onDragEnd() {
+	dragIndex.value = null
+	dragOverIndex.value = null
+}
+
 onMounted(fetchTracks)
 </script>
 
 <template>
 	<NcSettingsSection name="Tickbuddy"
 		description="Define the tracks you want to monitor. Each track represents a habit or event to record daily.">
+		<div :class="$style.addForm">
+			<NcTextField v-model="newTrackName"
+				label="Track name"
+				placeholder="e.g. Exercise, Coffee, Reading..."
+				@keyup.enter="addTrack" />
+			<select v-model="newTrackType" :class="$style.typeSelect">
+				<option value="boolean">
+					Yes / No
+				</option>
+				<option value="counter">
+					Counter
+				</option>
+			</select>
+			<NcButton type="primary"
+				:disabled="!newTrackName.trim()"
+				:class="$style.addButton"
+				@click="addTrack">
+				Add track
+			</NcButton>
+		</div>
+
 		<table v-if="tracks.length > 0" :class="$style.trackTable">
 			<thead>
 				<tr>
+					<th />
 					<th>Name</th>
 					<th>Type</th>
 					<th>Private</th>
@@ -91,7 +155,18 @@ onMounted(fetchTracks)
 				</tr>
 			</thead>
 			<tbody>
-				<tr v-for="track in tracks" :key="track.id">
+				<tr v-for="(track, index) in tracks"
+					:key="track.id"
+					:class="{ [$style.dragOver]: dragOverIndex === index }"
+					@dragover="onDragOver(index, $event)"
+					@dragleave="onDragLeave"
+					@drop="onDrop(index)"
+					@dragend="onDragEnd">
+					<td :class="$style.dragHandle"
+						draggable="true"
+						@dragstart="onDragStart(index, $event)">
+						⠿
+					</td>
 					<td @click="startEditing(track)" :class="$style.nameCell">
 						<NcTextField v-if="editingTrackId === track.id"
 							v-model="editingName"
@@ -118,36 +193,15 @@ onMounted(fetchTracks)
 			</tbody>
 		</table>
 		<p v-else-if="!loading">
-			No tracks defined yet. Add one below.
+			No tracks defined yet. Add one above.
 		</p>
-
-		<div :class="$style.addForm">
-			<NcTextField v-model="newTrackName"
-				label="Track name"
-				placeholder="e.g. Exercise, Coffee, Reading..."
-				@keyup.enter="addTrack" />
-			<select v-model="newTrackType" :class="$style.typeSelect">
-				<option value="boolean">
-					Yes / No
-				</option>
-				<option value="counter">
-					Counter
-				</option>
-			</select>
-			<NcButton type="primary"
-				:disabled="!newTrackName.trim()"
-				:class="$style.addButton"
-				@click="addTrack">
-				Add track
-			</NcButton>
-		</div>
 	</NcSettingsSection>
 </template>
 
 <style module>
 .trackTable {
 	width: 100%;
-	margin-bottom: 16px;
+	margin-top: 16px;
 	border-collapse: collapse;
 }
 
@@ -156,6 +210,23 @@ onMounted(fetchTracks)
 	padding: 8px 12px;
 	text-align: left;
 	border-bottom: 1px solid var(--color-border);
+}
+
+.dragHandle {
+	cursor: grab;
+	width: 24px;
+	text-align: center;
+	color: var(--color-text-maxcontrast);
+	user-select: none;
+	font-size: 16px;
+}
+
+.dragHandle:active {
+	cursor: grabbing;
+}
+
+.dragOver {
+	border-top: 2px solid var(--color-primary-element) !important;
 }
 
 .nameCell {
@@ -170,7 +241,7 @@ onMounted(fetchTracks)
 	display: flex;
 	align-items: flex-end;
 	gap: 8px;
-	margin-top: 16px;
+	margin-bottom: 32px;
 }
 
 .typeSelect {

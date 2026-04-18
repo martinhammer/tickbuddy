@@ -69,6 +69,18 @@ class TrackController extends OCSController {
 	}
 
 	#[NoAdminRequired]
+	#[ApiRoute(verb: 'PUT', url: '/api/tracks/reorder')]
+	public function reorder(): DataResponse {
+		/** @var int[] $trackIds */
+		$trackIds = array_map('intval', (array)$this->request->getParam('trackIds', []));
+		if (empty($trackIds)) {
+			return new DataResponse(['message' => 'trackIds is required'], Http::STATUS_BAD_REQUEST);
+		}
+		$tracks = $this->trackService->reorder($trackIds, $this->userId);
+		return new DataResponse(array_map(fn (Track $t) => $this->serializeTrack($t), $tracks));
+	}
+
+	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}')]
 	public function update(int $id): DataResponse {
 		$nameParam = $this->request->getParam('name');
