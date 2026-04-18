@@ -62,7 +62,7 @@ class TrackService {
 	/**
 	 * @throws DoesNotExistException
 	 */
-	public function update(int $id, string $userId, ?string $name = null, ?int $sortOrder = null): Track {
+	public function update(int $id, string $userId, ?string $name = null, ?int $sortOrder = null, ?bool $private = null): Track {
 		$track = $this->trackMapper->findByIdAndUser($id, $userId);
 
 		if ($name !== null) {
@@ -70,6 +70,9 @@ class TrackService {
 		}
 		if ($sortOrder !== null) {
 			$track->setSortOrder($sortOrder);
+		}
+		if ($private !== null) {
+			$track->setPrivate($private);
 		}
 
 		return $this->trackMapper->update($track);

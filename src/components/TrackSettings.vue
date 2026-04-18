@@ -11,12 +11,15 @@ interface Track {
 	name: string
 	type: string
 	sortOrder: number
+	private: boolean
 }
 
 const tracks = ref<Track[]>([])
 const newTrackName = ref('')
 const newTrackType = ref<'boolean' | 'counter'>('boolean')
 const loading = ref(false)
+const editingTrackId = ref<number | null>(null)
+const editingName = ref('')
 
 const apiUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 
@@ -48,6 +51,30 @@ async function deleteTrack(id: number) {
 	await fetchTracks()
 }
 
+function startEditing(track: Track) {
+	editingTrackId.value = track.id
+	editingName.value = track.name
+}
+
+async function saveName(track: Track) {
+	const trimmed = editingName.value.trim()
+	editingTrackId.value = null
+	if (!trimmed || trimmed === track.name) return
+
+	const params = new URLSearchParams()
+	params.append('name', trimmed)
+	await axios.put(`${apiUrl}/${track.id}`, params)
+	track.name = trimmed
+}
+
+async function togglePrivate(track: Track) {
+	const newValue = !track.private
+	const params = new URLSearchParams()
+	params.append('private', String(newValue))
+	await axios.put(`${apiUrl}/${track.id}`, params)
+	track.private = newValue
+}
+
 onMounted(fetchTracks)
 </script>
 
@@ -59,13 +86,27 @@ onMounted(fetchTracks)
 				<tr>
 					<th>Name</th>
 					<th>Type</th>
+					<th>Private</th>
 					<th />
 				</tr>
 			</thead>
 			<tbody>
 				<tr v-for="track in tracks" :key="track.id">
-					<td>{{ track.name }}</td>
+					<td @click="startEditing(track)" :class="$style.nameCell">
+						<NcTextField v-if="editingTrackId === track.id"
+							v-model="editingName"
+							label="Track name"
+							autofocus
+							@keyup.enter="saveName(track)"
+							@blur="saveName(track)" />
+						<span v-else>{{ track.name }}</span>
+					</td>
 					<td>{{ track.type === 'counter' ? 'Counter' : 'Yes / No' }}</td>
+					<td :class="$style.privateCell">
+						<input type="checkbox"
+							:checked="track.private"
+							@change="togglePrivate(track)">
+					</td>
 					<td>
 						<NcButton type="tertiary-no-background"
 							aria-label="Delete track"
@@ -117,6 +158,14 @@ onMounted(fetchTracks)
 	border-bottom: 1px solid var(--color-border);
 }
 
+.nameCell {
+	cursor: pointer;
+}
+
+.nameCell:hover {
+	background: var(--color-background-hover);
+}
+
 .addForm {
 	display: flex;
 	align-items: flex-end;
@@ -125,13 +174,29 @@ onMounted(fetchTracks)
 }
 
 .typeSelect {
-	min-width: 140px;
-	height: 44px;
-	padding: 0 12px;
+	min-width: 180px;
+	height: var(--default-clickable-area, 44px);
+	padding: 0 36px 0 16px;
 	border: 2px solid var(--color-border-maxcontrast);
-	border-radius: var(--border-radius-large);
-	background: var(--color-main-background);
+	border-radius: var(--border-radius-element, 32px);
+	background-color: var(--color-main-background);
 	color: var(--color-main-text);
+	font-size: var(--default-font-size, 15px);
+	line-height: 1.5;
+	appearance: none;
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	cursor: pointer;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 12px center;
+	background-size: 16px 16px;
+}
+
+.typeSelect:hover,
+.typeSelect:focus {
+	border-color: var(--color-primary-element);
+	outline: none;
 }
 
 .addButton {

@@ -8,6 +8,7 @@ interface Track {
 	name: string
 	type: string
 	sortOrder: number
+	private: boolean
 }
 
 interface Tick {
@@ -21,6 +22,14 @@ const tracks = ref<Track[]>([])
 const ticks = ref<Tick[]>([])
 const daysToShow = ref(30)
 const loading = ref(false)
+const showPrivate = ref(false)
+
+const visibleTracks = computed(() => {
+	if (showPrivate.value) return tracks.value
+	return tracks.value.filter(t => !t.private)
+})
+
+const hasPrivateTracks = computed(() => tracks.value.some(t => t.private))
 
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
@@ -113,11 +122,22 @@ onMounted(fetchData)
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
 			No tracks defined yet. Go to Settings → Personal → Tickbuddy to add some.
 		</p>
-		<table v-else :class="$style.grid">
+		<template v-else>
+			<div v-if="hasPrivateTracks" :class="$style.toolbar">
+				<label :class="$style.privateToggle">
+					<input type="checkbox" v-model="showPrivate">
+					Show private tracks
+				</label>
+			</div>
+			<p v-if="visibleTracks.length === 0" :class="$style.empty">
+				All tracks are private. Use the toggle above to show them.
+			</p>
+		</template>
+		<table v-if="visibleTracks.length > 0" :class="$style.grid">
 			<thead>
 				<tr>
 					<th :class="$style.dateHeader" />
-					<th v-for="track in tracks" :key="track.id" :class="$style.trackHeader">
+					<th v-for="track in visibleTracks" :key="track.id" :class="$style.trackHeader">
 						{{ track.name }}
 					</th>
 				</tr>
@@ -127,7 +147,7 @@ onMounted(fetchData)
 					<td :class="$style.dateCell">
 						{{ formatDate(date) }}
 					</td>
-					<td v-for="track in tracks"
+					<td v-for="track in visibleTracks"
 						:key="track.id"
 						:class="$style.tickCell">
 						<template v-if="track.type === 'boolean'">
@@ -153,7 +173,7 @@ onMounted(fetchData)
 				</tr>
 			</tbody>
 		</table>
-		<div v-if="tracks.length > 0" :class="$style.loadMore">
+		<div v-if="visibleTracks.length > 0" :class="$style.loadMore">
 			<button @click="loadMore">
 				Load more days
 			</button>
@@ -164,6 +184,21 @@ onMounted(fetchData)
 <style module>
 .gridWrapper {
 	padding: 16px;
+}
+
+.toolbar {
+	display: flex;
+	justify-content: flex-end;
+	margin-bottom: 8px;
+}
+
+.privateToggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	color: var(--color-text-maxcontrast);
+	font-size: var(--default-font-size, 15px);
 }
 
 .empty {

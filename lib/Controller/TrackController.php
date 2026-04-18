@@ -41,6 +41,7 @@ class TrackController extends OCSController {
 			'name' => $track->getName(),
 			'type' => $track->getType(),
 			'sortOrder' => $track->getSortOrder(),
+			'private' => $track->getPrivate(),
 		];
 	}
 
@@ -72,11 +73,13 @@ class TrackController extends OCSController {
 	public function update(int $id): DataResponse {
 		$nameParam = $this->request->getParam('name');
 		$sortOrderParam = $this->request->getParam('sortOrder');
+		$privateParam = $this->request->getParam('private');
 		$name = $nameParam !== null ? (string)$nameParam : null;
 		$sortOrder = $sortOrderParam !== null ? (int)$sortOrderParam : null;
+		$private = $privateParam !== null ? filter_var($privateParam, FILTER_VALIDATE_BOOLEAN) : null;
 
 		try {
-			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder);
+			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private);
 			return new DataResponse($this->serializeTrack($track));
 		} catch (\OCP\AppFramework\Db\DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
