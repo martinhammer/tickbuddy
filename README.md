@@ -5,13 +5,15 @@ Tickbuddy is a Nextcloud application for daily habit or occurence tracking. It i
 The application enables users to record whether a specific event has occured or not on daily basis. The events can be arbitrary habits or occurences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
 ### Features
-Some of the key features which are planned:
+Some of the key features which already exist:
+* Settings screen to define, rename, delete events to be tracked 
+* Main app screen for actual tracking
 
-* Define events to be tracked
-* Provide ability to track events on daily basis
-* Import/export data in an open format 
+Planned features:
 * Import/export data in a format compatible with Tickmate
+* Import/export data in an open format 
 * Analytics views
+* Package and publish the app on Nextcloud App Store
 * Companion mobile app
 
 ### Motivation
