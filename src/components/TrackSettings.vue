@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from '@nextcloud/axios'
+import { showConfirmation } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
@@ -48,8 +49,15 @@ async function addTrack() {
 	await fetchTracks()
 }
 
-async function deleteTrack(id: number) {
-	await axios.delete(`${apiUrl}/${id}`)
+async function deleteTrack(track: Track) {
+	const confirmed = await showConfirmation({
+		name: 'Delete track',
+		text: `Are you sure you want to delete "${track.name}"? All its data will be lost.`,
+		labelConfirm: 'Delete',
+	})
+	if (!confirmed) return
+
+	await axios.delete(`${apiUrl}/${track.id}`)
 	await fetchTracks()
 }
 
@@ -185,7 +193,7 @@ onMounted(fetchTracks)
 					<td>
 						<NcButton type="tertiary-no-background"
 							aria-label="Delete track"
-							@click="deleteTrack(track.id)">
+							@click="deleteTrack(track)">
 							Delete
 						</NcButton>
 					</td>
