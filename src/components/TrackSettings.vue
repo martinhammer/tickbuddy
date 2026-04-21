@@ -4,6 +4,7 @@ import axios from '@nextcloud/axios'
 import { showConfirmation } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
+import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
 
@@ -17,7 +18,11 @@ interface Track {
 
 const tracks = ref<Track[]>([])
 const newTrackName = ref('')
-const newTrackType = ref<'boolean' | 'counter'>('boolean')
+const trackTypeOptions = [
+	{ id: 'boolean', label: 'Yes / No' },
+	{ id: 'counter', label: 'Counter' },
+]
+const newTrackType = ref(trackTypeOptions[0])
 const loading = ref(false)
 const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
@@ -42,10 +47,10 @@ async function addTrack() {
 
 	const params = new URLSearchParams()
 	params.append('name', name)
-	params.append('type', newTrackType.value)
+	params.append('type', newTrackType.value.id)
 	await axios.post(apiUrl, params)
 	newTrackName.value = ''
-	newTrackType.value = 'boolean'
+	newTrackType.value = trackTypeOptions[0]
 	await fetchTracks()
 }
 
@@ -136,14 +141,11 @@ onMounted(fetchTracks)
 				label="Track name"
 				placeholder="e.g. Exercise, Coffee, Reading..."
 				@keyup.enter="addTrack" />
-			<select v-model="newTrackType" :class="$style.typeSelect">
-				<option value="boolean">
-					Yes / No
-				</option>
-				<option value="counter">
-					Counter
-				</option>
-			</select>
+			<NcSelect v-model="newTrackType"
+				:options="trackTypeOptions"
+				:clearable="false"
+				input-label="Track type"
+				:class="$style.typeSelect" />
 			<NcButton type="primary"
 				:disabled="!newTrackName.trim()"
 				:class="$style.addButton"
@@ -186,9 +188,12 @@ onMounted(fetchTracks)
 					</td>
 					<td>{{ track.type === 'counter' ? 'Counter' : 'Yes / No' }}</td>
 					<td :class="$style.privateCell">
-						<input type="checkbox"
+						<input :id="`private-${track.id}`"
+							type="checkbox"
+							class="checkbox"
 							:checked="track.private"
 							@change="togglePrivate(track)">
+						<label :for="`private-${track.id}`" />
 					</td>
 					<td>
 						<NcButton type="tertiary-no-background"
@@ -253,32 +258,12 @@ onMounted(fetchTracks)
 }
 
 .typeSelect {
-	min-width: 180px;
-	height: var(--default-clickable-area, 44px);
-	padding: 0 36px 0 16px;
-	border: 2px solid var(--color-border-maxcontrast);
-	border-radius: var(--border-radius-element, 32px);
-	background-color: var(--color-main-background);
-	color: var(--color-main-text);
-	font-size: var(--default-font-size, 15px);
-	line-height: 1.5;
-	appearance: none;
-	-webkit-appearance: none;
-	-moz-appearance: none;
-	cursor: pointer;
-	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
-	background-repeat: no-repeat;
-	background-position: right 12px center;
-	background-size: 16px 16px;
-}
-
-.typeSelect:hover,
-.typeSelect:focus {
-	border-color: var(--color-primary-element);
-	outline: none;
+	min-width: 150px;
+	max-width: 180px;
 }
 
 .addButton {
 	white-space: nowrap;
+	flex-shrink: 0;
 }
 </style>

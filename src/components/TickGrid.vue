@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import axios from '@nextcloud/axios'
+import { getLocale } from '@nextcloud/l10n'
 import { generateOcsUrl } from '@nextcloud/router'
 
 interface Track {
@@ -30,6 +31,29 @@ const visibleTracks = computed(() => {
 })
 
 const hasPrivateTracks = computed(() => tracks.value.some(t => t.private))
+
+// Determine weekend days from user's Nextcloud locale using Intl.Locale.weekInfo
+// weekInfo.weekend uses ISO day numbers: 1=Mon … 7=Sun
+// Fallback to Saturday (6) and Sunday (7) if unavailable
+const weekendDays: Set<number> = (() => {
+	try {
+		const locale = new Intl.Locale(getLocale())
+		const info = (locale as any).weekInfo ?? (locale as any).getWeekInfo?.()
+		if (info?.weekend) {
+			return new Set(info.weekend as number[])
+		}
+	} catch {
+		// ignore
+	}
+	return new Set([6, 7])
+})()
+
+function isWeekend(dateStr: string): boolean {
+	const jsDay = new Date(dateStr + 'T00:00:00').getDay()
+	// Convert JS day (0=Sun, 1=Mon…6=Sat) to ISO day (1=Mon…7=Sun)
+	const isoDay = jsDay === 0 ? 7 : jsDay
+	return weekendDays.has(isoDay)
+}
 
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
@@ -124,10 +148,13 @@ onMounted(fetchData)
 		</p>
 		<template v-else>
 			<div v-if="hasPrivateTracks" :class="$style.toolbar">
-				<label :class="$style.privateToggle">
-					<input type="checkbox" v-model="showPrivate">
-					Show private tracks
-				</label>
+				<span :class="$style.privateToggle">
+					<input id="show-private"
+						type="checkbox"
+						class="checkbox"
+						v-model="showPrivate">
+					<label for="show-private">Show private tracks</label>
+				</span>
 			</div>
 			<p v-if="visibleTracks.length === 0" :class="$style.empty">
 				All tracks are private. Use the toggle above to show them.
@@ -143,7 +170,7 @@ onMounted(fetchData)
 				</tr>
 			</thead>
 			<tbody>
-				<tr v-for="date in dates" :key="date">
+				<tr v-for="date in dates" :key="date" :class="{ [$style.weekendRow]: isWeekend(date) }">
 					<td :class="$style.dateCell">
 						{{ formatDate(date) }}
 					</td>
@@ -151,9 +178,12 @@ onMounted(fetchData)
 						:key="track.id"
 						:class="$style.tickCell">
 						<template v-if="track.type === 'boolean'">
-							<input type="checkbox"
+							<input :id="`tick-${track.id}-${date}`"
+								type="checkbox"
+								class="checkbox"
 								:checked="isTicked(track.id, date)"
 								@change="toggleBoolean(track.id, date)">
+							<label :for="`tick-${track.id}-${date}`" />
 						</template>
 						<template v-else>
 							<div :class="$style.counter">
@@ -226,6 +256,15 @@ onMounted(fetchData)
 	text-align: center;
 	font-weight: bold;
 	white-space: nowrap;
+}
+
+.weekendRow {
+	background: color-mix(in srgb, var(--color-primary-element) 8%, transparent);
+}
+
+.weekendRow:hover,
+.grid tbody tr:hover {
+	background: color-mix(in srgb, var(--color-primary-element) 15%, transparent);
 }
 
 .dateCell {
