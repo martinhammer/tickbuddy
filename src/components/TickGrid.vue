@@ -21,6 +21,7 @@ interface Tick {
 
 const props = defineProps<{
 	showPrivate: boolean
+	readonly?: boolean
 }>()
 
 const tracks = ref<Track[]>([])
@@ -172,18 +173,21 @@ onMounted(fetchData)
 								type="checkbox"
 								class="checkbox"
 								:checked="isTicked(track.id, date)"
+								:disabled="readonly"
 								@change="toggleBoolean(track.id, date)">
 							<label :for="`tick-${track.id}-${date}`" />
 						</template>
 						<template v-else>
 							<div :class="$style.counter">
-								<button :class="$style.counterBtn"
+								<button v-if="!readonly"
+									:class="$style.counterBtn"
 									:disabled="getTickValue(track.id, date) === 0"
 									@click="setCounter(track.id, date, -1)">
 									−
 								</button>
 								<span :class="$style.counterValue">{{ getTickValue(track.id, date) }}</span>
-								<button :class="$style.counterBtn"
+								<button v-if="!readonly"
+									:class="$style.counterBtn"
 									@click="setCounter(track.id, date, 1)">
 									+
 								</button>
