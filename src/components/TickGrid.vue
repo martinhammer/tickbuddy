@@ -19,18 +19,19 @@ interface Tick {
 	value: number
 }
 
+const props = defineProps<{
+	showPrivate: boolean
+}>()
+
 const tracks = ref<Track[]>([])
 const ticks = ref<Tick[]>([])
 const daysToShow = ref(30)
 const loading = ref(false)
-const showPrivate = ref(false)
 
 const visibleTracks = computed(() => {
-	if (showPrivate.value) return tracks.value
+	if (props.showPrivate) return tracks.value
 	return tracks.value.filter(t => !t.private)
 })
-
-const hasPrivateTracks = computed(() => tracks.value.some(t => t.private))
 
 // Determine weekend days from user's Nextcloud locale using Intl.Locale.weekInfo
 // weekInfo.weekend uses ISO day numbers: 1=Mon … 7=Sun
@@ -146,20 +147,9 @@ onMounted(fetchData)
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
 			No tracks defined yet. Go to Settings → Personal → Tickbuddy to add some.
 		</p>
-		<template v-else>
-			<div v-if="hasPrivateTracks" :class="$style.toolbar">
-				<span :class="$style.privateToggle">
-					<input id="show-private"
-						type="checkbox"
-						class="checkbox"
-						v-model="showPrivate">
-					<label for="show-private">Show private tracks</label>
-				</span>
-			</div>
-			<p v-if="visibleTracks.length === 0" :class="$style.empty">
-				All tracks are private. Use the toggle above to show them.
-			</p>
-		</template>
+		<p v-else-if="visibleTracks.length === 0" :class="$style.empty">
+			All tracks are private. Enable "Show private tracks" in the sidebar settings to show them.
+		</p>
 		<table v-if="visibleTracks.length > 0" :class="$style.grid">
 			<thead>
 				<tr>
@@ -214,21 +204,6 @@ onMounted(fetchData)
 <style module>
 .gridWrapper {
 	padding: 16px;
-}
-
-.toolbar {
-	display: flex;
-	justify-content: flex-end;
-	margin-bottom: 8px;
-}
-
-.privateToggle {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	cursor: pointer;
-	color: var(--color-text-maxcontrast);
-	font-size: var(--default-font-size, 15px);
 }
 
 .empty {
