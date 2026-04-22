@@ -24,12 +24,19 @@ const trackTypeOptions = [
 ]
 const newTrackType = ref(trackTypeOptions[0])
 const loading = ref(false)
+const defaultViewOptions = [
+	{ id: 'journal', label: 'Edit journal' },
+	{ id: 'readonly', label: 'View journal' },
+	{ id: 'analytics', label: 'Analytics' },
+]
+const defaultView = ref(defaultViewOptions[0])
 const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
 const dragIndex = ref<number | null>(null)
 const dragOverIndex = ref<number | null>(null)
 
 const apiUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
+const prefsUrl = generateOcsUrl('/apps/tickbuddy/api/preferences')
 
 async function fetchTracks() {
 	loading.value = true
@@ -130,7 +137,26 @@ function onDragEnd() {
 	dragOverIndex.value = null
 }
 
-onMounted(fetchTracks)
+async function fetchPreferences() {
+	const response = await axios.get(prefsUrl)
+	const viewId = response.data.ocs.data.defaultView
+	const match = defaultViewOptions.find(o => o.id === viewId)
+	if (match) {
+		defaultView.value = match
+	}
+}
+
+async function saveDefaultView(option: { id: string; label: string }) {
+	defaultView.value = option
+	const params = new URLSearchParams()
+	params.append('defaultView', option.id)
+	await axios.put(prefsUrl, params)
+}
+
+onMounted(() => {
+	fetchTracks()
+	fetchPreferences()
+})
 </script>
 
 <template>
@@ -209,6 +235,17 @@ onMounted(fetchTracks)
 			No tracks defined yet. Add one above.
 		</p>
 	</NcSettingsSection>
+
+	<NcSettingsSection name="Preferences">
+		<div>
+			<NcSelect :model-value="defaultView"
+				:options="defaultViewOptions"
+				:clearable="false"
+				input-label="Default screen"
+				:class="$style.prefSelect"
+				@update:model-value="saveDefaultView" />
+		</div>
+	</NcSettingsSection>
 </template>
 
 <style module>
@@ -265,5 +302,11 @@ onMounted(fetchTracks)
 .addButton {
 	white-space: nowrap;
 	flex-shrink: 0;
+}
+
+.prefSelect {
+	min-width: 180px;
+	max-width: 250px;
+	margin-top: 12px;
 }
 </style>

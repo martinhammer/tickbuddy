@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import axios from '@nextcloud/axios'
+import { generateOcsUrl } from '@nextcloud/router'
 import NcAppContent from '@nextcloud/vue/components/NcAppContent'
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation'
 import NcAppNavigationItem from '@nextcloud/vue/components/NcAppNavigationItem'
@@ -9,18 +11,32 @@ import NcContent from '@nextcloud/vue/components/NcContent'
 import AnalyticsView from './components/AnalyticsView.vue'
 import TickGrid from './components/TickGrid.vue'
 
-const currentView = ref<'journal' | 'readonly' | 'analytics'>('journal')
+type View = 'journal' | 'readonly' | 'analytics'
+
+const currentView = ref<View>('journal')
 const showPrivate = ref(false)
+
+onMounted(async () => {
+	try {
+		const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/preferences'))
+		const view = response.data.ocs.data.defaultView as View
+		if (['journal', 'readonly', 'analytics'].includes(view)) {
+			currentView.value = view
+		}
+	} catch {
+		// use default
+	}
+})
 </script>
 
 <template>
 	<NcContent app-name="tickbuddy">
 		<NcAppNavigation>
 			<template #list>
-				<NcAppNavigationItem name="Journal entry"
+				<NcAppNavigationItem name="Edit journal"
 					:active="currentView === 'journal'"
 					@click="currentView = 'journal'" />
-				<NcAppNavigationItem name="View only"
+				<NcAppNavigationItem name="View journal"
 					:active="currentView === 'readonly'"
 					@click="currentView = 'readonly'" />
 				<NcAppNavigationItem name="Analytics"
