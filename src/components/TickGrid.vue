@@ -35,8 +35,27 @@ const daysToShow = ref(30)
 
 // Readonly mode state
 const sortAsc = ref(false)
-const dateFrom = ref<Date>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 29); return d })())
-const dateTo = ref<Date>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })())
+const dateFrom = ref<Date | null>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 29); return d })())
+const dateTo = ref<Date | null>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })())
+
+const effectiveFrom = computed(() => {
+	if (dateFrom.value) return dateFrom.value
+	const d = new Date(dateTo.value ?? new Date())
+	d.setHours(0, 0, 0, 0)
+	d.setDate(d.getDate() - 29)
+	return d
+})
+
+const effectiveTo = computed(() => {
+	if (dateTo.value) return dateTo.value
+	const d = new Date(dateFrom.value ?? new Date())
+	d.setHours(0, 0, 0, 0)
+	d.setDate(d.getDate() + 29)
+	// Don't go beyond today
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+	return d > today ? today : d
+})
 
 const visibleTracks = computed(() => {
 	if (props.showPrivate) return tracks.value
@@ -79,8 +98,8 @@ const dates = computed(() => {
 	const result: string[] = []
 
 	if (props.readonly) {
-		const from = new Date(dateFrom.value)
-		const to = new Date(dateTo.value)
+		const from = new Date(effectiveFrom.value)
+		const to = new Date(effectiveTo.value)
 		from.setHours(0, 0, 0, 0)
 		to.setHours(0, 0, 0, 0)
 
