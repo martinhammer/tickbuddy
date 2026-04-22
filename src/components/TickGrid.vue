@@ -105,14 +105,19 @@ const dates = computed(() => {
 	return result
 })
 
+const userLocale = getLocale()
+
 function formatDate(dateStr: string): string {
 	const d = new Date(dateStr + 'T00:00:00')
+	if (props.readonly) {
+		return d.toLocaleDateString(userLocale, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+	}
 	const today = new Date()
 	today.setHours(0, 0, 0, 0)
 	const diff = Math.round((today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
 	if (diff === 0) return 'Today'
 	if (diff === 1) return 'Yesterday'
-	return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+	return d.toLocaleDateString(userLocale, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 function getTickValue(trackId: number, date: string): number {
