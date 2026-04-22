@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import axios from '@nextcloud/axios'
 import { getLocale } from '@nextcloud/l10n'
 import { generateOcsUrl } from '@nextcloud/router'
+import NcButton from '@nextcloud/vue/components/NcButton'
+import NcDateTimePickerNative from '@nextcloud/vue/components/NcDateTimePickerNative'
 
 interface Track {
 	id: number
@@ -26,8 +28,15 @@ const props = defineProps<{
 
 const tracks = ref<Track[]>([])
 const ticks = ref<Tick[]>([])
-const daysToShow = ref(30)
 const loading = ref(false)
+
+// Edit mode state
+const daysToShow = ref(30)
+
+// Readonly mode state
+const sortAsc = ref(false)
+const dateFrom = ref<Date>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 29); return d })())
+const dateTo = ref<Date>((() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })())
 
 const visibleTracks = computed(() => {
 	if (props.showPrivate) return tracks.value
@@ -52,9 +61,15 @@ const weekendDays: Set<number> = (() => {
 
 function isWeekend(dateStr: string): boolean {
 	const jsDay = new Date(dateStr + 'T00:00:00').getDay()
-	// Convert JS day (0=Sun, 1=Mon…6=Sat) to ISO day (1=Mon…7=Sun)
 	const isoDay = jsDay === 0 ? 7 : jsDay
 	return weekendDays.has(isoDay)
+}
+
+function toDateStr(d: Date): string {
+	const y = d.getFullYear()
+	const m = String(d.getMonth() + 1).padStart(2, '0')
+	const day = String(d.getDate()).padStart(2, '0')
+	return `${y}-${m}-${day}`
 }
 
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
@@ -62,12 +77,31 @@ const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
 
 const dates = computed(() => {
 	const result: string[] = []
-	const today = new Date()
-	for (let i = 0; i < daysToShow.value; i++) {
-		const d = new Date(today)
-		d.setDate(today.getDate() - i)
-		result.push(d.toISOString().split('T')[0])
+
+	if (props.readonly) {
+		const from = new Date(dateFrom.value)
+		const to = new Date(dateTo.value)
+		from.setHours(0, 0, 0, 0)
+		to.setHours(0, 0, 0, 0)
+
+		if (sortAsc.value) {
+			for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+				result.push(toDateStr(d))
+			}
+		} else {
+			for (let d = new Date(to); d >= from; d.setDate(d.getDate() - 1)) {
+				result.push(toDateStr(d))
+			}
+		}
+	} else {
+		const today = new Date()
+		for (let i = 0; i < daysToShow.value; i++) {
+			const d = new Date(today)
+			d.setDate(today.getDate() - i)
+			result.push(toDateStr(d))
+		}
 	}
+
 	return result
 })
 
@@ -124,9 +158,11 @@ async function fetchData() {
 	try {
 		const from = dates.value[dates.value.length - 1]
 		const to = dates.value[0]
+		// from should be the earlier date, to the later
+		const [earliest, latest] = from < to ? [from, to] : [to, from]
 		const [tracksRes, ticksRes] = await Promise.all([
 			axios.get(tracksUrl),
-			axios.get(ticksUrl, { params: { from, to } }),
+			axios.get(ticksUrl, { params: { from: earliest, to: latest } }),
 		])
 		tracks.value = tracksRes.data.ocs.data
 		ticks.value = ticksRes.data.ocs.data
@@ -140,11 +176,31 @@ function loadMore() {
 	fetchData()
 }
 
+// Re-fetch when readonly date range changes
+if (props.readonly) {
+	watch([dateFrom, dateTo], () => {
+		fetchData()
+	})
+}
+
 onMounted(fetchData)
 </script>
 
 <template>
 	<div :class="$style.gridWrapper">
+		<div v-if="readonly" :class="$style.toolbar">
+			<NcDateTimePickerNative v-model="dateFrom"
+				type="date"
+				label="From" />
+			<NcDateTimePickerNative v-model="dateTo"
+				type="date"
+				label="To" />
+			<NcButton type="secondary"
+				@click="sortAsc = !sortAsc">
+				{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
+			</NcButton>
+		</div>
+
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
 			No tracks defined yet. Go to Settings → Personal → Tickbuddy to add some.
 		</p>
@@ -199,7 +255,7 @@ onMounted(fetchData)
 				</tr>
 			</tbody>
 		</table>
-		<div v-if="visibleTracks.length > 0" :class="$style.loadMore">
+		<div v-if="!readonly && visibleTracks.length > 0" :class="$style.loadMore">
 			<button @click="loadMore">
 				Load more days
 			</button>
@@ -210,6 +266,14 @@ onMounted(fetchData)
 <style module>
 .gridWrapper {
 	padding: 16px;
+}
+
+.toolbar {
+	display: flex;
+	align-items: flex-end;
+	gap: 12px;
+	margin-bottom: 16px;
+	padding-left: 44px;
 }
 
 .empty {
