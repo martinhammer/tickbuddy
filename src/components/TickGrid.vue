@@ -169,13 +169,15 @@ onMounted(fetchData)
 						:key="track.id"
 						:class="$style.tickCell">
 						<template v-if="track.type === 'boolean'">
-							<input :id="`tick-${track.id}-${date}`"
-								type="checkbox"
-								class="checkbox"
-								:checked="isTicked(track.id, date)"
-								:disabled="readonly"
-								@change="toggleBoolean(track.id, date)">
-							<label :for="`tick-${track.id}-${date}`" />
+							<span v-if="readonly" :class="$style.tickMark">{{ isTicked(track.id, date) ? '✓' : '' }}</span>
+							<template v-else>
+								<input :id="`tick-${track.id}-${date}`"
+									type="checkbox"
+									class="checkbox"
+									:checked="isTicked(track.id, date)"
+									@change="toggleBoolean(track.id, date)">
+								<label :for="`tick-${track.id}-${date}`" />
+							</template>
 						</template>
 						<template v-else>
 							<div :class="$style.counter">
@@ -256,6 +258,12 @@ onMounted(fetchData)
 	padding: 6px 8px;
 	text-align: center;
 	border-bottom: 1px solid var(--color-border);
+}
+
+.tickMark {
+	color: var(--color-primary-element);
+	font-size: 18px;
+	font-weight: bold;
 }
 
 .counter {
