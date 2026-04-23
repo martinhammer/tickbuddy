@@ -20,6 +20,18 @@ class TickMapper extends QBMapper {
 	/**
 	 * @return Tick[]
 	 */
+	public function findAllByUser(string $userId): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+			->orderBy('date', 'ASC');
+		return $this->findEntities($qb);
+	}
+
+	/**
+	 * @return Tick[]
+	 */
 	public function findByUserAndDateRange(string $userId, string $from, string $to): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')

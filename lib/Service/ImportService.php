@@ -69,6 +69,178 @@ class ImportService {
 		return ['tracks' => count($trackIdMap), 'ticks' => $tickCount];
 	}
 
+	/**
+	 * Import tracks and ticks from a Tickbuddy JSON backup file.
+	 *
+	 * @param string $filePath Path to the uploaded JSON file
+	 * @param string $mode 'replace' or 'merge'
+	 * @param string $userId Current user ID
+	 * @return array{tracks: int, ticks: int} Count of imported items
+	 * @throws ImportException
+	 */
+	public function importJson(string $filePath, string $mode, string $userId): array {
+		if (!in_array($mode, [self::MODE_REPLACE, self::MODE_MERGE], true)) {
+			throw new ImportException('Invalid import mode');
+		}
+
+		if (!file_exists($filePath)) {
+			throw new ImportException('Upload file not found');
+		}
+
+		$json = file_get_contents($filePath);
+		if ($json === false) {
+			throw new ImportException('Could not read file');
+		}
+
+		$data = json_decode($json, true);
+		if (!is_array($data)) {
+			throw new ImportException('Invalid JSON file');
+		}
+
+		if (!isset($data['version']) || $data['version'] !== 1) {
+			throw new ImportException('Unsupported backup version');
+		}
+
+		if (!isset($data['tracks']) || !is_array($data['tracks'])) {
+			throw new ImportException('Invalid backup: missing tracks');
+		}
+
+		$jsonTracks = $data['tracks'];
+		$jsonTicks = $data['ticks'] ?? [];
+
+		if (empty($jsonTracks)) {
+			throw new ImportException('No tracks found in the backup file');
+		}
+
+		// Validate and normalize tracks
+		$trackEntries = [];
+		foreach ($jsonTracks as $i => $t) {
+			$name = trim((string)($t['name'] ?? ''));
+			if ($name === '') {
+				$name = 'Untitled';
+			}
+			$type = (string)($t['type'] ?? 'boolean');
+			if (!in_array($type, TrackService::VALID_TYPES, true)) {
+				throw new ImportException("Track \"{$name}\" has invalid type \"{$type}\"");
+			}
+			$trackEntries[] = [
+				'name' => $name,
+				'type' => $type,
+				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
+				'private' => (bool)($t['private'] ?? false),
+			];
+		}
+
+		$this->db->beginTransaction();
+		try {
+			$trackNameToId = $this->importJsonTracks($trackEntries, $mode, $userId);
+			$tickCount = $this->importJsonTicks($jsonTicks, $trackNameToId, $userId);
+			$this->db->commit();
+		} catch (\Throwable $e) {
+			$this->db->rollBack();
+			if ($e instanceof ImportException) {
+				throw $e;
+			}
+			throw new ImportException('Import failed: ' . $e->getMessage());
+		}
+
+		return ['tracks' => count($trackNameToId), 'ticks' => $tickCount];
+	}
+
+	/**
+	 * @param list<array{name: string, type: string, sortOrder: int, private: bool}> $trackEntries
+	 * @return array<string, int> Map of track name → Tickbuddy track ID
+	 * @throws ImportException
+	 */
+	private function importJsonTracks(array $trackEntries, string $mode, string $userId): array {
+		$existingNames = [];
+
+		if ($mode === self::MODE_REPLACE) {
+			$this->tickMapper->deleteAllByUser($userId);
+			$this->trackMapper->deleteAllByUser($userId);
+			$startSortOrder = 1;
+		} else {
+			$existingTracks = $this->trackMapper->findAllByUser($userId);
+			$existingCount = count($existingTracks);
+
+			if ($existingCount + count($trackEntries) > TrackService::MAX_TRACKS) {
+				throw new ImportException(
+					'Import would exceed the ' . TrackService::MAX_TRACKS . ' track limit. '
+					. 'You have ' . $existingCount . ' tracks and the backup contains ' . count($trackEntries) . '.'
+				);
+			}
+
+			foreach ($existingTracks as $t) {
+				$existingNames[mb_strtolower($t->getName())] = true;
+			}
+			$startSortOrder = $this->trackMapper->getMaxSortOrder($userId) + 1;
+		}
+
+		if (count($trackEntries) > TrackService::MAX_TRACKS) {
+			throw new ImportException(
+				'The backup contains ' . count($trackEntries) . ' tracks, which exceeds the limit of ' . TrackService::MAX_TRACKS . '.'
+			);
+		}
+
+		$trackNameToId = [];
+		$sortOrder = $startSortOrder;
+
+		foreach ($trackEntries as $entry) {
+			$name = $entry['name'];
+
+			if ($mode === self::MODE_MERGE && isset($existingNames[mb_strtolower($name)])) {
+				$name .= ' (imported)';
+			}
+
+			$track = new Track();
+			$track->setUserId($userId);
+			$track->setName($name);
+			$track->setType($entry['type']);
+			$track->setSortOrder($sortOrder);
+			$track->setPrivate($entry['private']);
+			$this->trackMapper->insert($track);
+
+			// Map the original name (from the file) to the new track ID
+			$trackNameToId[$entry['name']] = $track->getId();
+			$sortOrder++;
+		}
+
+		return $trackNameToId;
+	}
+
+	/**
+	 * @param list<array> $jsonTicks
+	 * @param array<string, int> $trackNameToId
+	 * @return int Number of ticks imported
+	 */
+	private function importJsonTicks(array $jsonTicks, array $trackNameToId, string $userId): int {
+		$tickCount = 0;
+
+		foreach ($jsonTicks as $t) {
+			$trackName = (string)($t['track'] ?? '');
+			$trackId = $trackNameToId[$trackName] ?? null;
+			if ($trackId === null) {
+				continue;
+			}
+
+			$date = (string)($t['date'] ?? '');
+			$value = (int)($t['value'] ?? 1);
+			if ($date === '' || $value <= 0) {
+				continue;
+			}
+
+			$tick = new Tick();
+			$tick->setUserId($userId);
+			$tick->setTrackId($trackId);
+			$tick->setDate($date);
+			$tick->setValue($value);
+			$this->tickMapper->insert($tick);
+			$tickCount++;
+		}
+
+		return $tickCount;
+	}
+
 	private function validateTickmateDb(\SQLite3 $sqlite): void {
 		// Check that required tables exist
 		$result = $sqlite->query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('tracks', 'ticks')");

@@ -47,4 +47,26 @@ class ImportController extends OCSController {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}
 	}
+
+	#[NoAdminRequired]
+	#[ApiRoute(verb: 'POST', url: '/api/import/json')]
+	public function importJson(): DataResponse {
+		$mode = (string)$this->request->getParam('mode', '');
+		$file = $this->request->getUploadedFile('file');
+
+		if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+			return new DataResponse(['message' => 'No file uploaded or upload error'], Http::STATUS_BAD_REQUEST);
+		}
+
+		if (!in_array($mode, [ImportService::MODE_REPLACE, ImportService::MODE_MERGE], true)) {
+			return new DataResponse(['message' => 'Invalid mode. Use "replace" or "merge".'], Http::STATUS_BAD_REQUEST);
+		}
+
+		try {
+			$result = $this->importService->importJson($file['tmp_name'], $mode, $this->userId);
+			return new DataResponse($result);
+		} catch (ImportException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+	}
 }

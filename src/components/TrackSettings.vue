@@ -40,9 +40,15 @@ const dragOverIndex = ref<number | null>(null)
 const replaceMode = ref(false)
 const importFile = ref<File | null>(null)
 const importFileName = ref('')
+const importFormat = ref<'tickmate' | 'json' | null>(null)
 const importing = ref(false)
 const importResult = ref<{ type: 'success' | 'error'; message: string } | null>(null)
-const fileInputRef = ref<HTMLInputElement | null>(null)
+const tickmateInputRef = ref<HTMLInputElement | null>(null)
+const jsonInputRef = ref<HTMLInputElement | null>(null)
+
+// Export state
+const exportPrivate = ref(false)
+const exporting = ref(false)
 
 const apiUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const prefsUrl = generateOcsUrl('/apps/tickbuddy/api/preferences')
@@ -162,20 +168,34 @@ async function saveDefaultView(option: { id: string; label: string }) {
 	await axios.put(prefsUrl, params)
 }
 
-function onFileChange(event: Event) {
+function onTickmateFileChange(event: Event) {
 	const input = event.target as HTMLInputElement
 	const file = input.files?.[0] ?? null
 	importFile.value = file
 	importFileName.value = file?.name ?? ''
+	importFormat.value = file ? 'tickmate' : null
 	importResult.value = null
 }
 
-function chooseFile() {
-	fileInputRef.value?.click()
+function onJsonFileChange(event: Event) {
+	const input = event.target as HTMLInputElement
+	const file = input.files?.[0] ?? null
+	importFile.value = file
+	importFileName.value = file?.name ?? ''
+	importFormat.value = file ? 'json' : null
+	importResult.value = null
+}
+
+function chooseTickmateFile() {
+	tickmateInputRef.value?.click()
+}
+
+function chooseJsonFile() {
+	jsonInputRef.value?.click()
 }
 
 async function doImport() {
-	if (!importFile.value) return
+	if (!importFile.value || !importFormat.value) return
 
 	if (replaceMode.value) {
 		const confirmed = await showConfirmation({
@@ -192,7 +212,10 @@ async function doImport() {
 		const formData = new FormData()
 		formData.append('file', importFile.value)
 		formData.append('mode', replaceMode.value ? 'replace' : 'merge')
-		const response = await axios.post(generateOcsUrl('/apps/tickbuddy/api/import'), formData)
+		const url = importFormat.value === 'json'
+			? generateOcsUrl('/apps/tickbuddy/api/import/json')
+			: generateOcsUrl('/apps/tickbuddy/api/import')
+		const response = await axios.post(url, formData)
 		const data = response.data.ocs.data
 		importResult.value = {
 			type: 'success',
@@ -204,6 +227,26 @@ async function doImport() {
 		importResult.value = { type: 'error', message }
 	} finally {
 		importing.value = false
+	}
+}
+
+async function doExport() {
+	exporting.value = true
+	try {
+		const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/export'), {
+			params: { includePrivate: exportPrivate.value },
+		})
+		const data = response.data.ocs.data
+		const json = JSON.stringify(data, null, 2)
+		const blob = new Blob([json], { type: 'application/json' })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = `tickbuddy-export-${new Date().toISOString().slice(0, 10)}.json`
+		a.click()
+		URL.revokeObjectURL(url)
+	} finally {
+		exporting.value = false
 	}
 }
 
@@ -301,18 +344,22 @@ onMounted(() => {
 		</div>
 	</NcSettingsSection>
 
-	<NcSettingsSection name="Import from Tickmate"
-		description="Import tracks and ticks from a Tickmate backup file (.db).">
-		<input ref="fileInputRef"
-			type="file"
-			accept=".db"
-			:class="$style.hiddenFileInput"
-			@change="onFileChange">
-		<NcButton type="secondary"
-			@click="chooseFile">
-			{{ importFileName || 'Choose backup file' }}
-		</NcButton>
+	<NcSettingsSection name="Import/Export"
+		description="Export your data as a JSON file for backup or transfer. Import from a previous Tickbuddy export or from a Tickmate backup.">
+		<h3 :class="$style.subsectionHeading">Export</h3>
+		<div :class="$style.exportSection">
+			<NcCheckboxRadioSwitch type="switch"
+				v-model="exportPrivate">
+				Include private tracks
+			</NcCheckboxRadioSwitch>
+			<NcButton type="secondary"
+				:disabled="exporting"
+				@click="doExport">
+				{{ exporting ? 'Exporting...' : 'Export as JSON' }}
+			</NcButton>
+		</div>
 
+		<h3 :class="$style.subsectionHeading">Import</h3>
 		<div :class="$style.importToggle">
 			<NcCheckboxRadioSwitch type="switch"
 				v-model="replaceMode">
@@ -324,8 +371,30 @@ onMounted(() => {
 			</p>
 		</div>
 
+		<input ref="tickmateInputRef"
+			type="file"
+			accept=".db"
+			:class="$style.hiddenFileInput"
+			@change="onTickmateFileChange">
+		<input ref="jsonInputRef"
+			type="file"
+			accept=".json"
+			:class="$style.hiddenFileInput"
+			@change="onJsonFileChange">
+		<div :class="$style.importButtons">
+			<NcButton type="secondary"
+				@click="chooseJsonFile">
+				{{ importFormat === 'json' ? importFileName : 'Tickbuddy backup file (.json)' }}
+			</NcButton>
+			<NcButton type="secondary"
+				@click="chooseTickmateFile">
+				{{ importFormat === 'tickmate' ? importFileName : 'Tickmate backup file (.db)' }}
+			</NcButton>
+		</div>
+
 		<NcButton type="primary"
 			:disabled="!importFile || importing"
+			:class="$style.importAction"
 			@click="doImport">
 			{{ importing ? 'Importing...' : 'Import' }}
 		</NcButton>
@@ -399,13 +468,35 @@ onMounted(() => {
 	margin-top: 12px;
 }
 
+.subsectionHeading {
+	font-size: 16px;
+	font-weight: bold;
+	margin-bottom: 12px;
+}
+
+.exportSection {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+
 .hiddenFileInput {
 	display: none;
 }
 
+.importButtons {
+	display: flex;
+	gap: 8px;
+}
+
 .importToggle {
-	margin-top: 16px;
 	margin-bottom: 16px;
+}
+
+.importAction {
+	margin-top: 12px;
 }
 
 .importHint {
