@@ -10,8 +10,8 @@ Tickbuddy is a Nextcloud app for daily habit/occurrence tracking (a "one-bit jou
 
 Standard Nextcloud app with a PHP backend and Vue 3 frontend. Two separate screens:
 
-1. **Main app** (`src/main.ts` → `App.vue` → `TickGrid.vue`): grid of days × tracks where users tick/untick events. Mounts into `<div id="tickbuddy">` via `templates/index.php`.
-2. **Personal settings** (`src/settings.ts` → `TrackSettings.vue`): track management UI (add/delete tracks). Mounts into `<div id="tickbuddy-settings">` via `templates/settings/personal.php`. Registered as a Nextcloud personal settings section in `Application::register()`.
+1. **Main app** (`src/main.ts` → `App.vue` → `TickGrid.vue`): grid of days × tracks where users tick/untick events. Three views accessible via sidebar navigation: **Edit journal** (default, interactive checkboxes/counters), **View journal** (read-only with date range picker and sort toggle), and **Analytics** (placeholder). Mounts into `<div id="tickbuddy">` via `templates/index.php`.
+2. **Personal settings** (`src/settings.ts` → `TrackSettings.vue`): track management (add/edit/delete/reorder tracks, private flag), user preferences (default view), and import/export (Tickmate `.db` and Tickbuddy `.json`). Mounts into `<div id="tickbuddy-settings">` via `templates/settings/personal.php`. Registered as a Nextcloud personal settings section in `Application::register()`.
 
 Each screen has its own Vite entry point (configured in `vite.config.ts`).
 
@@ -20,7 +20,7 @@ Each screen has its own Vite entry point (configured in `vite.config.ts`).
 Follows the Nextcloud AppFramework pattern: **Entity → Mapper → Service → Controller**.
 
 - `lib/Db/` — Entities (`Track`, `Tick`) and QBMappers. All DB queries live here.
-- `lib/Service/` — Business logic. `TrackService` enforces the 99-track limit and type validation. `TickService` handles toggle (boolean) and set (counter) operations.
+- `lib/Service/` — Business logic. `TrackService` enforces the 99-track limit, type validation, and name trimming. `TickService` handles toggle (boolean) and set (counter) operations. `ImportService` handles Tickmate and JSON imports. `ExportService` handles JSON export.
 - `lib/Controller/` — OCS API controllers. Routes are defined via PHP attributes (`#[ApiRoute]`), not in a routes file.
 - `lib/Settings/` — `PersonalSection` (sidebar entry with icon) and `PersonalSettings` (renders the settings template).
 - `lib/Migration/` — Database schema migrations.
@@ -31,7 +31,7 @@ Follows the Nextcloud AppFramework pattern: **Entity → Mapper → Service → 
 
 Two tables, both scoped per-user:
 
-- **`tickbuddy_tracks`**: id, user_id, name, type (`'boolean'` | `'counter'`), sort_order. Max 99 tracks per user.
+- **`tickbuddy_tracks`**: id, user_id, name, type (`'boolean'` | `'counter'`), sort_order, private (bool). Max 99 tracks per user.
 - **`tickbuddy_ticks`**: id, user_id, track_id, date, value (int, default 1). Unique on (user_id, track_id, date).
 
 Key design decisions:
@@ -44,13 +44,23 @@ Key design decisions:
 **Tracks** (`TrackController`):
 - `GET /api/tracks` — list all for current user
 - `POST /api/tracks` — create `{name, type}`
-- `PUT /api/tracks/{id}` — update `{name?, sortOrder?}` (type is rejected)
+- `PUT /api/tracks/{id}` — update `{name?, sortOrder?, private?}` (type is rejected)
+- `PUT /api/tracks/reorder` — reorder tracks `{trackIds[]}`
 - `DELETE /api/tracks/{id}` — delete track and its ticks
 
 **Ticks** (`TickController`):
 - `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD` — fetch ticks in date range
 - `POST /api/ticks/toggle` — toggle boolean tick `{trackId, date}`
 - `POST /api/ticks/set` — set counter value `{trackId, date, value}`
+
+**Preferences** (`PreferencesController`):
+- `GET /api/preferences` — get user preferences (defaultView)
+- `PUT /api/preferences` — update `{defaultView}`
+
+**Import/Export** (`ImportController`, `ExportController`):
+- `POST /api/import` — import Tickmate `.db` file `{file, mode}`
+- `POST /api/import/json` — import Tickbuddy `.json` file `{file, mode}`
+- `GET /api/export?includePrivate=bool` — export all data as JSON
 
 ## Build & Dev Commands
 
