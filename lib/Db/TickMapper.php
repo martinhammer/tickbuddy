@@ -44,6 +44,13 @@ class TickMapper extends QBMapper {
 		return $this->findEntity($qb);
 	}
 
+	public function deleteAllByUser(string $userId): void {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+		$qb->executeStatement();
+	}
+
 	public function deleteByTrackId(int $trackId): void {
 		$qb = $this->db->getQueryBuilder();
 		$qb->delete($this->getTableName())

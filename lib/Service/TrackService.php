@@ -38,6 +38,7 @@ class TrackService {
 	 * @throws InvalidTrackTypeException
 	 */
 	public function create(string $name, string $type, string $userId): Track {
+		$name = trim($name);
 		if ($name === '') {
 			throw new InvalidTrackNameException('Track name cannot be empty');
 		}
@@ -66,6 +67,10 @@ class TrackService {
 		$track = $this->trackMapper->findByIdAndUser($id, $userId);
 
 		if ($name !== null) {
+			$name = trim($name);
+			if ($name === '') {
+				throw new InvalidTrackNameException('Track name cannot be empty');
+			}
 			$track->setName($name);
 		}
 		if ($sortOrder !== null) {

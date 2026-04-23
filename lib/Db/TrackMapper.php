@@ -71,6 +71,13 @@ class TrackMapper extends QBMapper {
 		}
 	}
 
+	public function deleteAllByUser(string $userId): void {
+		$qb = $this->db->getQueryBuilder();
+		$qb->delete($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+		$qb->executeStatement();
+	}
+
 	public function findByIdAndUser(int $id, string $userId): Track {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')

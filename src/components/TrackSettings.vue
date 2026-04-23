@@ -4,6 +4,7 @@ import axios from '@nextcloud/axios'
 import { showConfirmation } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
+import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
@@ -34,6 +35,14 @@ const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
 const dragIndex = ref<number | null>(null)
 const dragOverIndex = ref<number | null>(null)
+
+// Import state
+const replaceMode = ref(false)
+const importFile = ref<File | null>(null)
+const importFileName = ref('')
+const importing = ref(false)
+const importResult = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const apiUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const prefsUrl = generateOcsUrl('/apps/tickbuddy/api/preferences')
@@ -153,6 +162,51 @@ async function saveDefaultView(option: { id: string; label: string }) {
 	await axios.put(prefsUrl, params)
 }
 
+function onFileChange(event: Event) {
+	const input = event.target as HTMLInputElement
+	const file = input.files?.[0] ?? null
+	importFile.value = file
+	importFileName.value = file?.name ?? ''
+	importResult.value = null
+}
+
+function chooseFile() {
+	fileInputRef.value?.click()
+}
+
+async function doImport() {
+	if (!importFile.value) return
+
+	if (replaceMode.value) {
+		const confirmed = await showConfirmation({
+			name: 'Replace all data',
+			text: 'This will delete all your existing tracks and ticks and replace them with the imported data. Are you sure?',
+			labelConfirm: 'Replace',
+		})
+		if (!confirmed) return
+	}
+
+	importing.value = true
+	importResult.value = null
+	try {
+		const formData = new FormData()
+		formData.append('file', importFile.value)
+		formData.append('mode', replaceMode.value ? 'replace' : 'merge')
+		const response = await axios.post(generateOcsUrl('/apps/tickbuddy/api/import'), formData)
+		const data = response.data.ocs.data
+		importResult.value = {
+			type: 'success',
+			message: `Imported ${data.tracks} tracks and ${data.ticks} ticks.`,
+		}
+		await fetchTracks()
+	} catch (e: any) {
+		const message = e.response?.data?.ocs?.data?.message ?? e.message ?? 'Import failed'
+		importResult.value = { type: 'error', message }
+	} finally {
+		importing.value = false
+	}
+}
+
 onMounted(() => {
 	fetchTracks()
 	fetchPreferences()
@@ -246,6 +300,41 @@ onMounted(() => {
 				@update:model-value="saveDefaultView" />
 		</div>
 	</NcSettingsSection>
+
+	<NcSettingsSection name="Import from Tickmate"
+		description="Import tracks and ticks from a Tickmate backup file (.db).">
+		<input ref="fileInputRef"
+			type="file"
+			accept=".db"
+			:class="$style.hiddenFileInput"
+			@change="onFileChange">
+		<NcButton type="secondary"
+			@click="chooseFile">
+			{{ importFileName || 'Choose backup file' }}
+		</NcButton>
+
+		<div :class="$style.importToggle">
+			<NcCheckboxRadioSwitch type="switch"
+				v-model="replaceMode">
+				Replace existing database
+			</NcCheckboxRadioSwitch>
+			<p :class="$style.importHint">
+				When enabled, all your existing tracks and ticks will be deleted and replaced with the imported data.
+				When disabled, imported tracks will be added after your existing ones.
+			</p>
+		</div>
+
+		<NcButton type="primary"
+			:disabled="!importFile || importing"
+			@click="doImport">
+			{{ importing ? 'Importing...' : 'Import' }}
+		</NcButton>
+
+		<p v-if="importResult"
+			:class="importResult.type === 'success' ? $style.importSuccess : $style.importError">
+			{{ importResult.message }}
+		</p>
+	</NcSettingsSection>
 </template>
 
 <style module>
@@ -307,6 +396,33 @@ onMounted(() => {
 .prefSelect {
 	min-width: 180px;
 	max-width: 250px;
+	margin-top: 12px;
+}
+
+.hiddenFileInput {
+	display: none;
+}
+
+.importToggle {
+	margin-top: 16px;
+	margin-bottom: 16px;
+}
+
+.importHint {
+	color: var(--color-text-maxcontrast);
+	margin-top: 4px;
+	padding-left: 56px;
+}
+
+.importSuccess {
+	color: var(--color-success-text);
+	font-weight: bold;
+	margin-top: 12px;
+}
+
+.importError {
+	color: var(--color-error-text);
+	font-weight: bold;
 	margin-top: 12px;
 }
 </style>
