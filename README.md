@@ -6,8 +6,9 @@ The application enables users to record whether a specific event has occured or 
 
 ### Features
 Some of the key features which already exist:
-* Settings screen to define, rename, delete events to be tracked 
-* Main app screen for actual tracking
+* Settings screen to define, manage, delete events to be tracked 
+* Main app screen for journal entry
+* Read-only screen for journal viewing
 
 Planned features:
 * Import/export data in a format compatible with Tickmate
