@@ -1,8 +1,8 @@
   # Tickbuddy
 
-  Tickbuddy is a Nextcloud application for daily habit or occurence tracking. It is inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/). 
+  Tickbuddy is a Nextcloud application for daily habit or occurrence tracking. It is inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/). 
 
-  The application enables users to record whether a specific event has occured or not on daily basis. The events can be arbitrary habits or occurences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+  The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
   ### Features
   Some of the key features which already exist:
@@ -11,7 +11,7 @@
   * Read-only screen for journal viewing
   * Import data from Tickmate backup file
   * Import/export data in JSON format 
-  * Sinple analytics screen with stats and trend visualizations
+  * Simple analytics screen with stats and trend visualizations
 
   Planned features:
   * Package and publish the app on Nextcloud App Store
