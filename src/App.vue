@@ -58,7 +58,8 @@ onMounted(async () => {
 			<TickGrid v-else-if="currentView === 'readonly'"
 				:show-private="showPrivate"
 				readonly />
-			<AnalyticsView v-else-if="currentView === 'analytics'" />
+			<AnalyticsView v-else-if="currentView === 'analytics'"
+				:show-private="showPrivate" />
 		</NcAppContent>
 	</NcContent>
 </template>

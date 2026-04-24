@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from '@nextcloud/axios'
 import { getLocale } from '@nextcloud/l10n'
 import { generateOcsUrl } from '@nextcloud/router'
@@ -195,10 +195,34 @@ async function fetchData() {
 	}
 }
 
-function loadMore() {
+function extendEditRange() {
+	if (loading.value) return
 	daysToShow.value += 30
 	fetchData()
 }
+
+function extendReadonlyRange() {
+	if (loading.value) return
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+	if (sortAsc.value) {
+		// Newest dates are at the bottom — extend forward, capped at today
+		const current = dateTo.value ?? today
+		if (current >= today) return
+		const next = new Date(current)
+		next.setDate(next.getDate() + 30)
+		dateTo.value = next > today ? today : next
+	} else {
+		// Oldest dates are at the bottom — extend backward
+		const current = dateFrom.value ?? today
+		const next = new Date(current)
+		next.setDate(next.getDate() - 30)
+		dateFrom.value = next
+	}
+}
+
+const bottomSentinel = ref<HTMLElement | null>(null)
+let scrollObserver: IntersectionObserver | null = null
 
 // Re-fetch when readonly date range changes
 if (props.readonly) {
@@ -206,6 +230,22 @@ if (props.readonly) {
 		fetchData()
 	})
 }
+
+watch(bottomSentinel, (el) => {
+	scrollObserver?.disconnect()
+	scrollObserver = null
+	if (!el) return
+	scrollObserver = new IntersectionObserver((entries) => {
+		if (!entries[0]?.isIntersecting) return
+		if (props.readonly) extendReadonlyRange()
+		else extendEditRange()
+	}, { rootMargin: '200px' })
+	scrollObserver.observe(el)
+})
+
+onBeforeUnmount(() => {
+	scrollObserver?.disconnect()
+})
 
 onMounted(fetchData)
 </script>
@@ -279,11 +319,9 @@ onMounted(fetchData)
 				</tr>
 			</tbody>
 		</table>
-		<div v-if="!readonly && visibleTracks.length > 0" :class="$style.loadMore">
-			<button @click="loadMore">
-				Load more days
-			</button>
-		</div>
+		<div v-if="visibleTracks.length > 0"
+			ref="bottomSentinel"
+			:class="$style.sentinel" />
 	</div>
 </template>
 
@@ -381,8 +419,7 @@ onMounted(fetchData)
 	text-align: center;
 }
 
-.loadMore {
-	text-align: center;
-	margin-top: 16px;
+.sentinel {
+	height: 1px;
 }
 </style>
