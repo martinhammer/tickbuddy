@@ -125,10 +125,31 @@ const twoWeekTrend = computed(() => {
 		.filter(t => t.date > twoWeekStr && t.date <= oneWeekStr)
 		.reduce((s, t) => s + t.value, 0)
 
-	if (lastWeek === 0 && thisWeek === 0) return 'flat'
-	if (thisWeek > lastWeek) return 'up'
-	if (thisWeek < lastWeek) return 'down'
-	return 'flat'
+	if (thisWeek === 0 && lastWeek === 0) return 0
+
+	// Scale by peak rolling 7-day sum across history (floored at 7 so sparse
+	// boolean tracks still calibrate sensibly — 7 = max possible per week).
+	const byDate = new Map<string, number>()
+	for (const t of trackTicks.value) byDate.set(t.date, t.value)
+	let peak = 0
+	const sorted = [...byDate.keys()].sort()
+	if (sorted.length > 0) {
+		const first = new Date(sorted[0] + 'T00:00:00')
+		const window: number[] = []
+		let windowSum = 0
+		for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
+			const v = byDate.get(toDateStr(d)) ?? 0
+			window.push(v)
+			windowSum += v
+			if (window.length > 7) windowSum -= window.shift()!
+			if (windowSum > peak) peak = windowSum
+		}
+	}
+	const scale = Math.max(peak, 7)
+
+	const ratio = Math.max(-1, Math.min(1, (thisWeek - lastWeek) / scale))
+	const step = Math.round(ratio * 4) // -4..+4
+	return step * 22.5
 })
 
 // --- Streaks ---
@@ -441,7 +462,8 @@ onMounted(async () => {
 					</div>
 					<div :class="$style.statCard">
 						<div :class="$style.statValue">
-							{{ twoWeekTrend === 'up' ? '↑' : twoWeekTrend === 'down' ? '↓' : '→' }}
+							<span :class="$style.trendArrow"
+								:style="{ transform: `rotate(${-twoWeekTrend}deg)` }">→</span>
 						</div>
 						<div :class="$style.statLabel">2-week trend</div>
 					</div>
@@ -554,6 +576,11 @@ onMounted(async () => {
 	font-size: 28px;
 	font-weight: bold;
 	color: var(--color-primary-element);
+}
+
+.trendArrow {
+	display: inline-block;
+	transition: transform 0.3s ease;
 }
 
 .statLabel {
