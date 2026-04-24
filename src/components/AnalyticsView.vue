@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import axios from '@nextcloud/axios'
 import { getLocale } from '@nextcloud/l10n'
-import { generateOcsUrl } from '@nextcloud/router'
+import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import { Bar, Line } from 'vue-chartjs'
 import {
@@ -44,6 +44,7 @@ const loading = ref(false)
 
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
+const settingsUrl = generateUrl('/settings/user/tickbuddy')
 const userLocale = getLocale()
 
 const trackOptions = computed(() => {
@@ -369,8 +370,13 @@ const yearsChart = computed(() => buildTimeSeries(
 
 // --- Data fetching ---
 async function fetchTracks() {
-	const response = await axios.get(tracksUrl)
-	tracks.value = response.data.ocs.data
+	loading.value = true
+	try {
+		const response = await axios.get(tracksUrl)
+		tracks.value = response.data.ocs.data
+	} finally {
+		loading.value = false
+	}
 }
 
 async function fetchTicks() {
@@ -402,7 +408,13 @@ onMounted(async () => {
 </script>
 
 <template>
-	<div :class="$style.wrapper">
+	<p v-if="!loading && tracks.length === 0" :class="$style.emptyStandalone">
+		No tracks defined yet. Go to <a :href="settingsUrl">Settings → Personal → Tickbuddy</a> to add some.
+	</p>
+	<p v-else-if="!loading && trackOptions.length === 0" :class="$style.emptyStandalone">
+		All tracks are private. Enable "Show private tracks" in the sidebar settings to show them.
+	</p>
+	<div v-else-if="trackOptions.length > 0" :class="$style.wrapper">
 		<div :class="$style.trackSelector">
 			<NcSelect v-model="selectedTrack"
 				:options="trackOptions"
@@ -493,16 +505,6 @@ onMounted(async () => {
 			</template>
 		</template>
 
-		<div v-else-if="loading" :class="$style.empty">
-			Loading...
-		</div>
-
-		<p v-else-if="!selectedTrack && tracks.length === 0" :class="$style.empty">
-			No tracks defined yet. Go to Settings → Personal → Tickbuddy to add some.
-		</p>
-		<p v-else-if="!selectedTrack && trackOptions.length === 0" :class="$style.empty">
-			All tracks are private. Enable "Show private tracks" in the sidebar settings to show them.
-		</p>
 	</div>
 </template>
 
@@ -524,6 +526,13 @@ onMounted(async () => {
 .empty {
 	text-align: center;
 	color: var(--color-text-maxcontrast);
+	margin-top: 32px;
+}
+
+.emptyStandalone {
+	text-align: center;
+	color: var(--color-text-maxcontrast);
+	padding: 16px;
 	margin-top: 32px;
 }
 

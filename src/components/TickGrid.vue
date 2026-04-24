@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from '@nextcloud/axios'
 import { getLocale } from '@nextcloud/l10n'
-import { generateOcsUrl } from '@nextcloud/router'
+import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDateTimePickerNative from '@nextcloud/vue/components/NcDateTimePickerNative'
 
@@ -93,6 +93,7 @@ function toDateStr(d: Date): string {
 
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
+const settingsUrl = generateUrl('/settings/user/tickbuddy')
 
 const dates = computed(() => {
 	const result: string[] = []
@@ -252,7 +253,7 @@ onMounted(fetchData)
 
 <template>
 	<div :class="$style.gridWrapper">
-		<div v-if="readonly" :class="$style.toolbar">
+		<div v-if="readonly && visibleTracks.length > 0" :class="$style.toolbar">
 			<NcDateTimePickerNative v-model="dateFrom"
 				type="date"
 				label="From" />
@@ -266,9 +267,9 @@ onMounted(fetchData)
 		</div>
 
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
-			No tracks defined yet. Go to Settings → Personal → Tickbuddy to add some.
+			No tracks defined yet. Go to <a :href="settingsUrl">Settings → Personal → Tickbuddy</a> to add some.
 		</p>
-		<p v-else-if="visibleTracks.length === 0" :class="$style.empty">
+		<p v-else-if="!loading && tracks.length > 0 && visibleTracks.length === 0" :class="$style.empty">
 			All tracks are private. Enable "Show private tracks" in the sidebar settings to show them.
 		</p>
 		<table v-if="visibleTracks.length > 0" :class="$style.grid">
