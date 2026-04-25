@@ -7,7 +7,7 @@
 	<description><![CDATA[Tickbuddy is a daily habit tracker also known as a one bit journal. It is inspired by the Android app Tickmate.]]></description>
 	<version>1.0.0</version>
 	<licence>AGPL-3.0-or-later</licence>
-	<author mail="mtg@martinthetallguy.com" homepage="">Martin Hammer</author>
+	<author mail="me@martinhammer.com" homepage="">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
 	<category>organization</category>
 	<bugs>https://github.com/martinhammer/Tickbuddy</bugs>

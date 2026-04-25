@@ -1,11 +1,11 @@
 {
 	"name": "nextcloud/tickbuddy",
-	"description": "<![CDATA[Tickbuddy is a daily habit tracker also known as a "micro-journal"]]>",
+	"description": "<![CDATA[Tickbuddy is a daily habit tracker also known as a \"micro-journal\"]]>",
 	"license": "AGPL-3.0-or-later",
 	"authors": [
 		{
 			"name": "Martin Hammer",
-			"email": "mtg@martinthetallguy.com",
+			"email": "me@martinhammer.com",
 			"homepage": ""
 		}
 	],
