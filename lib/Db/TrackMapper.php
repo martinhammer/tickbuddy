@@ -45,6 +45,7 @@ class TrackMapper extends QBMapper {
 			->from($this->getTableName())
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
 		$result = $qb->executeQuery();
+		/** @var false|int|string|null $max */
 		$max = $result->fetchOne();
 		$result->closeCursor();
 		return $max === false || $max === null ? 0 : (int)$max;
@@ -64,7 +65,7 @@ class TrackMapper extends QBMapper {
 		foreach ($trackIds as $index => $trackId) {
 			$qb = $this->db->getQueryBuilder();
 			$qb->update($this->getTableName())
-				->set('sort_order', $qb->createNamedParameter($index + 1, IQueryBuilder::PARAM_INT))
+				->set('sort_order', $qb->createNamedParameter((int)$index + 1, IQueryBuilder::PARAM_INT))
 				->where($qb->expr()->eq('id', $qb->createNamedParameter($trackId, IQueryBuilder::PARAM_INT)))
 				->andWhere($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
 			$qb->executeStatement();

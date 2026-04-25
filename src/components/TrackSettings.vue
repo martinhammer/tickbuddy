@@ -300,7 +300,7 @@ onMounted(() => {
 						@dragstart="onDragStart(index, $event)">
 						⠿
 					</td>
-					<td @click="startEditing(track)" :class="$style.nameCell">
+					<td :class="$style.nameCell" @click="startEditing(track)">
 						<NcTextField v-if="editingTrackId === track.id"
 							v-model="editingName"
 							label="Track name"
@@ -346,10 +346,12 @@ onMounted(() => {
 
 	<NcSettingsSection name="Import/Export"
 		description="Export your data as a JSON file for backup or transfer. Import from a previous Tickbuddy export or from a Tickmate backup.">
-		<h3 :class="$style.subsectionHeading">Export</h3>
+		<h3 :class="$style.subsectionHeading">
+			Export
+		</h3>
 		<div :class="$style.exportSection">
-			<NcCheckboxRadioSwitch type="switch"
-				v-model="exportPrivate">
+			<NcCheckboxRadioSwitch v-model="exportPrivate"
+				type="switch">
 				Include private tracks
 			</NcCheckboxRadioSwitch>
 			<NcButton type="secondary"
@@ -359,10 +361,12 @@ onMounted(() => {
 			</NcButton>
 		</div>
 
-		<h3 :class="$style.subsectionHeading">Import</h3>
+		<h3 :class="$style.subsectionHeading">
+			Import
+		</h3>
 		<div :class="$style.importToggle">
-			<NcCheckboxRadioSwitch type="switch"
-				v-model="replaceMode">
+			<NcCheckboxRadioSwitch v-model="replaceMode"
+				type="switch">
 				Replace existing database
 			</NcCheckboxRadioSwitch>
 			<p :class="$style.importHint">

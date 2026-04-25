@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace OCA\Tickbuddy\Service;
 
+use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
-use OCA\Tickbuddy\Db\TickMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 
 class TrackService {

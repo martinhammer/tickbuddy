@@ -453,41 +453,65 @@ onMounted(async () => {
 				<!-- Summary stats -->
 				<div :class="$style.statsRow">
 					<div :class="$style.statCard">
-						<div :class="$style.statValue">{{ totalCount }}</div>
-						<div :class="$style.statLabel">Total</div>
+						<div :class="$style.statValue">
+							{{ totalCount }}
+						</div>
+						<div :class="$style.statLabel">
+							Total
+						</div>
 					</div>
 					<div :class="$style.statCard">
-						<div :class="$style.statValue">{{ weeklyMean.toFixed(1) }}</div>
-						<div :class="$style.statLabel">Weekly mean</div>
+						<div :class="$style.statValue">
+							{{ weeklyMean.toFixed(1) }}
+						</div>
+						<div :class="$style.statLabel">
+							Weekly mean
+						</div>
 					</div>
 					<div :class="$style.statCard">
 						<div :class="$style.statValue">
 							<span :class="$style.trendArrow"
 								:style="{ transform: `rotate(${-twoWeekTrend}deg)` }">→</span>
 						</div>
-						<div :class="$style.statLabel">2-week trend</div>
+						<div :class="$style.statLabel">
+							2-week trend
+						</div>
 					</div>
 				</div>
 
 				<!-- Streaks -->
 				<div :class="$style.statsRow">
 					<div :class="$style.statCard">
-						<div :class="$style.statValue">{{ streakData.currentStreak }}</div>
-						<div :class="$style.statLabel">Current streak</div>
+						<div :class="$style.statValue">
+							{{ streakData.currentStreak }}
+						</div>
+						<div :class="$style.statLabel">
+							Current streak
+						</div>
 					</div>
 					<div :class="$style.statCard">
-						<div :class="$style.statValue">{{ streakData.longestStreak }}</div>
-						<div :class="$style.statLabel">Longest streak</div>
+						<div :class="$style.statValue">
+							{{ streakData.longestStreak }}
+						</div>
+						<div :class="$style.statLabel">
+							Longest streak
+						</div>
 					</div>
 					<div :class="$style.statCard">
-						<div :class="$style.statValue">{{ streakData.longestBreak }}</div>
-						<div :class="$style.statLabel">Longest break</div>
+						<div :class="$style.statValue">
+							{{ streakData.longestBreak }}
+						</div>
+						<div :class="$style.statLabel">
+							Longest break
+						</div>
 					</div>
 				</div>
 
 				<!-- Days of week -->
 				<div v-if="daysOfWeekData" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">Days of week</h3>
+					<h3 :class="$style.chartHeading">
+						Days of week
+					</h3>
 					<div :class="$style.chartContainer">
 						<Bar :data="daysOfWeekData.data" :options="daysOfWeekData.options" />
 					</div>
@@ -495,7 +519,9 @@ onMounted(async () => {
 
 				<!-- Weeks -->
 				<div v-if="weeksChart" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">Weeks</h3>
+					<h3 :class="$style.chartHeading">
+						Weeks
+					</h3>
 					<div :class="$style.chartContainer">
 						<Line :data="weeksChart.data" :options="weeksChart.options" />
 					</div>
@@ -503,7 +529,9 @@ onMounted(async () => {
 
 				<!-- Months -->
 				<div v-if="monthsChart" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">Months</h3>
+					<h3 :class="$style.chartHeading">
+						Months
+					</h3>
 					<div :class="$style.chartContainer">
 						<Line :data="monthsChart.data" :options="monthsChart.options" />
 					</div>
@@ -511,7 +539,9 @@ onMounted(async () => {
 
 				<!-- Quarters -->
 				<div v-if="quartersChart" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">Quarters</h3>
+					<h3 :class="$style.chartHeading">
+						Quarters
+					</h3>
 					<div :class="$style.chartContainer">
 						<Line :data="quartersChart.data" :options="quartersChart.options" />
 					</div>
@@ -519,14 +549,15 @@ onMounted(async () => {
 
 				<!-- Years -->
 				<div v-if="yearsChart" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">Years</h3>
+					<h3 :class="$style.chartHeading">
+						Years
+					</h3>
 					<div :class="$style.chartContainer">
 						<Line :data="yearsChart.data" :options="yearsChart.options" />
 					</div>
 				</div>
 			</template>
 		</template>
-
 	</div>
 </template>
 

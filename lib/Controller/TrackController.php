@@ -71,7 +71,6 @@ class TrackController extends OCSController {
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/reorder')]
 	public function reorder(): DataResponse {
-		/** @var int[] $trackIds */
 		$trackIds = array_map('intval', (array)$this->request->getParam('trackIds', []));
 		if (empty($trackIds)) {
 			return new DataResponse(['message' => 'trackIds is required'], Http::STATUS_BAD_REQUEST);
@@ -83,8 +82,11 @@ class TrackController extends OCSController {
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}')]
 	public function update(int $id): DataResponse {
+		/** @var mixed $nameParam */
 		$nameParam = $this->request->getParam('name');
+		/** @var mixed $sortOrderParam */
 		$sortOrderParam = $this->request->getParam('sortOrder');
+		/** @var mixed $privateParam */
 		$privateParam = $this->request->getParam('private');
 		$name = $nameParam !== null ? (string)$nameParam : null;
 		$sortOrder = $sortOrderParam !== null ? (int)$sortOrderParam : null;

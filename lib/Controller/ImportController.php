@@ -30,6 +30,7 @@ class ImportController extends OCSController {
 
 	/**
 	 * @return array{file: array{tmp_name: string, size: int, error: int}, mode: string}|DataResponse
+	 * @psalm-suppress MixedReturnTypeCoercion
 	 */
 	private function validateUpload(): array|DataResponse {
 		$mode = (string)$this->request->getParam('mode', '');

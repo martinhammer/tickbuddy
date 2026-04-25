@@ -45,8 +45,8 @@ onMounted(async () => {
 			</template>
 			<template #footer>
 				<NcAppNavigationSettings>
-					<NcCheckboxRadioSwitch type="switch"
-						v-model="showPrivate">
+					<NcCheckboxRadioSwitch v-model="showPrivate"
+						type="switch">
 						Show private tracks
 					</NcCheckboxRadioSwitch>
 				</NcAppNavigationSettings>

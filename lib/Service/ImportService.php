@@ -105,8 +105,13 @@ class ImportService {
 			throw new ImportException('Invalid backup: missing tracks');
 		}
 
-		$jsonTracks = $data['tracks'];
-		$jsonTicks = $data['ticks'] ?? [];
+		/** @var list<array<string, mixed>> $jsonTracks */
+		$jsonTracks = array_values($data['tracks']);
+		$jsonTicks = [];
+		if (isset($data['ticks']) && is_array($data['ticks'])) {
+			/** @var list<array<string, mixed>> $jsonTicks */
+			$jsonTicks = array_values($data['ticks']);
+		}
 
 		if (empty($jsonTracks)) {
 			throw new ImportException('No tracks found in the backup file');
@@ -246,7 +251,7 @@ class ImportService {
 		$result = $sqlite->query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('tracks', 'ticks')");
 		$tables = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-			$tables[] = $row['name'];
+			$tables[] = (string)$row['name'];
 		}
 		if (!in_array('tracks', $tables, true) || !in_array('ticks', $tables, true)) {
 			throw new ImportException('Not a valid Tickmate backup: missing tracks or ticks table');
@@ -261,7 +266,7 @@ class ImportService {
 	private function readTickmateTracks(\SQLite3 $sqlite): array {
 		// Check if 'order' column exists
 		$hasOrder = false;
-		$pragma = $sqlite->query("PRAGMA table_info(tracks)");
+		$pragma = $sqlite->query('PRAGMA table_info(tracks)');
 		while ($col = $pragma->fetchArray(SQLITE3_ASSOC)) {
 			if ($col['name'] === 'order') {
 				$hasOrder = true;
@@ -274,8 +279,9 @@ class ImportService {
 
 		$tracks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-			$tracks[$row['_id']] = [
-				'id' => (int)$row['_id'],
+			$id = (int)$row['_id'];
+			$tracks[$id] = [
+				'id' => $id,
 				'name' => trim((string)$row['name']),
 				'order' => (int)$row['sort_col'],
 			];

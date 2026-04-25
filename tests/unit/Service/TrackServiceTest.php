@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Service;
 
+use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
-use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackService;
