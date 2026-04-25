@@ -19,7 +19,7 @@ class Version1001Date20260418000000 extends SimpleMigrationStep {
 		if (!$table->hasColumn('private')) {
 			$table->addColumn('private', Types::BOOLEAN, [
 				'notnull' => true,
-				'default' => false,
+				'default' => 0,
 			]);
 		}
 
