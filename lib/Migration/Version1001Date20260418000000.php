@@ -17,7 +17,7 @@ class Version1001Date20260418000000 extends SimpleMigrationStep {
 
 		$table = $schema->getTable('tickbuddy_tracks');
 		if (!$table->hasColumn('private')) {
-			$table->addColumn('private', Types::BOOLEAN, [
+			$table->addColumn('private', Types::INTEGER, [
 				'notnull' => true,
 				'default' => 0,
 			]);
