@@ -92,3 +92,10 @@ vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests
 - All PHP files use `declare(strict_types=1)`
 - Psalm runs at error level 1 with `findUnusedCode` enabled; suppress unused classes injected by Nextcloud with `@psalm-suppress UnusedClass`
 - Node version: 20 (`.nvmrc`)
+
+## Known gaps / future work
+
+Surfaced while writing the mobile companion app integration guide (`mobile_instructions.md`):
+
+- **No sync delta endpoint.** The API has no `modifiedAt`, ETag, or `since=` parameter. Clients (especially the forthcoming Android app) must poll full ranges and reconcile locally. If mobile sync UX proves clunky, consider adding a lightweight "changed since X" endpoint for tracks and ticks to avoid re-downloading full windows on every pull.
+- **Counter increments can't merge across devices.** `POST /api/ticks/set` sets an absolute value, not a delta. If two devices each increment the same counter tick offline, one update will overwrite the other on push — a lost increment. Adding a server-side `POST /api/ticks/increment` (with a signed delta) would let mobile clients queue increments commutatively and resolve concurrent edits cleanly.
