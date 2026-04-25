@@ -20,7 +20,7 @@
     "@nextcloud/router": "^3.1.0",
     "@nextcloud/vue": "^9.3.1",
     "chart.js": "^4.5.1",
-    "vue": "^3.5.25",
+    "vue": "^3.5.33",
     "vue-chartjs": "^5.3.3"
   },
   "devDependencies": {
