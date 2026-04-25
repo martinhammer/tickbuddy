@@ -14,11 +14,6 @@
 			"OCA\\Tickbuddy\\": "lib/"
 		}
 	},
-	"autoload-dev": {
-		"psr-4": {
-			"OCP\\": "vendor/nextcloud/ocp/OCP/"
-		}
-	},
 	"scripts": {
 		"post-install-cmd": [
 			"@composer bin all install --ansi"

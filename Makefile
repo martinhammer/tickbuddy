@@ -3,6 +3,7 @@ project_dir = $(CURDIR)
 build_dir = $(project_dir)/build
 release_dir = $(build_dir)/release
 release_stage = $(release_dir)/$(app_name)
+prod_install_dir = $(build_dir)/prod-install
 version = $(shell xmllint --xpath "string(//info/version)" appinfo/info.xml 2>/dev/null || grep -oPm1 "(?<=<version>)[^<]+" appinfo/info.xml)
 zip_name = $(app_name)-v$(version).zip
 
@@ -12,14 +13,14 @@ zip_name = $(app_name)-v$(version).zip
 help:
 	@echo "Tickbuddy build targets"
 	@echo ""
-	@echo "  make build        Build frontend + install PHP runtime deps"
+	@echo "  make build        Build frontend + stage PHP runtime deps in build/"
 	@echo "  make package      Build and produce $(zip_name) under build/release/"
 	@echo "  make dev          Install all dev dependencies (npm + composer with tooling)"
 	@echo "  make lint         Run all linters (PHP, ESLint, Stylelint)"
 	@echo "  make test         Run PHPUnit"
 	@echo "  make psalm        Run Psalm"
-	@echo "  make clean        Remove build artifacts (js/, css/, vendor/, build/)"
-	@echo "  make distclean    clean + remove node_modules/ and vendor-bin/*/vendor/"
+	@echo "  make clean        Remove build artifacts (build/, js/, css/) — keeps dev deps installed"
+	@echo "  make distclean    clean + remove node_modules/, vendor/, vendor-bin/*/vendor/"
 	@echo ""
 	@echo "Detected version: $(version)"
 
@@ -29,9 +30,14 @@ help:
 npm-install:
 	npm ci
 
+# Install production-only PHP deps into an isolated directory under build/
+# so the project's vendor/ (with dev tooling) is not disturbed.
 .PHONY: composer-install-prod
 composer-install-prod:
-	composer install --no-dev --no-scripts --optimize-autoloader
+	rm -rf $(prod_install_dir)
+	mkdir -p $(prod_install_dir)
+	cp composer.json composer.lock $(prod_install_dir)/
+	composer install --working-dir=$(prod_install_dir) --no-dev --no-scripts --optimize-autoloader
 
 .PHONY: composer-install-dev
 composer-install-dev:
@@ -92,7 +98,7 @@ package: build
 	# Layer in build artifacts that are gitignored
 	cp -r js $(release_stage)/
 	cp -r css $(release_stage)/
-	cp -r vendor $(release_stage)/
+	cp -r $(prod_install_dir)/vendor $(release_stage)/
 	# Strip dev-only files that are tracked but should not ship
 	rm -rf $(release_stage)/src \
 	       $(release_stage)/tests \
@@ -127,10 +133,14 @@ package: build
 
 # --- Cleaning --------------------------------------------------------------
 
+# Remove build outputs only — the project's vendor/ stays so dev tooling
+# (psalm, phpunit, php-cs-fixer) keeps working without a re-install.
 .PHONY: clean
 clean:
-	rm -rf $(build_dir) js css vendor
+	rm -rf $(build_dir) js css
 
+# Full reset: also remove all installed dependencies. After this you'll need
+# `make dev` (or `composer install && npm install`) before linters/tests work.
 .PHONY: distclean
 distclean: clean
-	rm -rf node_modules vendor-bin/*/vendor
+	rm -rf node_modules vendor vendor-bin/*/vendor
