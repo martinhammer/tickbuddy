@@ -67,7 +67,7 @@ const visibleTracks = computed(() => {
 // Fallback to Saturday (6) and Sunday (7) if unavailable
 const weekendDays: Set<number> = (() => {
 	try {
-		const locale = new Intl.Locale(getLocale())
+		const locale = new Intl.Locale(getLocale().replace('_', '-'))
 		const info = (locale as any).weekInfo ?? (locale as any).getWeekInfo?.()
 		if (info?.weekend) {
 			return new Set(info.weekend as number[])
@@ -125,7 +125,7 @@ const dates = computed(() => {
 	return result
 })
 
-const userLocale = getLocale()
+const userLocale = getLocale().replace('_', '-')
 
 function formatDate(dateStr: string): string {
 	const d = new Date(dateStr + 'T00:00:00')

@@ -45,7 +45,7 @@ const loading = ref(false)
 const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
 const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
 const settingsUrl = generateUrl('/settings/user/tickbuddy')
-const userLocale = getLocale()
+const userLocale = getLocale().replace('_', '-')
 
 const trackOptions = computed(() => {
 	const list = props.showPrivate ? tracks.value : tracks.value.filter(t => !t.private)
