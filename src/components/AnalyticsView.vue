@@ -159,7 +159,7 @@ const twoWeekTrend = computed(() => {
 // --- Streaks ---
 const streakData = computed(() => {
 	const ticks = trackTicks.value
-	if (ticks.length === 0) return { currentStreak: 0, longestStreak: 0, longestBreak: 0 }
+	if (ticks.length === 0) return { currentLength: 0, currentIsStreak: true, longestStreak: 0, longestBreak: 0 }
 
 	// Build a set of all ticked dates
 	const tickedDates = new Set(ticks.map(t => t.date))
@@ -176,7 +176,6 @@ const streakData = computed(() => {
 		return `${y}-${m}-${day}`
 	}
 
-	let currentStreak = 0
 	let longestStreak = 0
 	let longestBreak = 0
 	let streak = 0
@@ -198,17 +197,19 @@ const streakData = computed(() => {
 	}
 	longestBreak = Math.max(longestBreak, breakLen)
 
-	// Current streak: count back from today
-	currentStreak = 0
+	// Current run: today is either ticked (streak) or not (break). Count back
+	// the consecutive days matching today's state.
+	const currentIsStreak = tickedDates.has(toStr(today))
+	let currentLength = 0
 	for (let d = new Date(today); d >= first; d.setDate(d.getDate() - 1)) {
-		if (tickedDates.has(toStr(d))) {
-			currentStreak++
+		if (tickedDates.has(toStr(d)) === currentIsStreak) {
+			currentLength++
 		} else {
 			break
 		}
 	}
 
-	return { currentStreak, longestStreak, longestBreak }
+	return { currentLength, currentIsStreak, longestStreak, longestBreak }
 })
 
 // --- Streaks/Breaks series ---
@@ -693,10 +694,10 @@ onMounted(async () => {
 				<div :class="$style.statsRow">
 					<div :class="$style.statCard">
 						<div :class="$style.statValue">
-							{{ streakData.currentStreak }}
+							{{ streakData.currentLength }}
 						</div>
 						<div :class="$style.statLabel">
-							Current streak
+							{{ streakData.currentIsStreak ? 'Current streak' : 'Current break' }}
 						</div>
 					</div>
 					<div :class="$style.statCard">
