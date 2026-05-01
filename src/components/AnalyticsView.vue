@@ -4,19 +4,22 @@ import axios from '@nextcloud/axios'
 import { getLocale } from '@nextcloud/l10n'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
-import { Bar, Line } from 'vue-chartjs'
+import { Line, PolarArea } from 'vue-chartjs'
 import {
 	Chart as ChartJS,
 	CategoryScale,
 	LinearScale,
+	RadialLinearScale,
 	PointElement,
 	LineElement,
-	BarElement,
+	ArcElement,
 	Filler,
+	SubTitle,
 	Tooltip,
 } from 'chart.js'
+import zoomPlugin from 'chartjs-plugin-zoom'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Filler, Tooltip)
+ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, SubTitle, Tooltip, zoomPlugin)
 
 interface Track {
 	id: number
@@ -207,63 +210,226 @@ const streakData = computed(() => {
 	return { currentStreak, longestStreak, longestBreak }
 })
 
-// --- Days of week ---
-const daysOfWeekData = computed(() => {
+// --- Streaks/Breaks series ---
+// Walk from first tick to today, producing an alternating sequence of
+// streak (positive) and break (negative) run lengths. Each run becomes one
+// point on the chart; streaks point up, breaks point down.
+const streaksBreaksChart = ref<any>(null)
+function resetStreaksBreaksZoom() {
+	streaksBreaksChart.value?.chart?.resetZoom()
+}
+
+const streaksBreaksData = computed(() => {
 	const ticks = trackTicks.value
 	if (ticks.length === 0) return null
 
-	// Count ticks per ISO day (1=Mon..7=Sun)
-	const counts = [0, 0, 0, 0, 0, 0, 0] // index 0=Mon..6=Sun
-	let total = 0
-	for (const t of ticks) {
-		const jsDay = new Date(t.date + 'T00:00:00').getDay()
-		const idx = jsDay === 0 ? 6 : jsDay - 1 // convert to Mon=0..Sun=6
-		counts[idx] += t.value
-		total += t.value
+	const tickedDates = new Set(ticks.map(t => t.date))
+	const first = new Date(ticks[0].date + 'T00:00:00')
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+
+	const runs: { length: number; isStreak: boolean; from: string; to: string }[] = []
+	let currentLen = 0
+	let currentIsStreak: boolean | null = null
+	let currentFrom = ''
+	let currentTo = ''
+
+	for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
+		const ds = toDateStr(d)
+		const ticked = tickedDates.has(ds)
+		if (currentIsStreak === null) {
+			currentIsStreak = ticked
+			currentLen = 1
+			currentFrom = ds
+			currentTo = ds
+		} else if (ticked === currentIsStreak) {
+			currentLen++
+			currentTo = ds
+		} else {
+			runs.push({ length: currentLen, isStreak: currentIsStreak, from: currentFrom, to: currentTo })
+			currentIsStreak = ticked
+			currentLen = 1
+			currentFrom = ds
+			currentTo = ds
+		}
+	}
+	if (currentIsStreak !== null) {
+		runs.push({ length: currentLen, isStreak: currentIsStreak, from: currentFrom, to: currentTo })
 	}
 
-	// Get locale-aware day names
-	const formatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short' })
-	// Build day names starting from Monday
-	const dayNames: string[] = []
-	for (let i = 0; i < 7; i++) {
-		// 2024-01-01 is a Monday
-		const d = new Date(2024, 0, 1 + i)
-		dayNames.push(formatter.format(d))
-	}
+	if (runs.length === 0) return null
 
-	// Convert localeFirstDay (JS: 0=Sun..6=Sat) to our array index (0=Mon..6=Sun)
-	const startDay = localeFirstDay === 0 ? 6 : localeFirstDay - 1
-
-	// Reorder from locale start day
-	const labels: string[] = []
-	const values: number[] = []
-	const percentages: string[] = []
-	for (let i = 0; i < 7; i++) {
-		const idx = (startDay + i) % 7
-		labels.push(dayNames[idx])
-		values.push(counts[idx])
-		percentages.push(total > 0 ? Math.round((counts[idx] / total) * 100) + '%' : '0%')
-	}
-
+	const values = runs.map(r => r.isStreak ? r.length : -r.length)
+	const labels = runs.map((_, i) => String(i + 1))
 	const color = primaryColor.value
+
 	return {
 		data: {
 			labels,
 			datasets: [{
 				data: values,
-				backgroundColor: hexToRgba(color, 0.6),
+				fill: 'origin',
+				backgroundColor: hexToRgba(color, 0.3),
 				borderColor: color,
+				borderWidth: 2,
+				pointRadius: runs.length > 80 ? 0 : 3,
+				pointHitRadius: 15,
+				pointHoverRadius: 5,
+				pointBackgroundColor: color,
+				tension: 0.3,
+			}],
+		},
+		options: {
+			responsive: true,
+			maintainAspectRatio: false,
+			plugins: {
+				subtitle: {
+					display: true,
+					text: 'Hint: scroll to zoom, drag to pan',
+					position: 'top',
+					align: 'start',
+					color: 'rgba(102, 102, 102, 0.8)',
+					font: { size: 12, style: 'italic', weight: 'normal' },
+					padding: { top: 0, bottom: 8 },
+				},
+				tooltip: {
+					callbacks: {
+						title: (items: any[]) => {
+							const r = runs[items[0].dataIndex]
+							return r.isStreak ? 'Streak' : 'Break'
+						},
+						label: (item: any) => {
+							const r = runs[item.dataIndex]
+							const dates = r.from === r.to ? r.from : `${r.from} – ${r.to}`
+							return `${r.length} day(s) ${dates}`
+						},
+					},
+				},
+				zoom: {
+					pan: {
+						enabled: true,
+						mode: 'x',
+						modifierKey: null,
+					},
+					zoom: {
+						wheel: { enabled: true, speed: 0.1 },
+						pinch: { enabled: true },
+						drag: { enabled: false },
+						mode: 'x',
+					},
+					limits: {
+						x: { min: 'original', max: 'original', minRange: 3 },
+					},
+				},
+			},
+			scales: {
+				y: {
+					position: 'left',
+					ticks: {
+						precision: 0,
+						callback: (v: number) => Math.abs(v),
+					},
+				},
+				x: { display: false },
+			},
+		},
+	}
+})
+
+// --- Polar charts (days of week & months across all years) ---
+// Shade slices so lowest value = darkest (highest alpha), highest = lightest.
+function polarShades(values: number[]): string[] {
+	const base = primaryColor.value
+	const min = Math.min(...values)
+	const max = Math.max(...values)
+	const lo = 0.2 // lightest (highest value)
+	const hi = 0.85 // darkest (lowest value)
+	return values.map((v) => {
+		const t = max === min ? 0.5 : (v - min) / (max - min)
+		return hexToRgba(base, hi - (hi - lo) * t)
+	})
+}
+
+const daysOfWeekPolar = computed(() => {
+	const ticks = trackTicks.value
+	if (ticks.length === 0) return null
+
+	const counts = [0, 0, 0, 0, 0, 0, 0] // 0=Mon..6=Sun
+	for (const t of ticks) {
+		const jsDay = new Date(t.date + 'T00:00:00').getDay()
+		const idx = jsDay === 0 ? 6 : jsDay - 1
+		counts[idx] += t.value
+	}
+
+	const formatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short' })
+	const dayNames: string[] = []
+	for (let i = 0; i < 7; i++) {
+		const d = new Date(2024, 0, 1 + i) // 2024-01-01 is Monday
+		dayNames.push(formatter.format(d))
+	}
+
+	const startDay = localeFirstDay === 0 ? 6 : localeFirstDay - 1
+	const labels: string[] = []
+	const values: number[] = []
+	for (let i = 0; i < 7; i++) {
+		const idx = (startDay + i) % 7
+		labels.push(dayNames[idx])
+		values.push(counts[idx])
+	}
+
+	return {
+		data: {
+			labels,
+			datasets: [{
+				data: values,
+				backgroundColor: polarShades(values),
+				borderColor: primaryColor.value,
 				borderWidth: 1,
 			}],
 		},
-		percentages,
 		options: {
 			responsive: true,
 			maintainAspectRatio: false,
 			plugins: { tooltip: { enabled: true } },
 			scales: {
-				y: { beginAtZero: true, ticks: { precision: 0 } },
+				r: { ticks: { display: false }, beginAtZero: true },
+			},
+		},
+	}
+})
+
+const monthsPolar = computed(() => {
+	const ticks = trackTicks.value
+	if (ticks.length === 0) return null
+
+	const counts = new Array(12).fill(0)
+	for (const t of ticks) {
+		const m = parseInt(t.date.slice(5, 7)) - 1
+		counts[m] += t.value
+	}
+
+	const formatter = new Intl.DateTimeFormat(userLocale, { month: 'short' })
+	const labels: string[] = []
+	for (let i = 0; i < 12; i++) {
+		labels.push(formatter.format(new Date(2024, i, 1)))
+	}
+
+	return {
+		data: {
+			labels,
+			datasets: [{
+				data: counts,
+				backgroundColor: polarShades(counts),
+				borderColor: primaryColor.value,
+				borderWidth: 1,
+			}],
+		},
+		options: {
+			responsive: true,
+			maintainAspectRatio: false,
+			plugins: { tooltip: { enabled: true } },
+			scales: {
+				r: { ticks: { display: false }, beginAtZero: true },
 			},
 		},
 	}
@@ -507,17 +673,46 @@ onMounted(async () => {
 					</div>
 				</div>
 
-				<!-- Days of week -->
-				<div v-if="daysOfWeekData" :class="$style.chartSection">
-					<h3 :class="$style.chartHeading">
-						Days of week
-					</h3>
+				<!-- Streaks/Breaks -->
+				<div v-if="streaksBreaksData" :class="$style.chartSection">
+					<div :class="$style.chartHeader">
+						<h3 :class="$style.chartHeading">
+							Streaks/Breaks
+						</h3>
+						<button type="button"
+							:class="$style.resetZoomBtn"
+							@click="resetStreaksBreaksZoom">
+							Reset zoom
+						</button>
+					</div>
 					<div :class="$style.chartContainer">
-						<Bar :data="daysOfWeekData.data" :options="daysOfWeekData.options" />
+						<Line ref="streaksBreaksChart"
+							:data="streaksBreaksData.data"
+							:options="streaksBreaksData.options" />
 					</div>
 				</div>
 
-				<!-- Weeks -->
+				<!-- Polar overview: days of week & months across all years -->
+				<div v-if="daysOfWeekPolar && monthsPolar" :class="$style.polarRow">
+					<div :class="$style.polarChart">
+						<h3 :class="$style.chartHeading">
+							Days of week
+						</h3>
+						<div :class="$style.polarContainer">
+							<PolarArea :data="daysOfWeekPolar.data" :options="daysOfWeekPolar.options" />
+						</div>
+					</div>
+					<div :class="$style.polarChart">
+						<h3 :class="$style.chartHeading">
+							Months
+						</h3>
+						<div :class="$style.polarContainer">
+							<PolarArea :data="monthsPolar.data" :options="monthsPolar.options" />
+						</div>
+					</div>
+				</div>
+
+<!-- Weeks -->
 				<div v-if="weeksChart" :class="$style.chartSection">
 					<h3 :class="$style.chartHeading">
 						Weeks
@@ -632,6 +827,39 @@ onMounted(async () => {
 
 .chartContainer {
 	height: 220px;
+	position: relative;
+}
+
+.chartHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.chartHeader .chartHeading {
+	margin-bottom: 0;
+}
+
+.resetZoomBtn {
+	font-size: 12px;
+}
+
+.polarRow {
+	display: flex;
+	gap: 16px;
+	margin-top: 24px;
+	flex-wrap: wrap;
+}
+
+.polarChart {
+	flex: 1 1 0;
+	min-width: 240px;
+}
+
+.polarContainer {
+	height: 260px;
 	position: relative;
 }
 </style>
