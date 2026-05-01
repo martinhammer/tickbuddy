@@ -14,12 +14,13 @@ import {
 	LineElement,
 	ArcElement,
 	Filler,
+	Legend,
 	SubTitle,
 	Tooltip,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
 
-ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, SubTitle, Tooltip, zoomPlugin)
+ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
 
 interface Track {
 	id: number
@@ -283,6 +284,7 @@ const streaksBreaksData = computed(() => {
 			responsive: true,
 			maintainAspectRatio: false,
 			plugins: {
+				legend: { display: false },
 				subtitle: {
 					display: true,
 					text: 'Hint: scroll to zoom, drag to pan',
@@ -335,6 +337,37 @@ const streaksBreaksData = computed(() => {
 		},
 	}
 })
+
+// Chart.js plugin: draw each polar-area slice's label just outside its arc.
+const polarSliceLabelsPlugin = {
+	id: 'polarSliceLabels',
+	afterDatasetsDraw(chart: any) {
+		if (chart.config.type !== 'polarArea') return
+		const meta = chart.getDatasetMeta(0)
+		const labels: string[] = chart.data.labels ?? []
+		const scale = chart.scales.r
+		if (!scale) return
+		const ctx = chart.ctx
+		const cx = scale.xCenter
+		const cy = scale.yCenter
+		const outerR = scale.drawingArea + 12
+		ctx.save()
+		ctx.font = '11px sans-serif'
+		ctx.fillStyle = ChartJS.defaults.color as string
+		ctx.textBaseline = 'middle'
+		for (let i = 0; i < meta.data.length; i++) {
+			const arc: any = meta.data[i]
+			const label = labels[i]
+			if (!arc || !label) continue
+			const mid = (arc.startAngle + arc.endAngle) / 2
+			const x = cx + Math.cos(mid) * outerR
+			const y = cy + Math.sin(mid) * outerR
+			ctx.textAlign = Math.cos(mid) < -0.1 ? 'end' : Math.cos(mid) > 0.1 ? 'start' : 'center'
+			ctx.fillText(label, x, y)
+		}
+		ctx.restore()
+	},
+}
 
 // --- Polar charts (days of week & months across all years) ---
 // Shade slices so lowest value = darkest (highest alpha), highest = lightest.
@@ -390,7 +423,11 @@ const daysOfWeekPolar = computed(() => {
 		options: {
 			responsive: true,
 			maintainAspectRatio: false,
-			plugins: { tooltip: { enabled: true } },
+			layout: { padding: 24 },
+			plugins: {
+				tooltip: { enabled: true },
+				legend: { display: false },
+			},
 			scales: {
 				r: { ticks: { display: false }, beginAtZero: true },
 			},
@@ -427,7 +464,11 @@ const monthsPolar = computed(() => {
 		options: {
 			responsive: true,
 			maintainAspectRatio: false,
-			plugins: { tooltip: { enabled: true } },
+			layout: { padding: 24 },
+			plugins: {
+				tooltip: { enabled: true },
+				legend: { display: false },
+			},
 			scales: {
 				r: { ticks: { display: false }, beginAtZero: true },
 			},
@@ -485,7 +526,10 @@ function buildTimeSeries(
 		options: {
 			responsive: true,
 			maintainAspectRatio: false,
-			plugins: { tooltip: { enabled: true } },
+			plugins: {
+				tooltip: { enabled: true },
+				legend: { display: false },
+			},
 			scales: {
 				y: { beginAtZero: true, ticks: { precision: 0 } },
 				x: {
@@ -699,7 +743,9 @@ onMounted(async () => {
 							Days of week
 						</h3>
 						<div :class="$style.polarContainer">
-							<PolarArea :data="daysOfWeekPolar.data" :options="daysOfWeekPolar.options" />
+							<PolarArea :data="daysOfWeekPolar.data"
+								:options="daysOfWeekPolar.options"
+								:plugins="[polarSliceLabelsPlugin]" />
 						</div>
 					</div>
 					<div :class="$style.polarChart">
@@ -707,12 +753,14 @@ onMounted(async () => {
 							Months
 						</h3>
 						<div :class="$style.polarContainer">
-							<PolarArea :data="monthsPolar.data" :options="monthsPolar.options" />
+							<PolarArea :data="monthsPolar.data"
+								:options="monthsPolar.options"
+								:plugins="[polarSliceLabelsPlugin]" />
 						</div>
 					</div>
 				</div>
 
-<!-- Weeks -->
+				<!-- Weeks -->
 				<div v-if="weeksChart" :class="$style.chartSection">
 					<h3 :class="$style.chartHeading">
 						Weeks
