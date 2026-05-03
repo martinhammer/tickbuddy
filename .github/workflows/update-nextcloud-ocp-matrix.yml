@@ -66,24 +66,6 @@ jobs:
           title: 'Failed to update nextcloud/ocp package'
           body: 'Please check the output of the GitHub action and manually resolve the issues<br>${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}<br>${{ steps.codeowners.outputs.codeowners }}'
 
-      - name: Reset checkout 3rdparty
-        run: |
-          git clean -f 3rdparty
-          git checkout 3rdparty
-        continue-on-error: true
-
-      - name: Reset checkout vendor
-        run: |
-          git clean -f vendor
-          git checkout vendor
-        continue-on-error: true
-
-      - name: Reset checkout vendor-bin
-        run: |
-          git clean -f vendor-bin
-          git checkout vendor-bin
-        continue-on-error: true
-
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
