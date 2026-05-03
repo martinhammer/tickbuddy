@@ -19,6 +19,7 @@ help:
 	@echo "  make lint         Run all linters (PHP, ESLint, Stylelint)"
 	@echo "  make test         Run PHPUnit"
 	@echo "  make psalm        Run Psalm"
+	@echo "  make openapi-check  Regenerate openapi.json and fail if it drifts"
 	@echo "  make clean        Remove build artifacts (build/, js/, css/) — keeps dev deps installed"
 	@echo "  make distclean    clean + remove node_modules/, vendor/, vendor-bin/*/vendor/"
 	@echo ""
@@ -74,8 +75,19 @@ test:
 psalm:
 	composer psalm
 
+# Regenerate the OpenAPI spec and fail if it differs from what's committed —
+# mirrors the openapi.yml GitHub Actions workflow so drift is caught locally.
+.PHONY: openapi-check
+openapi-check:
+	composer openapi
+	@if [ -n "$$(git status --porcelain openapi.json src/types/openapi 2>/dev/null)" ]; then \
+		echo "OpenAPI spec is out of date. Commit the regenerated openapi.json (and src/types/openapi if present)."; \
+		git --no-pager diff -- openapi.json src/types/openapi; \
+		exit 1; \
+	fi
+
 .PHONY: check
-check: lint psalm test
+check: lint psalm openapi-check test
 
 # --- Packaging -------------------------------------------------------------
 #

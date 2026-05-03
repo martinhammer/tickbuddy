@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\AppInfo\Application;
+use OCA\Tickbuddy\ResponseDefinitions;
+use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\ApiRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
@@ -13,6 +15,8 @@ use OCP\IConfig;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyPreferences from ResponseDefinitions
+ *
  * @psalm-suppress UnusedClass
  */
 class PreferencesController extends OCSController {
@@ -27,6 +31,13 @@ class PreferencesController extends OCSController {
 		parent::__construct($appName, $request);
 	}
 
+	/**
+	 * Get the current user's preferences
+	 *
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyPreferences, array{}>
+	 *
+	 * 200: Preferences returned
+	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/preferences')]
 	public function index(): DataResponse {
@@ -39,10 +50,17 @@ class PreferencesController extends OCSController {
 		return new DataResponse(['defaultView' => $defaultView]);
 	}
 
+	/**
+	 * Update the current user's preferences
+	 *
+	 * @param string $defaultView Default view; one of "journal", "readonly", "analytics"
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyPreferences, array{}>
+	 *
+	 * 200: Preferences updated
+	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/preferences')]
-	public function update(): DataResponse {
-		$defaultView = (string)$this->request->getParam('defaultView', 'journal');
+	public function update(string $defaultView = 'journal'): DataResponse {
 		if (!in_array($defaultView, self::VALID_VIEWS, true)) {
 			$defaultView = 'journal';
 		}

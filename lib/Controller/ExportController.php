@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace OCA\Tickbuddy\Controller;
 
+use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ExportService;
+use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\ApiRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
@@ -12,6 +14,8 @@ use OCP\AppFramework\OCSController;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyExport from ResponseDefinitions
+ *
  * @psalm-suppress UnusedClass
  */
 class ExportController extends OCSController {
@@ -24,14 +28,17 @@ class ExportController extends OCSController {
 		parent::__construct($appName, $request);
 	}
 
+	/**
+	 * Export all of the current user's data as JSON
+	 *
+	 * @param bool $includePrivate Whether to include tracks marked as private
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyExport, array{}>
+	 *
+	 * 200: Export returned
+	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/export')]
-	public function export(): DataResponse {
-		$includePrivate = filter_var(
-			$this->request->getParam('includePrivate', 'false'),
-			FILTER_VALIDATE_BOOLEAN,
-		);
-
+	public function export(bool $includePrivate = false): DataResponse {
 		$data = $this->exportService->export($this->userId, $includePrivate);
 		return new DataResponse($data);
 	}

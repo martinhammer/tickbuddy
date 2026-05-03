@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\Tickbuddy\Controller;
 
+use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
 use OCP\AppFramework\Http;
@@ -14,6 +15,8 @@ use OCP\AppFramework\OCSController;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyImportResult from ResponseDefinitions
+ *
  * @psalm-suppress UnusedClass
  */
 class ImportController extends OCSController {
@@ -29,11 +32,10 @@ class ImportController extends OCSController {
 	}
 
 	/**
-	 * @return array{file: array{tmp_name: string, size: int, error: int}, mode: string}|DataResponse
+	 * @return array{file: array{tmp_name: string, size: int, error: int}, mode: string}|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
 	 * @psalm-suppress MixedReturnTypeCoercion
 	 */
-	private function validateUpload(): array|DataResponse {
-		$mode = (string)$this->request->getParam('mode', '');
+	private function validateUpload(string $mode): array|DataResponse {
 		$file = $this->request->getUploadedFile('file');
 
 		if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
@@ -51,10 +53,19 @@ class ImportController extends OCSController {
 		return ['file' => $file, 'mode' => $mode];
 	}
 
+	/**
+	 * Import data from a Tickmate .db file
+	 *
+	 * @param string $mode Import mode, either "replace" or "merge"
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
+	 *
+	 * 200: Import succeeded
+	 * 400: Upload missing, too large, invalid mode, or import failed
+	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/import')]
-	public function import(): DataResponse {
-		$validated = $this->validateUpload();
+	public function import(string $mode = ''): DataResponse {
+		$validated = $this->validateUpload($mode);
 		if ($validated instanceof DataResponse) {
 			return $validated;
 		}
@@ -67,10 +78,19 @@ class ImportController extends OCSController {
 		}
 	}
 
+	/**
+	 * Import data from a Tickbuddy JSON export
+	 *
+	 * @param string $mode Import mode, either "replace" or "merge"
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
+	 *
+	 * 200: Import succeeded
+	 * 400: Upload missing, too large, invalid mode, or import failed
+	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/import/json')]
-	public function importJson(): DataResponse {
-		$validated = $this->validateUpload();
+	public function importJson(string $mode = ''): DataResponse {
+		$validated = $this->validateUpload($mode);
 		if ($validated instanceof DataResponse) {
 			return $validated;
 		}

@@ -21,7 +21,7 @@ class ExportService {
 	 *
 	 * @param string $userId
 	 * @param bool $includePrivate Whether to include private tracks
-	 * @return array{version: int, exportedAt: string, tracks: list<array>, ticks: list<array>}
+	 * @return array{version: int, exportedAt: string, tracks: list<array<string, mixed>>, ticks: list<array<string, mixed>>}
 	 */
 	public function export(string $userId, bool $includePrivate): array {
 		$tracks = $this->trackMapper->findAllByUser($userId);
