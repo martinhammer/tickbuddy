@@ -14,6 +14,7 @@ help:
 	@echo "Tickbuddy build targets"
 	@echo ""
 	@echo "  make build        Build frontend + stage PHP runtime deps in build/"
+	@echo "  make stage        Stage a deployable tree from the working tree (uncommitted changes)"	
 	@echo "  make package      Build and produce $(zip_name) under build/release/"
 	@echo "  make dev          Install all dev dependencies (npm + composer with tooling)"
 	@echo "  make lint         Run all linters (PHP, ESLint, Stylelint)"
@@ -142,6 +143,40 @@ package: build
 	@echo "Built $(release_dir)/$(zip_name)"
 	@du -h $(release_dir)/$(zip_name) | awk '{print "Size: " $$1}'
 	@unzip -l $(release_dir)/$(zip_name) | tail -1
+
+# --- Staging from the working tree ----------------------------------------
+#
+# Produces the same layout as `package` but reads from the working tree so
+# uncommitted changes are included. Output:
+#   $(release_stage)/
+# rsync to a Nextcloud test server, e.g.:
+#   rsync -a --delete build/release/$(app_name)/ user@host:/var/www/nextcloud/apps/$(app_name)/
+
+.PHONY: stage
+stage: build
+	rm -rf $(release_dir)
+	mkdir -p $(release_stage)
+	rsync -a \
+	      --exclude='.git/' --exclude='node_modules/' --exclude='vendor/' \
+	      --exclude='vendor-bin/' --exclude='build/' --exclude='src/' \
+	      --exclude='tests/' --exclude='.github/' \
+	      --exclude='.eslintrc.cjs' --exclude='.nvmrc' \
+	      --exclude='.php-cs-fixer.cache' --exclude='.php-cs-fixer.dist.php' \
+	      --exclude='.gitignore' \
+	      --exclude='package.json' --exclude='package-lock.json' \
+	      --exclude='vite.config.ts' --exclude='tsconfig.json' \
+	      --exclude='stylelint.config.cjs' --exclude='rector.php' \
+	      --exclude='psalm.xml' --exclude='composer.json' --exclude='composer.lock' \
+	      --exclude='openapi.json' --exclude='CLAUDE.md' \
+	      --exclude='CHANGELOG.md' --exclude='CODE_OF_CONDUCT.md' \
+	      --exclude='Makefile' \
+	      ./ $(release_stage)/
+	cp -r $(prod_install_dir)/vendor $(release_stage)/
+	find $(release_stage)/img -mindepth 1 -maxdepth 1 \
+	     ! -name 'app.svg' ! -name 'app-dark.svg' -exec rm -rf {} +
+	@echo ""
+	@echo "Staged at $(release_stage)/"
+	@echo "Deploy with: rsync -a --delete $(release_stage)/ <user>@<host>:/path/to/nextcloud/apps/$(app_name)/"
 
 # --- Cleaning --------------------------------------------------------------
 
