@@ -5,6 +5,8 @@ import { showConfirmation } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
+import NcDialog from '@nextcloud/vue/components/NcDialog'
+import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
@@ -33,6 +35,7 @@ const defaultViewOptions = [
 const defaultView = ref(defaultViewOptions[0])
 const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
+const trackPendingDelete = ref<Track | null>(null)
 const dragIndex = ref<number | null>(null)
 const dragOverIndex = ref<number | null>(null)
 
@@ -76,14 +79,14 @@ async function addTrack() {
 	await fetchTracks()
 }
 
-async function deleteTrack(track: Track) {
-	const confirmed = await showConfirmation({
-		name: 'Delete track',
-		text: `Are you sure you want to delete "${track.name}"? All its data will be lost.`,
-		labelConfirm: 'Delete',
-	})
-	if (!confirmed) return
+function deleteTrack(track: Track) {
+	trackPendingDelete.value = track
+}
 
+async function confirmDeleteTrack() {
+	const track = trackPendingDelete.value
+	if (!track) return
+	trackPendingDelete.value = null
 	await axios.delete(`${apiUrl}/${track.id}`)
 	await fetchTracks()
 }
@@ -408,6 +411,20 @@ onMounted(() => {
 			{{ importResult.message }}
 		</p>
 	</NcSettingsSection>
+
+	<NcDialog v-if="trackPendingDelete"
+		:open="true"
+		:name="`Delete &quot;${trackPendingDelete.name}&quot;`"
+		size="small"
+		:buttons="[
+			{ label: 'Cancel', variant: 'secondary', callback: () => { trackPendingDelete = null } },
+			{ label: 'Delete', variant: 'primary', callback: confirmDeleteTrack },
+		]"
+		@update:open="(open) => { if (!open) trackPendingDelete = null }">
+		<NcNoteCard type="warning">
+			This will permanently delete the track "{{ trackPendingDelete.name }}" and all its ticks. This action cannot be undone.
+		</NcNoteCard>
+	</NcDialog>
 </template>
 
 <style module>
