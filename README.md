@@ -16,7 +16,6 @@ Some of the key features which already exist:
 * [Companion mobile app](https://github.com/martinhammer/tickdroid)
 
 Planned features:
-* Package and publish the app on Nextcloud App Store
 * More advanced analytics
 * Maybe even a smartwatch app
 
@@ -24,7 +23,7 @@ Planned features:
 
 This is a personal hobby project which I am using to learn about Nextcloud app development and AI-assisted development. Significant portion of the code has been written by Claude Code. 
 
-Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem. 
+Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem, so I am hoping others will find this useful.
 
 ### Found a bug?
 

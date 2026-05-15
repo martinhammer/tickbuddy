@@ -3,14 +3,26 @@
 	  xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
 	<id>tickbuddy</id>
 	<name>Tickbuddy</name>
-	<summary>Tickbuddy is a daily habit tracker aka one-bit journal </summary>
-	<description><![CDATA[Tickbuddy is a daily habit tracker also known as a one bit journal. It is inspired by the Android app Tickmate.]]></description>
-	<version>1.1.0</version>
+	<summary>Daily habit tracker</summary>
+	<description><![CDATA[
+Tickbuddy is a daily habit tracker also known as a one bit journal. 
+
+The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+
+Tickbuddy was inspired by the Android app Tickmate, which is no longer actively maintained. Tickbuddy comes with its own Android companion app Tickdroid which can be found on the F-Droid app store.
+	]]></description>
+	<version>1.1.1</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
 	<category>organization</category>
-	<bugs>https://github.com/martinhammer/Tickbuddy</bugs>
+	<category>tools</category>
+    <screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Edit_20260423.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/View_20260423.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20260511_01.png</screenshot>	
+	<website>https://github.com/martinhammer/tickbuddy</website>
+	<bugs>https://github.com/martinhammer/tickbuddy</bugs>
+    <repository type="git">https://github.com/martinhammer/tickbuddy</repository>	
 	<dependencies>
 		<nextcloud min-version="31" max-version="32"/>
 	</dependencies>
