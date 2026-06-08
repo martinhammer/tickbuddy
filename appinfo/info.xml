@@ -5,13 +5,13 @@
 	<name>Tickbuddy</name>
 	<summary>Daily habit tracker</summary>
 	<description><![CDATA[
-Tickbuddy is a daily habit tracker also known as a one bit journal. 
+Tickbuddy is a daily habit tracker. 
 
 The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
-Tickbuddy was inspired by the Android app Tickmate, which is no longer actively maintained. Tickbuddy comes with its own Android companion app Tickdroid which can be found on the F-Droid app store.
+Tickbuddy was inspired by the Android app Tickmate, which is no longer actively maintained. Tickbuddy comes with its own Android companion app Tickdroid which has been submitted to the F-Droid app store.
 	]]></description>
-	<version>1.0.2</version>
+	<version>1.0.3</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
@@ -24,7 +24,7 @@ Tickbuddy was inspired by the Android app Tickmate, which is no longer actively 
 	<bugs>https://github.com/martinhammer/tickbuddy</bugs>
     <repository type="git">https://github.com/martinhammer/tickbuddy</repository>	
 	<dependencies>
-		<nextcloud min-version="31" max-version="32"/>
+		<nextcloud min-version="31" max-version="34"/>
 	</dependencies>
 	<settings>
 		<personal>OCA\Tickbuddy\Settings\PersonalSettings</personal>
