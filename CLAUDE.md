@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tickbuddy is a Nextcloud app for daily habit/occurrence tracking (a "one-bit journal"), inspired by the Android app [Tickmate](https://github.com/lordi/tickmate). It targets Nextcloud 31–32.
+Tickbuddy is a Nextcloud app for daily habit/occurrence tracking (a "one-bit journal"), inspired by the Android app [Tickmate](https://github.com/lordi/tickmate). It targets Nextcloud 32–34.
 
 ## Architecture
 
