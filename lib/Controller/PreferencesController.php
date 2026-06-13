@@ -11,7 +11,7 @@ use OCP\AppFramework\Http\Attribute\ApiRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
-use OCP\IConfig;
+use OCP\Config\IUserConfig;
 use OCP\IRequest;
 
 /**
@@ -25,7 +25,7 @@ class PreferencesController extends OCSController {
 	public function __construct(
 		string $appName,
 		IRequest $request,
-		private IConfig $config,
+		private IUserConfig $config,
 		private string $userId,
 	) {
 		parent::__construct($appName, $request);
@@ -41,7 +41,7 @@ class PreferencesController extends OCSController {
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/preferences')]
 	public function index(): DataResponse {
-		$defaultView = $this->config->getUserValue(
+		$defaultView = $this->config->getValueString(
 			$this->userId,
 			Application::APP_ID,
 			'default_view',
@@ -65,7 +65,7 @@ class PreferencesController extends OCSController {
 			$defaultView = 'journal';
 		}
 
-		$this->config->setUserValue(
+		$this->config->setValueString(
 			$this->userId,
 			Application::APP_ID,
 			'default_view',
