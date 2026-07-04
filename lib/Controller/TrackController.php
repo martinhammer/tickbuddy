@@ -47,7 +47,7 @@ class TrackController extends OCSController {
 			'name' => $track->getName(),
 			'type' => $track->getType(),
 			'sortOrder' => $track->getSortOrder(),
-			'private' => $track->getPrivate(),
+			'private' => $track->getPrivate() === 1,
 		];
 	}
 
