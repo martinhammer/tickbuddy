@@ -27,7 +27,7 @@ class ExportService {
 		$tracks = $this->trackMapper->findAllByUser($userId);
 
 		if (!$includePrivate) {
-			$tracks = array_values(array_filter($tracks, fn ($t) => !$t->getPrivate()));
+			$tracks = array_values(array_filter($tracks, fn ($t) => $t->getPrivate() !== 1));
 		}
 
 		$trackIdToName = [];
@@ -38,7 +38,7 @@ class ExportService {
 				'name' => $track->getName(),
 				'type' => $track->getType(),
 				'sortOrder' => $track->getSortOrder(),
-				'private' => $track->getPrivate(),
+				'private' => $track->getPrivate() === 1,
 			];
 		}
 

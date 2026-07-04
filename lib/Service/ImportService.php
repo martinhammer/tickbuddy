@@ -202,7 +202,7 @@ class ImportService {
 			$track->setName($name);
 			$track->setType($entry['type']);
 			$track->setSortOrder($sortOrder);
-			$track->setPrivate($entry['private']);
+			$track->setPrivate($entry['private'] ? 1 : 0);
 			$this->trackMapper->insert($track);
 
 			// Map the original name (from the file) to the new track ID

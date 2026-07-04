@@ -31,13 +31,14 @@ Follows the Nextcloud AppFramework pattern: **Entity → Mapper → Service → 
 
 Two tables, both scoped per-user:
 
-- **`tickbuddy_tracks`**: id, user_id, name, type (`'boolean'` | `'counter'`), sort_order, private (bool). Max 99 tracks per user.
+- **`tickbuddy_tracks`**: id, user_id, name, type (`'boolean'` | `'counter'`), sort_order, private (int 0/1, exposed as bool at the API). Max 99 tracks per user.
 - **`tickbuddy_ticks`**: id, user_id, track_id, date, value (int, default 1). Unique on (user_id, track_id, date).
 
 Key design decisions:
 - **Sparse storage**: a tick row existing means "yes" / non-zero count. No row means "no" / zero. Toggling a boolean track inserts or deletes the row. Setting a counter to 0 deletes the row.
 - **Track type is immutable**: set at creation, cannot be changed afterward. The API rejects updates to the `type` field.
 - **Two tick mutation endpoints**: `POST /api/ticks/toggle` (boolean tracks only) and `POST /api/ticks/set` (counter tracks only). The service layer validates the track type matches the endpoint.
+- **`private` is stored as an integer, not a boolean.** The physical column is `INTEGER` on every database (`Types::BOOLEAN` failed to migrate on MySQL), so the `Track` entity must map it with `addType('private', 'integer')`. Binding it as a boolean makes QBMapper emit `'t'`/`'f'`, which Postgres rejects against the integer column. `bool` exists only at the API/JSON boundary — the controller serializes `getPrivate() === 1` and services convert incoming bools with `? 1 : 0`. Golden rule: an entity's `addType()` must always match the physical column type.
 
 ### API endpoints
 

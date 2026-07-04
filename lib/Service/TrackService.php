@@ -77,7 +77,7 @@ class TrackService {
 			$track->setSortOrder($sortOrder);
 		}
 		if ($private !== null) {
-			$track->setPrivate($private);
+			$track->setPrivate($private ? 1 : 0);
 		}
 
 		return $this->trackMapper->update($track);
