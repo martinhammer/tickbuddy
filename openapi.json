@@ -20,6 +20,62 @@
             }
         },
         "schemas": {
+            "Capabilities": {
+                "type": "object",
+                "required": [
+                    "tickbuddy"
+                ],
+                "properties": {
+                    "tickbuddy": {
+                        "type": "object",
+                        "required": [
+                            "version",
+                            "apiVersion",
+                            "features"
+                        ],
+                        "properties": {
+                            "version": {
+                                "type": "string"
+                            },
+                            "apiVersion": {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            "features": {
+                                "type": "object",
+                                "required": [
+                                    "import",
+                                    "export",
+                                    "counterTracks",
+                                    "privateTracks",
+                                    "syncDelta",
+                                    "counterIncrement"
+                                ],
+                                "properties": {
+                                    "import": {
+                                        "type": "boolean"
+                                    },
+                                    "export": {
+                                        "type": "boolean"
+                                    },
+                                    "counterTracks": {
+                                        "type": "boolean"
+                                    },
+                                    "privateTracks": {
+                                        "type": "boolean"
+                                    },
+                                    "syncDelta": {
+                                        "type": "boolean"
+                                    },
+                                    "counterIncrement": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "Export": {
                 "type": "object",
                 "required": [

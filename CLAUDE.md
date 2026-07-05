@@ -23,6 +23,7 @@ Follows the Nextcloud AppFramework pattern: **Entity → Mapper → Service → 
 - `lib/Service/` — Business logic. `TrackService` enforces the 99-track limit, type validation, and name trimming. `TickService` handles toggle (boolean) and set (counter) operations. `ImportService` handles Tickmate and JSON imports. `ExportService` handles JSON export.
 - `lib/Controller/` — OCS API controllers. Routes are defined via PHP attributes (`#[ApiRoute]`), not in a routes file.
 - `lib/Settings/` — `PersonalSection` (sidebar entry with icon) and `PersonalSettings` (renders the settings template).
+- `lib/Capabilities.php` — implements `OCP\Capabilities\ICapability`, registered in `Application::register()`. Advertises the app version and a feature-flag map to clients via the core capabilities endpoint (see below). Keep `getCapabilities()` cheap (no DB) — it runs on every capabilities request.
 - `lib/Migration/` — Database schema migrations.
 - **App metadata**: `appinfo/info.xml` (Nextcloud app manifest — version, dependencies, navigation entry).
 - **OpenAPI spec**: `openapi.json` is auto-generated from PHP docblocks on API controllers.
@@ -63,6 +64,9 @@ Key design decisions:
 - `POST /api/import/json` — import Tickbuddy `.json` file `{file, mode}`
 - `GET /api/export?includePrivate=bool` — export all data as JSON
 
+**Capabilities** (`Capabilities`, not an OCS controller):
+- `GET /ocs/v2.php/cloud/capabilities` — core Nextcloud endpoint, not under `/apps/tickbuddy`. Returns `data.capabilities.tickbuddy = {version, apiVersion, features{...}}`. Readable by any authenticated user (app password works). Clients (the mobile app) read this on connect to discover the installed version and which optional API features exist, instead of version-sniffing. `apiVersion` (`Capabilities::API_VERSION`) tracks the client-facing API contract; bump it on a breaking change. Feature flags default the two "known gaps" below to `false` — flip them to `true` here when the endpoints land.
+
 ## Build & Dev Commands
 
 ### Frontend (npm)
@@ -98,5 +102,7 @@ vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests
 
 Surfaced while writing the mobile companion app integration guide (`mobile_instructions.md`):
 
-- **No sync delta endpoint.** The API has no `modifiedAt`, ETag, or `since=` parameter. Clients (especially the forthcoming Android app) must poll full ranges and reconcile locally. If mobile sync UX proves clunky, consider adding a lightweight "changed since X" endpoint for tracks and ticks to avoid re-downloading full windows on every pull.
-- **Counter increments can't merge across devices.** `POST /api/ticks/set` sets an absolute value, not a delta. If two devices each increment the same counter tick offline, one update will overwrite the other on push — a lost increment. Adding a server-side `POST /api/ticks/increment` (with a signed delta) would let mobile clients queue increments commutatively and resolve concurrent edits cleanly.
+These two gaps sound similar (both bite multi-device offline sync) but have **different root causes and independent fixes** — one is about change *metadata*, the other about the *shape of the write operation*. A timestamp fixes the first and does nothing for the second.
+
+- **No sync delta endpoint.** The API has no `modifiedAt`, ETag, or `since=` parameter. Clients (especially the Android app) must poll full ranges and reconcile locally. If mobile sync UX proves clunky, consider adding a lightweight "changed since X" endpoint. Note this needs **more than a `modified_at` column**: because storage is sparse (untoggling/zeroing deletes the row), a `since=` query over live rows would never surface deletions. A real fix needs tombstones (soft-delete + `deleted_at`) or a separate change log, plus the timestamp/version column. Exposed via the `syncDelta` capability flag when it lands.
+- **Counter increments can't merge across devices.** `POST /api/ticks/set` sets an absolute value, not a delta. If two devices each increment the same counter tick offline, both push the same absolute value and one increment is silently lost — and **timestamps don't help**, since last-write-wins just picks between two identical wrong values. The fix is orthogonal: a commutative `POST /api/ticks/increment` (signed delta) that the server applies additively, so concurrent increments compose regardless of order. Exposed via the `counterIncrement` capability flag when it lands.
