@@ -24,7 +24,7 @@ Tickbuddy was inspired by the Android app Tickmate, which is no longer actively 
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/View_20260423.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20260511_01.png</screenshot>
 	<dependencies>
-		<nextcloud min-version="32" max-version="34"/>
+		<nextcloud min-version="32" max-version="35"/>
 	</dependencies>
 	<settings>
 		<personal>OCA\Tickbuddy\Settings\PersonalSettings</personal>
