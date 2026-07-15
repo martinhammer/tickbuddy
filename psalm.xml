@@ -31,9 +31,16 @@
 				<directory name="lib/Migration"/>
 			</errorLevel>
 		</UndefinedDocblockClass>
+		<!--
+			lib/Migration: see above.
+			lib/Controller/ImportController.php: IRequest::getUploadedFile() is typed `array` on
+			older OCP stubs (32-34) but `array|null` on dev-master. The explicit `@var array` is
+			required to narrow the nullable case, but reads as unnecessary on the non-null stubs.
+		-->
 		<UnnecessaryVarAnnotation>
 			<errorLevel type="suppress">
 				<directory name="lib/Migration"/>
+				<file name="lib/Controller/ImportController.php"/>
 			</errorLevel>
 		</UnnecessaryVarAnnotation>
 		<!-- Service constructors and methods, plus Mapper constructors, are called via Nextcloud's DI container -->
