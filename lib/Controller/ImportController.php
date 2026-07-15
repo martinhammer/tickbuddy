@@ -38,7 +38,7 @@ class ImportController extends OCSController {
 	private function validateUpload(string $mode): array|DataResponse {
 		$file = $this->request->getUploadedFile('file');
 
-		if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
+		if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
 			return new DataResponse(['message' => 'No file uploaded or upload error'], Http::STATUS_BAD_REQUEST);
 		}
 
