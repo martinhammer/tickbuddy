@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import axios from '@nextcloud/axios'
-import { getLocale } from '@nextcloud/l10n'
+import { getLocale, getFirstDay } from '@nextcloud/l10n'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
+import NcButton from '@nextcloud/vue/components/NcButton'
 import { Line, PolarArea } from 'vue-chartjs'
 import {
 	Chart as ChartJS,
@@ -68,6 +69,11 @@ const trackTicks = computed(() => {
 	return allTicks.value
 		.filter(t => t.trackId === selectedTrack.value!.id)
 		.sort((a, b) => a.date.localeCompare(b.date))
+})
+
+const selectedTrackType = computed(() => {
+	if (!selectedTrack.value) return 'boolean'
+	return tracks.value.find(t => t.id === selectedTrack.value!.id)?.type ?? 'boolean'
 })
 
 // --- Primary colour extraction ---
@@ -159,7 +165,20 @@ const twoWeekTrend = computed(() => {
 // --- Streaks ---
 const streakData = computed(() => {
 	const ticks = trackTicks.value
-	if (ticks.length === 0) return { currentLength: 0, currentIsStreak: true, longestStreak: 0, longestBreak: 0 }
+	if (ticks.length === 0) {
+		return {
+			currentLength: 0,
+			currentIsStreak: true,
+			longestStreak: 0,
+			longestBreak: 0,
+			currentFrom: '',
+			currentTo: '',
+			longestStreakFrom: '',
+			longestStreakTo: '',
+			longestBreakFrom: '',
+			longestBreakTo: '',
+		}
+	}
 
 	// Build a set of all ticked dates
 	const tickedDates = new Set(ticks.map(t => t.date))
@@ -180,37 +199,106 @@ const streakData = computed(() => {
 	let longestBreak = 0
 	let streak = 0
 	let breakLen = 0
+	let streakStart = ''
+	let breakStart = ''
+	let longestStreakFrom = ''
+	let longestStreakTo = ''
+	let longestBreakFrom = ''
+	let longestBreakTo = ''
 
 	// Walk from first tick date to today
 	for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
 		const ds = toStr(d)
 		if (tickedDates.has(ds)) {
+			if (streak === 0) streakStart = ds
 			streak++
-			longestStreak = Math.max(longestStreak, streak)
-			longestBreak = Math.max(longestBreak, breakLen)
+			if (streak > longestStreak) {
+				longestStreak = streak
+				longestStreakFrom = streakStart
+				longestStreakTo = ds
+			}
 			breakLen = 0
 		} else {
+			if (breakLen === 0) breakStart = ds
 			breakLen++
-			longestStreak = Math.max(longestStreak, streak)
+			if (breakLen > longestBreak) {
+				longestBreak = breakLen
+				longestBreakFrom = breakStart
+				longestBreakTo = ds
+			}
 			streak = 0
 		}
 	}
-	longestBreak = Math.max(longestBreak, breakLen)
 
 	// Current run: today is either ticked (streak) or not (break). Count back
 	// the consecutive days matching today's state.
 	const currentIsStreak = tickedDates.has(toStr(today))
+	const currentTo = toStr(today)
 	let currentLength = 0
+	let currentFrom = currentTo
 	for (let d = new Date(today); d >= first; d.setDate(d.getDate() - 1)) {
 		if (tickedDates.has(toStr(d)) === currentIsStreak) {
 			currentLength++
+			currentFrom = toStr(d)
 		} else {
 			break
 		}
 	}
 
-	return { currentLength, currentIsStreak, longestStreak, longestBreak }
+	return {
+		currentLength,
+		currentIsStreak,
+		longestStreak,
+		longestBreak,
+		currentFrom,
+		currentTo,
+		longestStreakFrom,
+		longestStreakTo,
+		longestBreakFrom,
+		longestBreakTo,
+	}
 })
+
+// Format a run's date range for display under a streak stat, e.g.
+// "Fri 1 Jan 2025 - Wed 15 Mar 2025" (or a single date when from === to).
+const streakDateFormatter = new Intl.DateTimeFormat(userLocale, {
+	weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+})
+function fmtStreakDate(ds: string): string {
+	return streakDateFormatter.format(new Date(ds + 'T00:00:00')).replace(',', '')
+}
+function formatStreakRange(from: string, to: string): string {
+	if (!from || !to) return ''
+	return from === to ? fmtStreakDate(from) : `${fmtStreakDate(from)} - ${fmtStreakDate(to)}`
+}
+// The current run always ends today, so show only its start: "Today" for a
+// single day, otherwise "Since <start date>".
+function formatCurrentRange(from: string, to: string): string {
+	if (!from || !to) return ''
+	return from === to ? 'Today' : `Since ${fmtStreakDate(from)}`
+}
+
+// --- Streak card tooltip (custom, styled to match the heatmap tooltip) ---
+const streaksRow = ref<HTMLElement | null>(null)
+const statTooltip = ref<{ visible: boolean; x: number; y: number; text: string }>({
+	visible: false, x: 0, y: 0, text: '',
+})
+
+function showStatTooltip(text: string, event: PointerEvent) {
+	const wrap = streaksRow.value
+	if (!wrap || !text) return
+	const rect = wrap.getBoundingClientRect()
+	statTooltip.value = {
+		visible: true,
+		x: event.clientX - rect.left,
+		y: event.clientY - rect.top,
+		text,
+	}
+}
+
+function hideStatTooltip() {
+	statTooltip.value.visible = false
+}
 
 // --- Streaks/Breaks series ---
 // Walk from first tick to today, producing an alternating sequence of
@@ -286,15 +374,6 @@ const streaksBreaksData = computed(() => {
 			maintainAspectRatio: false,
 			plugins: {
 				legend: { display: false },
-				subtitle: {
-					display: true,
-					text: 'Hint: scroll to zoom, drag to pan',
-					position: 'top',
-					align: 'start',
-					color: 'rgba(102, 102, 102, 0.8)',
-					font: { size: 12, style: 'italic', weight: 'normal' },
-					padding: { top: 0, bottom: 8 },
-				},
 				tooltip: {
 					callbacks: {
 						title: (items: any[]) => {
@@ -371,16 +450,17 @@ const polarSliceLabelsPlugin = {
 }
 
 // --- Polar charts (days of week & months across all years) ---
-// Shade slices so lowest value = darkest (highest alpha), highest = lightest.
+// Shade slices so highest value = darkest, reinforcing the slice radius and
+// matching the calendar heatmap's Less → More direction.
 function polarShades(values: number[]): string[] {
 	const base = primaryColor.value
 	const min = Math.min(...values)
 	const max = Math.max(...values)
-	const lo = 0.2 // lightest (highest value)
-	const hi = 0.85 // darkest (lowest value)
+	const lightest = 0.2 // lowest value
+	const darkest = 0.85 // highest value
 	return values.map((v) => {
 		const t = max === min ? 0.5 : (v - min) / (max - min)
-		return hexToRgba(base, hi - (hi - lo) * t)
+		return hexToRgba(base, lightest + (darkest - lightest) * t)
 	})
 }
 
@@ -545,17 +625,20 @@ function buildTimeSeries(
 	}
 }
 
-// Locale-aware first day of week: 0=Sun, 1=Mon, ..., 6=Sat (JS convention)
-const localeFirstDay: number = (() => {
-	try {
-		const locale = new Intl.Locale(userLocale)
-		const info = (locale as any).weekInfo ?? (locale as any).getWeekInfo?.()
-		if (info?.firstDay) {
-			// weekInfo.firstDay: 1=Mon..7=Sun → convert to JS: 0=Sun..6=Sat
-			return info.firstDay === 7 ? 0 : info.firstDay
-		}
-	} catch { /* ignore */ }
-	return 1 // default Monday
+// First day of week (0=Sun..6=Sat, JS convention). Nextcloud computes this
+// server-side from the account locale and injects it as window.firstDay, so
+// getFirstDay() returns the same value in every browser. Calling Intl week-info
+// directly does not: Chromium exposes it as the `weekInfo` property while
+// Firefox only ships the `getWeekInfo()` method, and the two disagree on
+// region-less locales — which is why the grid started on different days.
+const localeFirstDay: number = getFirstDay()
+
+// Short weekday names indexed by JS getDay() (0=Sun..6=Sat). 2024-01-07 was a Sunday.
+const weekdayShortNames: string[] = (() => {
+	const formatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short' })
+	const names: string[] = []
+	for (let i = 0; i < 7; i++) names.push(formatter.format(new Date(2024, 0, 7 + i)))
+	return names
 })()
 
 // ISO 8601 week: returns "YYYY-Wnn" (weeks start on Monday)
@@ -599,6 +682,185 @@ const yearsChart = computed(() => buildTimeSeries(
 	(date) => date.slice(0, 4),
 	(key) => key,
 ))
+
+// --- Calendar heatmap ---
+// GitHub-contributions-style grid: one column per week, one row per weekday.
+// The window always covers at least the trailing 365 days and extends further
+// back if the track has older data; the container scrolls horizontally and is
+// pinned to the right (most recent) edge.
+const CELL_SIZE = 11
+const CELL_GAP = 3
+const CELL_PITCH = CELL_SIZE + CELL_GAP
+// Weekday labels live in a fixed column outside the scroller so they stay put;
+// the scrolling grid keeps just a small left pad.
+const DAY_LABEL_COL = 34
+const GRID_LEFT_PAD = 2
+// Month labels are slanted, so the top gutter has to fit their diagonal height
+// and the width needs slack for the last label to lean past the grid.
+// The Chart.js axes render around 20°, not their `maxRotation: 45` ceiling —
+// Chart.js uses the shallowest slant that keeps labels from colliding.
+const MONTH_LABEL_ANGLE = 25
+// Nudge right so the label's foot clears the boundary with the previous week.
+const MONTH_LABEL_X_OFFSET = 3
+const HEATMAP_TOP_GUTTER = 42
+const MONTH_LABEL_BASELINE = HEATMAP_TOP_GUTTER - 6
+const HEATMAP_RIGHT_PAD = 52
+// Alpha per level: index 0 is unused (empty days get a background colour).
+const LEVEL_ALPHA = [0, 0.25, 0.45, 0.68, 0.9]
+
+interface HeatmapCell {
+	x: number
+	y: number
+	fill: string
+	dateLabel: string
+	valueText: string
+}
+
+const heatmapData = computed(() => {
+	const ticks = trackTicks.value
+	if (ticks.length === 0) return null
+
+	const byDate = new Map<string, number>()
+	for (const t of ticks) byDate.set(t.date, t.value)
+
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+
+	// Trailing 365 days, extended back to the first tick if history is longer.
+	const windowStart = new Date(today)
+	windowStart.setDate(windowStart.getDate() - 364)
+	const firstTick = new Date(ticks[0].date + 'T00:00:00')
+	const start = firstTick < windowStart ? new Date(firstTick) : new Date(windowStart)
+	// Align to the locale's first weekday so every column is a full week.
+	while (start.getDay() !== localeFirstDay) start.setDate(start.getDate() - 1)
+
+	const isCounter = selectedTrackType.value === 'counter'
+	const maxValue = isCounter ? Math.max(...ticks.map(t => t.value)) : 1
+
+	// Booleans get a single shade at level 2 — full strength reads as too heavy
+	// when every ticked day is identical. Counters are quantised into four
+	// levels against that track's own maximum; small ranges map value→level
+	// directly so a track that never exceeds 3 still uses distinct shades.
+	function levelFor(value: number): number {
+		if (value <= 0) return 0
+		if (!isCounter) return 2
+		if (maxValue <= 4) return Math.min(4, value)
+		return Math.max(1, Math.min(4, Math.ceil((value / maxValue) * 4)))
+	}
+
+	const color = primaryColor.value
+	const emptyFill = 'var(--color-background-dark)'
+	const dateFormatter = new Intl.DateTimeFormat(userLocale, {
+		weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+	})
+
+	const cells: HeatmapCell[] = []
+	const monthLabels: { x: number; y: number; transform: string; label: string }[] = []
+	const monthFormatter = new Intl.DateTimeFormat(userLocale, { year: 'numeric', month: 'short' })
+	let lastMonthLabelWeek = -99
+	let offset = 0
+
+	for (const d = new Date(start); d <= today; d.setDate(d.getDate() + 1), offset++) {
+		const week = Math.floor(offset / 7)
+		const row = offset % 7
+		const ds = toDateStr(d)
+		const value = byDate.get(ds) ?? 0
+		const level = levelFor(value)
+		const fill = level === 0 ? emptyFill : hexToRgba(color, LEVEL_ALPHA[level])
+		const valueText = value > 0
+			? (isCounter ? String(value) : 'Ticked')
+			: (isCounter ? '0' : 'Not ticked')
+
+		cells.push({
+			x: GRID_LEFT_PAD + week * CELL_PITCH,
+			y: HEATMAP_TOP_GUTTER + row * CELL_PITCH,
+			fill,
+			// Chart.js title lines carry no comma; drop the one Intl adds.
+			dateLabel: dateFormatter.format(d).replace(',', ''),
+			valueText,
+		})
+
+		// Label the column containing the 1st, keeping labels from colliding.
+		if (d.getDate() === 1 && week - lastMonthLabelWeek >= 3) {
+			const x = GRID_LEFT_PAD + week * CELL_PITCH + MONTH_LABEL_X_OFFSET
+			monthLabels.push({
+				x,
+				y: MONTH_LABEL_BASELINE,
+				transform: `rotate(-${MONTH_LABEL_ANGLE} ${x} ${MONTH_LABEL_BASELINE})`,
+				label: monthFormatter.format(d),
+			})
+			lastMonthLabelWeek = week
+		}
+	}
+
+	const weeks = Math.ceil(offset / 7)
+
+	// Label alternate rows (matching GitHub's Mon/Wed/Fri) in locale order.
+	// Right-aligned within the fixed day-label column, a few px from the grid.
+	const dayLabels: { y: number; label: string }[] = []
+	for (let row = 1; row < 7; row += 2) {
+		dayLabels.push({
+			y: HEATMAP_TOP_GUTTER + row * CELL_PITCH + CELL_SIZE / 2,
+			label: weekdayShortNames[(localeFirstDay + row) % 7],
+		})
+	}
+
+	const height = HEATMAP_TOP_GUTTER + 7 * CELL_PITCH - CELL_GAP
+	return {
+		cells,
+		monthLabels,
+		dayLabels,
+		dayColWidth: DAY_LABEL_COL,
+		dayLabelX: DAY_LABEL_COL - 6,
+		isCounter,
+		// Only shown when there's history beyond the trailing year to scroll to.
+		hint: weeks > 53
+			? 'Hint: showing last 365 days, scroll sideways for earlier history.'
+			: '',
+		legend: LEVEL_ALPHA.slice(1).map(a => hexToRgba(color, a)),
+		emptyFill,
+		width: GRID_LEFT_PAD + weeks * CELL_PITCH + HEATMAP_RIGHT_PAD,
+		height,
+	}
+})
+
+const heatmapScroller = ref<HTMLElement | null>(null)
+const heatmapWrap = ref<HTMLElement | null>(null)
+
+// Keep the view pinned to today whenever the rendered grid changes.
+watch(heatmapData, async () => {
+	await nextTick()
+	const el = heatmapScroller.value
+	if (el) el.scrollLeft = el.scrollWidth
+})
+
+// --- Heatmap tooltip (custom, styled to match the Chart.js default) ---
+const heatmapTooltip = ref<{
+	visible: boolean
+	x: number
+	y: number
+	title: string
+	swatch: string
+	text: string
+}>({ visible: false, x: 0, y: 0, title: '', swatch: '', text: '' })
+
+function showHeatmapTooltip(cell: HeatmapCell, event: PointerEvent) {
+	const wrap = heatmapWrap.value
+	if (!wrap) return
+	const rect = wrap.getBoundingClientRect()
+	heatmapTooltip.value = {
+		visible: true,
+		x: event.clientX - rect.left,
+		y: event.clientY - rect.top,
+		title: cell.dateLabel,
+		swatch: cell.fill,
+		text: cell.valueText,
+	}
+}
+
+function hideHeatmapTooltip() {
+	heatmapTooltip.value.visible = false
+}
 
 // --- Data fetching ---
 async function fetchTracks() {
@@ -691,8 +953,11 @@ onMounted(async () => {
 				</div>
 
 				<!-- Streaks -->
-				<div :class="$style.statsRow">
-					<div :class="$style.statCard">
+				<div ref="streaksRow" :class="$style.statsRow">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip(formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
+						@pointermove="showStatTooltip(formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.currentLength }}
 						</div>
@@ -700,7 +965,10 @@ onMounted(async () => {
 							{{ streakData.currentIsStreak ? 'Current streak' : 'Current break' }}
 						</div>
 					</div>
-					<div :class="$style.statCard">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip(formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
+						@pointermove="showStatTooltip(formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.longestStreak }}
 						</div>
@@ -708,7 +976,10 @@ onMounted(async () => {
 							Longest streak
 						</div>
 					</div>
-					<div :class="$style.statCard">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip(formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
+						@pointermove="showStatTooltip(formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.longestBreak }}
 						</div>
@@ -716,24 +987,104 @@ onMounted(async () => {
 							Longest break
 						</div>
 					</div>
+					<div v-show="statTooltip.visible"
+						:class="$style.heatmapTooltip"
+						:style="{ left: statTooltip.x + 'px', top: statTooltip.y + 'px' }">
+						{{ statTooltip.text }}
+					</div>
+				</div>
+
+				<!-- Calendar heatmap -->
+				<div v-if="heatmapData" :class="$style.chartSection">
+					<h3 :class="$style.chartHeading">
+						Calendar
+					</h3>
+					<p v-if="heatmapData.hint" :class="$style.chartHint">
+						{{ heatmapData.hint }}
+					</p>
+					<div ref="heatmapWrap" :class="$style.heatmapWrap">
+						<div :class="$style.heatmapLayout">
+							<!-- Fixed weekday labels: stay visible while the grid scrolls. -->
+							<svg :width="heatmapData.dayColWidth"
+								:height="heatmapData.height"
+								:class="$style.heatmapDays"
+								aria-hidden="true">
+								<text v-for="d in heatmapData.dayLabels"
+									:key="`d-${d.y}`"
+									:x="heatmapData.dayLabelX"
+									:y="d.y"
+									text-anchor="end"
+									dominant-baseline="middle"
+									:class="$style.heatmapLabel">{{ d.label }}</text>
+							</svg>
+							<div ref="heatmapScroller" :class="$style.heatmapScroller">
+								<svg :width="heatmapData.width"
+									:height="heatmapData.height"
+									:class="$style.heatmap"
+									role="img"
+									aria-label="Daily activity calendar">
+									<text v-for="m in heatmapData.monthLabels"
+										:key="`m-${m.x}`"
+										:x="m.x"
+										:y="m.y"
+										:transform="m.transform"
+										text-anchor="start"
+										:class="$style.heatmapLabel">{{ m.label }}</text>
+									<rect v-for="(c, i) in heatmapData.cells"
+										:key="i"
+										:x="c.x"
+										:y="c.y"
+										:width="11"
+										:height="11"
+										rx="2"
+										:fill="c.fill"
+										@pointerenter="showHeatmapTooltip(c, $event)"
+										@pointermove="showHeatmapTooltip(c, $event)"
+										@pointerleave="hideHeatmapTooltip" />
+								</svg>
+							</div>
+						</div>
+						<div v-show="heatmapTooltip.visible"
+							:class="$style.heatmapTooltip"
+							:style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }">
+							<div :class="$style.tooltipTitle">
+								{{ heatmapTooltip.title }}
+							</div>
+							<div :class="$style.tooltipBody">
+								<span :class="$style.tooltipSwatch"
+									:style="{ backgroundImage: `linear-gradient(${heatmapTooltip.swatch}, ${heatmapTooltip.swatch})` }" />
+								{{ heatmapTooltip.text }}
+							</div>
+						</div>
+					</div>
+					<div v-if="heatmapData.isCounter" :class="$style.heatmapLegend">
+						<span>Less</span>
+						<span :class="$style.legendSwatch" :style="{ background: heatmapData.emptyFill }" />
+						<span v-for="(fill, i) in heatmapData.legend"
+							:key="i"
+							:class="$style.legendSwatch"
+							:style="{ background: fill }" />
+						<span>More</span>
+					</div>
 				</div>
 
 				<!-- Streaks/Breaks -->
 				<div v-if="streaksBreaksData" :class="$style.chartSection">
-					<div :class="$style.chartHeader">
-						<h3 :class="$style.chartHeading">
-							Streaks/Breaks
-						</h3>
-						<button type="button"
-							:class="$style.resetZoomBtn"
-							@click="resetStreaksBreaksZoom">
-							Reset zoom
-						</button>
-					</div>
+					<h3 :class="$style.chartHeading">
+						Streaks/Breaks
+					</h3>
+					<p :class="$style.chartHint">
+						Hint: scroll to zoom, drag to pan, click below to reset
+					</p>
 					<div :class="$style.chartContainer">
 						<Line ref="streaksBreaksChart"
 							:data="streaksBreaksData.data"
 							:options="streaksBreaksData.options" />
+					</div>
+					<div :class="$style.resetZoomRow">
+						<NcButton variant="tertiary" @click="resetStreaksBreaksZoom">
+							Reset zoom
+						</NcButton>
 					</div>
 				</div>
 
@@ -837,6 +1188,7 @@ onMounted(async () => {
 	display: flex;
 	gap: 16px;
 	margin-bottom: 16px;
+	position: relative;
 }
 
 .statCard {
@@ -879,20 +1231,113 @@ onMounted(async () => {
 	position: relative;
 }
 
-.chartHeader {
+.chartHint {
+	font-size: 12px;
+	font-style: italic;
+	color: var(--color-text-maxcontrast);
+	margin-bottom: 14px;
+}
+
+.resetZoomRow {
+	margin-top: 8px;
+}
+
+.heatmapWrap {
+	position: relative;
+}
+
+.heatmapLayout {
+	display: flex;
+	align-items: flex-start;
+}
+
+/* Custom tooltip mirroring the Chart.js default (rgba(0,0,0,0.8), #fff, 6px). */
+.heatmapTooltip {
+	position: absolute;
+	z-index: 10;
+	pointer-events: none;
+	transform: translate(-50%, calc(-100% - 7px));
+	padding: 6px 8px;
+	border-radius: 6px;
+	background: rgba(0, 0, 0, 0.8);
+	color: #fff;
+	font-size: 12px;
+	line-height: 1.2;
+	white-space: nowrap;
+}
+
+.heatmapTooltip::after {
+	content: '';
+	position: absolute;
+	top: 100%;
+	inset-inline-start: 50%;
+	transform: translateX(-50%);
+	border: 5px solid transparent;
+	border-top-color: rgba(0, 0, 0, 0.8);
+}
+
+.tooltipTitle {
+	font-weight: bold;
+	margin-bottom: 6px;
+}
+
+.tooltipBody {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin-bottom: 8px;
+	gap: 6px;
 }
 
-.chartHeader .chartHeading {
-	margin-bottom: 0;
+.tooltipSwatch {
+	width: 12px;
+	height: 12px;
+	border-radius: 2px;
+	/* Flatten the cell's translucent fill over the page background, exactly as
+	   the grid does, so the swatch matches the cell instead of compositing over
+	   the dark tooltip. The fill is layered on via background-image. */
+	background-color: var(--color-main-background);
 }
 
-.resetZoomBtn {
+.heatmapDays {
+	flex: none;
+	display: block;
+}
+
+.heatmapScroller {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	/* Clearance for the horizontal scrollbar. Firefox (GTK) uses overlay
+	   scrollbars that paint over the content's bottom edge and reserve no
+	   layout space, so this padding keeps the bar off the last row of cells.
+	   scrollbar-width:thin trims it further where honoured. */
+	padding-bottom: 14px;
+	scrollbar-width: thin;
+}
+
+.heatmap {
+	display: block;
+}
+
+.heatmapLabel {
 	font-size: 12px;
+	fill: var(--color-text-maxcontrast);
+}
+
+.heatmapLegend {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	margin-top: 6px;
+	font-size: 12px;
+	color: var(--color-text-maxcontrast);
+}
+
+.legendSwatch {
+	width: 11px;
+	height: 11px;
+	border-radius: 2px;
 }
 
 .polarRow {
