@@ -10,10 +10,26 @@ Tickbuddy is a Nextcloud app for daily habit/occurrence tracking (a "one-bit jou
 
 Standard Nextcloud app with a PHP backend and Vue 3 frontend. Two separate screens:
 
-1. **Main app** (`src/main.ts` → `App.vue` → `TickGrid.vue`): grid of days × tracks where users tick/untick events. Three views accessible via sidebar navigation: **Edit journal** (default, interactive checkboxes/counters), **View journal** (read-only with date range picker and sort toggle), and **Analytics** (placeholder). Mounts into `<div id="tickbuddy">` via `templates/index.php`.
+1. **Main app** (`src/main.ts` → `App.vue` → `TickGrid.vue`): grid of days × tracks where users tick/untick events. Three views accessible via sidebar navigation: **Edit journal** (default, interactive checkboxes/counters), **View journal** (read-only with date range picker and sort toggle), and **Analytics** (`AnalyticsView.vue` — per-track charts, see below). Mounts into `<div id="tickbuddy">` via `templates/index.php`.
 2. **Personal settings** (`src/settings.ts` → `TrackSettings.vue`): track management (add/edit/delete/reorder tracks, private flag), user preferences (default view), and import/export (Tickmate `.db` and Tickbuddy `.json`). Mounts into `<div id="tickbuddy-settings">` via `templates/settings/personal.php`. Registered as a Nextcloud personal settings section in `Application::register()`.
 
 Each screen has its own Vite entry point (configured in `vite.config.ts`).
+
+### Analytics view
+
+`src/components/AnalyticsView.vue` is the **Analytics** sidebar view. It analyses **one track at a time** (picked via `NcSelect`) and honours the sidebar's "Show private tracks" toggle. There is **no analytics API**: it fetches the selected track's full tick history over a wide date range and does **all aggregation client-side**. Charts use Chart.js via `vue-chartjs`, plus `chartjs-plugin-zoom`.
+
+Contents, top to bottom:
+- **Stat cards**: Total, Weekly mean, 2-week trend (a rotated arrow); Current streak/break, Longest streak, Longest break.
+- **Calendar heatmap**: a GitHub-contributions-style grid, hand-rolled as SVG (no charting library). Shows a trailing **365 days**, extended further back when the track has older history, in a horizontally scrolling container pinned to today. Weekday labels sit in a **fixed column outside the scroller** so they stay visible; month labels are slanted and scroll with the grid. **Boolean** tracks render one shade; **counter** tracks quantise into four levels against that track's own max (small ranges map value→level directly). Empty days use `--color-background-dark`. Hover shows a **custom tooltip styled to match the Chart.js default** (the swatch flattens the cell's translucent fill over `--color-main-background` so it matches the cell in either theme).
+- **Streaks/Breaks**: a zoom/pan line chart of alternating streak (up) and break (down) run lengths, with a tertiary "Reset zoom" `NcButton`.
+- **Days of week** and **Months** polar-area charts, aggregated across all years. Slice shading is **darker = higher value**, reinforcing the slice radius and matching the heatmap's Less→More direction (`polarShades`).
+- **Weeks / Months / Quarters / Years** time-series line charts (`buildTimeSeries`; weeks use ISO 8601).
+
+Key conventions:
+- **First day of week** comes from `getFirstDay()` (`@nextcloud/l10n`), stored as `localeFirstDay` (0=Sun..6=Sat). This reads Nextcloud's server-injected `window.firstDay`, so it is **consistent across browsers** — do **not** revert to calling `Intl.Locale` week-info directly (Chromium exposes the `weekInfo` property, Firefox only the `getWeekInfo()` method, and they disagree on region-less locales).
+- Chart accent colour is read from the `--color-primary-element` CSS variable (`getPrimaryColor`) and tinted via `hexToRgba`, so charts follow the Nextcloud theme.
+- Remember sparse storage: a missing day means zero/not-ticked, which the client-side date walks must fill in (they do not assume a row per day).
 
 ### Backend layers
 
@@ -89,6 +105,10 @@ Key design decisions:
 ```
 vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests/phpunit.xml
 ```
+
+## Demo data
+
+`demo/` holds a ready-made dataset (`tickbuddy-demo-data.json`, JSON import format) for screenshots and manual testing, plus `generate-demo-data.py` — a stdlib-only Python generator that produced it (`python3 demo/generate-demo-data.py`). Regenerate the JSON from the script if you change either, so they stay in sync. See `demo/README.md`.
 
 ## Key Conventions
 

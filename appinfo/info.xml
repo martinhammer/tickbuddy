@@ -11,7 +11,7 @@ The application enables users to record whether a specific event has occurred or
 
 Tickbuddy was inspired by the Android app Tickmate, which is no longer actively maintained. Tickbuddy comes with its own Android companion app Tickdroid which has been submitted to the F-Droid app store.
 	]]></description>
-	<version>1.0.6</version>
+	<version>1.0.7</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>

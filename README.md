@@ -12,11 +12,13 @@ Some of the key features which already exist:
 * Read-only screen for journal viewing
 * Import data from Tickmate backup file
 * Import/export data in JSON format 
-* Simple analytics screen with stats and trend visualizations
+* Analytics screen with stats and various visualizations
 * [Companion mobile app](https://github.com/martinhammer/tickdroid)
 
 Planned features:
-* More advanced analytics
+* Setting and tracking of goals
+* Nextcloud dashboard widget
+* Support for translations
 * Maybe even a smartwatch app
 
 ### Motivation
@@ -25,22 +27,22 @@ This is a personal hobby project which I am using to learn about Nextcloud app d
 
 Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem, so I am hoping others will find this useful.
 
-### Found a bug?
+### Found a bug? Do you have some suggestions of a feature request?
 
 Feel free to get in touch and/or submit an issue.
 
 ### Screenshots
 
 Settings screen
-![Screenshot of settings screen](img/Settings_20260423.png)
+![Screenshot of settings screen](img/Settings_20260724.png)
 
 Edit journal screen 
-![Screenshot of edit journal screen](img/Edit_20260423.png)
+![Screenshot of edit journal screen](img/Edit_20260724.png)
 
 View journal screen
-![Screenshot of view journal screen](img/View_20260423.png)
+![Screenshot of view journal screen](img/View_20260724.png)
 
 Analytics screen
-![Screenshot of analytics screen](img/Analytics_20260511_01.png)
+![Screenshot of analytics screen](img/Analytics_20260724_01.png)
 
-![Screenshot of analytics screen](img/Analytics_20260511_02.png)
+![Screenshot of analytics screen](img/Analytics_20260724_02.png)

@@ -6,10 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [1.0.7] - 2026-07-25
+
+### Added
+- Calendar heatmap on the Analytics screen ("GitHub contributions" style visualisation) 
+- Dummy data for demo purposes 
 
 ### Changed
 - Support for Nextcloud version 35
+- Improvements on Analytics screen
+- Bumped dependencies
+
+### Fixed
+- First day of week on charts is now correctly reflecting the Nextcloud user setting 
 
 
 ## [1.0.6] - 2026-07-05
