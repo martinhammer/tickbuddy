@@ -100,16 +100,24 @@ const totalCount = computed(() => {
 	return trackTicks.value.reduce((sum, t) => sum + t.value, 0)
 })
 
-const weeklyMean = computed(() => {
+// Span the mean is taken over: first to last entry, floored at one week so a
+// track with a single entry doesn't divide by ~0.
+const spanWeeks = computed(() => {
 	const ticks = trackTicks.value
 	if (ticks.length === 0) return 0
 	const first = new Date(ticks[0].date + 'T00:00:00')
 	const last = new Date(ticks[ticks.length - 1].date + 'T00:00:00')
-	const weeks = Math.max(1, (last.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000))
-	return totalCount.value / weeks
+	return Math.max(1, (last.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000))
 })
 
-const twoWeekTrend = computed(() => {
+const weeklyMean = computed(() => {
+	if (spanWeeks.value === 0) return 0
+	return totalCount.value / spanWeeks.value
+})
+
+// The two halves the trend arrow compares: the last 7 days against the 7
+// before them.
+const twoWeekWindows = computed(() => {
 	const today = new Date()
 	today.setHours(0, 0, 0, 0)
 	const oneWeekAgo = new Date(today)
@@ -117,23 +125,24 @@ const twoWeekTrend = computed(() => {
 	const twoWeeksAgo = new Date(today)
 	twoWeeksAgo.setDate(today.getDate() - 14)
 
-	const toStr = (d: Date) => {
-		const y = d.getFullYear()
-		const m = String(d.getMonth() + 1).padStart(2, '0')
-		const day = String(d.getDate()).padStart(2, '0')
-		return `${y}-${m}-${day}`
+	const todayStr = toDateStr(today)
+	const oneWeekStr = toDateStr(oneWeekAgo)
+	const twoWeekStr = toDateStr(twoWeeksAgo)
+
+	return {
+		thisWeek: trackTicks.value
+			.filter(t => t.date > oneWeekStr && t.date <= todayStr)
+			.reduce((s, t) => s + t.value, 0),
+		lastWeek: trackTicks.value
+			.filter(t => t.date > twoWeekStr && t.date <= oneWeekStr)
+			.reduce((s, t) => s + t.value, 0),
 	}
+})
 
-	const todayStr = toStr(today)
-	const oneWeekStr = toStr(oneWeekAgo)
-	const twoWeekStr = toStr(twoWeeksAgo)
-
-	const thisWeek = trackTicks.value
-		.filter(t => t.date > oneWeekStr && t.date <= todayStr)
-		.reduce((s, t) => s + t.value, 0)
-	const lastWeek = trackTicks.value
-		.filter(t => t.date > twoWeekStr && t.date <= oneWeekStr)
-		.reduce((s, t) => s + t.value, 0)
+const twoWeekTrend = computed(() => {
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+	const { thisWeek, lastWeek } = twoWeekWindows.value
 
 	if (thisWeek === 0 && lastWeek === 0) return 0
 
@@ -278,27 +287,58 @@ function formatCurrentRange(from: string, to: string): string {
 	return from === to ? 'Today' : `Since ${fmtStreakDate(from)}`
 }
 
-// --- Streak card tooltip (custom, styled to match the heatmap tooltip) ---
+// --- Stat card tooltips (custom, styled to match the heatmap tooltip) ---
+// Each stats row positions its own tooltip (the rows are the relative
+// containers), so the shared state records which row is currently showing one.
+type StatRow = 'summary' | 'streaks'
+const summaryRow = ref<HTMLElement | null>(null)
 const streaksRow = ref<HTMLElement | null>(null)
-const statTooltip = ref<{ visible: boolean; x: number; y: number; text: string }>({
-	visible: false, x: 0, y: 0, text: '',
+const statTooltip = ref<{ visible: boolean; row: StatRow; x: number; y: number; lines: string[] }>({
+	visible: false, row: 'summary', x: 0, y: 0, lines: [],
 })
 
-function showStatTooltip(text: string, event: PointerEvent) {
-	const wrap = streaksRow.value
-	if (!wrap || !text) return
+function showStatTooltip(row: StatRow, lines: string | string[], event: PointerEvent) {
+	const wrap = row === 'summary' ? summaryRow.value : streaksRow.value
+	const text = (Array.isArray(lines) ? lines : [lines]).filter(Boolean)
+	if (!wrap || text.length === 0) return
 	const rect = wrap.getBoundingClientRect()
 	statTooltip.value = {
 		visible: true,
+		row,
 		x: event.clientX - rect.left,
 		y: event.clientY - rect.top,
-		text,
+		lines: text,
 	}
 }
 
 function hideStatTooltip() {
 	statTooltip.value.visible = false
 }
+
+// --- Summary card tooltip contents ---
+const totalTooltip = computed(() => {
+	const ticks = trackTicks.value
+	if (ticks.length === 0) return []
+	return [
+		`Oldest entry: ${fmtStreakDate(ticks[0].date)}`,
+		`Newest entry: ${fmtStreakDate(ticks[ticks.length - 1].date)}`,
+	]
+})
+
+const weeklyMeanTooltip = computed(() => {
+	const ticks = trackTicks.value
+	if (ticks.length === 0) return []
+	const weeks = Math.round(spanWeeks.value)
+	return [
+		`Total ${totalCount.value} across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`,
+		`Since ${fmtStreakDate(ticks[0].date)}`,
+	]
+})
+
+const trendTooltip = computed(() => [
+	`Last 7 days: ${twoWeekWindows.value.thisWeek}`,
+	`Previous 7 days: ${twoWeekWindows.value.lastWeek}`,
+])
 
 // --- Streaks/Breaks series ---
 // Walk from first tick to today, producing an alternating sequence of
@@ -924,8 +964,11 @@ onMounted(async () => {
 
 			<template v-else>
 				<!-- Summary stats -->
-				<div :class="$style.statsRow">
-					<div :class="$style.statCard">
+				<div ref="summaryRow" :class="$style.statsRow">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip('summary', totalTooltip, $event)"
+						@pointermove="showStatTooltip('summary', totalTooltip, $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ totalCount }}
 						</div>
@@ -933,7 +976,10 @@ onMounted(async () => {
 							Total
 						</div>
 					</div>
-					<div :class="$style.statCard">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip('summary', weeklyMeanTooltip, $event)"
+						@pointermove="showStatTooltip('summary', weeklyMeanTooltip, $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ weeklyMean.toFixed(1) }}
 						</div>
@@ -941,7 +987,10 @@ onMounted(async () => {
 							Weekly mean
 						</div>
 					</div>
-					<div :class="$style.statCard">
+					<div :class="$style.statCard"
+						@pointerenter="showStatTooltip('summary', trendTooltip, $event)"
+						@pointermove="showStatTooltip('summary', trendTooltip, $event)"
+						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							<span :class="$style.trendArrow"
 								:style="{ transform: `rotate(${-twoWeekTrend}deg)` }">→</span>
@@ -950,13 +999,20 @@ onMounted(async () => {
 							2-week trend
 						</div>
 					</div>
+					<div v-show="statTooltip.visible && statTooltip.row === 'summary'"
+						:class="$style.heatmapTooltip"
+						:style="{ left: statTooltip.x + 'px', top: statTooltip.y + 'px' }">
+						<div v-for="line in statTooltip.lines" :key="line">
+							{{ line }}
+						</div>
+					</div>
 				</div>
 
 				<!-- Streaks -->
 				<div ref="streaksRow" :class="$style.statsRow">
 					<div :class="$style.statCard"
-						@pointerenter="showStatTooltip(formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
-						@pointermove="showStatTooltip(formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
+						@pointerenter="showStatTooltip('streaks', formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
+						@pointermove="showStatTooltip('streaks', formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
 						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.currentLength }}
@@ -966,8 +1022,8 @@ onMounted(async () => {
 						</div>
 					</div>
 					<div :class="$style.statCard"
-						@pointerenter="showStatTooltip(formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
-						@pointermove="showStatTooltip(formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
+						@pointerenter="showStatTooltip('streaks', formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
+						@pointermove="showStatTooltip('streaks', formatStreakRange(streakData.longestStreakFrom, streakData.longestStreakTo), $event)"
 						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.longestStreak }}
@@ -977,8 +1033,8 @@ onMounted(async () => {
 						</div>
 					</div>
 					<div :class="$style.statCard"
-						@pointerenter="showStatTooltip(formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
-						@pointermove="showStatTooltip(formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
+						@pointerenter="showStatTooltip('streaks', formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
+						@pointermove="showStatTooltip('streaks', formatStreakRange(streakData.longestBreakFrom, streakData.longestBreakTo), $event)"
 						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.longestBreak }}
@@ -987,10 +1043,12 @@ onMounted(async () => {
 							Longest break
 						</div>
 					</div>
-					<div v-show="statTooltip.visible"
+					<div v-show="statTooltip.visible && statTooltip.row === 'streaks'"
 						:class="$style.heatmapTooltip"
 						:style="{ left: statTooltip.x + 'px', top: statTooltip.y + 'px' }">
-						{{ statTooltip.text }}
+						<div v-for="line in statTooltip.lines" :key="line">
+							{{ line }}
+						</div>
 					</div>
 				</div>
 
