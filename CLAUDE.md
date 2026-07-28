@@ -66,6 +66,8 @@ Key design decisions:
 - `PUT /api/tracks/reorder` — reorder tracks `{trackIds[]}`
 - `DELETE /api/tracks/{id}` — delete track and its ticks
 
+Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` compiles to Symfony's default `[^/]++` and `PUT /api/tracks/{id}` also matches `/api/tracks/reorder` — which route wins then depends purely on method declaration order within the controller (`Router::getAttributeRoutes()` reflects methods in source order, first match wins). The failure is silent: `settype()` casts `"reorder"` to `0`, so a reorder request would 404 as "Track not found". **Any new literal path segment under a route that also has a `{placeholder}` sibling needs the same treatment.**
+
 **Ticks** (`TickController`):
 - `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD` — fetch ticks in date range
 - `POST /api/ticks/toggle` — toggle boolean tick `{trackId, date}`

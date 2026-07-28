@@ -98,6 +98,9 @@ class TrackController extends OCSController {
 	 * 200: Tracks reordered
 	 * 400: trackIds is required
 	 */
+	// This literal path overlaps `PUT /api/tracks/{id}`. That route constrains
+	// {id} to digits, so the two can never collide regardless of the order the
+	// router registers them in — keep the requirement there.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/reorder')]
 	public function reorder(array $trackIds = []): DataResponse {
@@ -123,7 +126,7 @@ class TrackController extends OCSController {
 	 * 409: Database conflict
 	 */
 	#[NoAdminRequired]
-	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}')]
+	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}', requirements: ['id' => '\d+'])]
 	public function update(int $id, ?string $name = null, ?int $sortOrder = null, ?bool $private = null): DataResponse {
 		try {
 			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private);
@@ -145,7 +148,7 @@ class TrackController extends OCSController {
 	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
-	#[ApiRoute(verb: 'DELETE', url: '/api/tracks/{id}')]
+	#[ApiRoute(verb: 'DELETE', url: '/api/tracks/{id}', requirements: ['id' => '\d+'])]
 	public function destroy(int $id): DataResponse {
 		try {
 			$this->trackService->delete($id, $this->userId);
