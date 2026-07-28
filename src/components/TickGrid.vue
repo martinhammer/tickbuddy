@@ -62,6 +62,22 @@ const visibleTracks = computed(() => {
 	return tracks.value.filter(t => !t.private)
 })
 
+// Oldest tick date per track, fetched once in readonly mode
+const oldestByTrack = ref<Record<number, string>>({})
+
+// Oldest tick date across the tracks currently visible
+const oldestDate = computed(() => {
+	let oldest: string | null = null
+	for (const track of visibleTracks.value) {
+		const date = oldestByTrack.value[track.id]
+		if (date && (oldest === null || date < oldest)) oldest = date
+	}
+	return oldest
+})
+
+const atOldest = computed(() =>
+	oldestDate.value !== null && dateFrom.value !== null && toDateStr(dateFrom.value) === oldestDate.value)
+
 // Determine weekend days from user's Nextcloud locale using Intl.Locale.weekInfo
 // weekInfo.weekend uses ISO day numbers: 1=Mon … 7=Sun
 // Fallback to Saturday (6) and Sunday (7) if unavailable
@@ -196,6 +212,41 @@ async function fetchData() {
 	}
 }
 
+// One wide fetch to find where each track's history starts
+async function fetchOldestDates() {
+	const response = await axios.get(ticksUrl, { params: { from: '2000-01-01', to: '2099-12-31' } })
+	const oldest: Record<number, string> = {}
+	for (const tick of response.data.ocs.data as Tick[]) {
+		const current = oldest[tick.trackId]
+		if (!current || tick.date < current) oldest[tick.trackId] = tick.date
+	}
+	oldestByTrack.value = oldest
+}
+
+const DEFAULT_RANGE_DAYS = 30
+
+function jumpToOldest() {
+	if (!oldestDate.value) return
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+	const from = new Date(oldestDate.value + 'T00:00:00')
+	const to = new Date(from)
+	to.setDate(to.getDate() + DEFAULT_RANGE_DAYS - 1)
+	sortAsc.value = true
+	dateFrom.value = from
+	dateTo.value = to > today ? today : to
+}
+
+function jumpToToday() {
+	const today = new Date()
+	today.setHours(0, 0, 0, 0)
+	const from = new Date(today)
+	from.setDate(from.getDate() - (DEFAULT_RANGE_DAYS - 1))
+	sortAsc.value = false
+	dateFrom.value = from
+	dateTo.value = today
+}
+
 function extendEditRange() {
 	if (loading.value) return
 	daysToShow.value += 30
@@ -248,7 +299,10 @@ onBeforeUnmount(() => {
 	scrollObserver?.disconnect()
 })
 
-onMounted(fetchData)
+onMounted(() => {
+	fetchData()
+	if (props.readonly) fetchOldestDates()
+})
 </script>
 
 <template>
@@ -260,10 +314,22 @@ onMounted(fetchData)
 			<NcDateTimePickerNative v-model="dateTo"
 				type="date"
 				label="To" />
-			<NcButton type="secondary"
-				@click="sortAsc = !sortAsc">
-				{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
-			</NcButton>
+			<div :class="$style.sortControl">
+				<label :class="$style.sortLabel" for="tickbuddy-sort-order">Sort order</label>
+				<NcButton id="tickbuddy-sort-order"
+					type="secondary"
+					@click="sortAsc = !sortAsc">
+					{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
+				</NcButton>
+			</div>
+			<div v-if="oldestDate" :class="$style.sortControl">
+				<label :class="$style.sortLabel" for="tickbuddy-jump">Oldest entry: {{ formatDate(oldestDate) }}</label>
+				<NcButton id="tickbuddy-jump"
+					type="secondary"
+					@click="atOldest ? jumpToToday() : jumpToOldest()">
+					{{ atOldest ? 'Jump to today' : 'Jump to oldest' }}
+				</NcButton>
+			</div>
 		</div>
 
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
@@ -337,6 +403,15 @@ onMounted(fetchData)
 	gap: 12px;
 	margin-bottom: 16px;
 	padding-left: 44px;
+}
+
+.sortControl {
+	display: flex;
+	flex-direction: column;
+}
+
+.sortLabel {
+	margin-block-end: 2px;
 }
 
 .empty {
