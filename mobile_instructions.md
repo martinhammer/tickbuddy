@@ -106,6 +106,7 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "export": true,
     "counterTracks": true,
     "privateTracks": true,
+    "tickBounds": true,
     "syncDelta": false,
     "counterIncrement": false
   }
@@ -114,7 +115,7 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Two flags matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Three flags gate optional endpoints: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), plus two that matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -227,6 +228,27 @@ Response `data`:
 
 Only existing ticks are returned. A missing (track, date) pair means "not ticked".
 
+#### `GET /api/ticks/bounds`
+> Requires `features.tickBounds` (§1). On servers without it this route returns `404` — fall back to deriving the same information from a wide `GET /api/ticks` range.
+
+The first and last tick date for each track, aggregated server-side. No params.
+
+Response `data`:
+```json
+[
+  {"trackId": 1, "oldest": "2026-03-07", "newest": "2026-07-28"},
+  {"trackId": 2, "oldest": "2026-05-01", "newest": "2026-05-01"}
+]
+```
+
+Notes:
+- **Tracks with no ticks are omitted** — same sparse convention as the tick list. Don't expect one entry per track, and don't treat a missing entry as an error.
+- Covers **all** tracks in one response; there is no per-track variant. The payload is bounded by the 99-track limit, so it's safe to fetch whole.
+- **Private tracks are included.** As everywhere else in this API, `private` is a display hint, not an access control — filter client-side if the user has private tracks hidden.
+- Cheap: a single indexed aggregate query, no row scan of tick history.
+
+Useful for sizing the initial sync window (don't page back past `oldest`), rendering "member since"-style stats, and showing a jump-to-start affordance without downloading the whole history first.
+
 #### `POST /api/ticks/toggle`
 Toggle a boolean tick. Only for `type=boolean` tracks — returns `400` for counter tracks.
 
@@ -316,6 +338,8 @@ On app open, on pull-to-refresh, and periodically (e.g. every 15 min while foreg
 1. `GET /api/tracks` → reconcile by `server_id` (and fall back to `name` match for rows that have no `server_id` yet because they were created offline). Track rows missing from the response are considered deleted server-side → delete locally unless the local row is `dirty` (then it's a conflict — see below).
 2. `GET /api/ticks?from=X&to=Y` for the visible date range, plus any date range that has `dirty` ticks pending push. Reconcile by `(trackId, date)` — that's the natural key.
 
+> On **first** sync you don't know how far back to go. If `features.tickBounds` is set, one `GET /api/ticks/bounds` (§3) tells you the earliest and latest tick date per track, so you can size the backfill exactly and stop paging when you reach `oldest` instead of walking blindly into empty ranges. Without the flag, page backwards until you hit a few consecutive empty windows and accept the guess.
+
 > When `features.syncDelta` is `true` (§1), a future backend will let you replace step 2's full-window re-download with an incremental "changed since X" pull. Until then, full-range polling is required. One caveat to design for now: because storage is sparse (a removed tick is a *deleted row*, not a zero), any future delta mechanism will need to convey deletions too — don't assume a delta pull can be a simple "rows where modifiedAt > X" over live rows.
 
 ### Push
@@ -395,6 +419,11 @@ curl -u "$USER:$APP_PASS" \
 curl -u "$USER:$APP_PASS" \
   -H "OCS-APIRequest: true" -H "Accept: application/json" \
   "$NC/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-04-01&to=2026-04-30"
+
+# Where does the history start and end? (404 = server predates features.tickBounds)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/apps/tickbuddy/api/ticks/bounds"
 ```
 
 If any of those return HTML, you forgot `OCS-APIRequest: true`.
@@ -417,7 +446,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Handle `type` immutability in UI (no "change type" button)
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
-- [ ] Gate `counterIncrement` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends
+- [ ] Gate `tickBounds` / `counterIncrement` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

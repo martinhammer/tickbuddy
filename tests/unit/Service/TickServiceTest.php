@@ -96,4 +96,23 @@ final class TickServiceTest extends TestCase {
 		$this->expectException(InvalidTrackTypeException::class);
 		$this->service->set($this->userId, 1, '2026-04-11', 5);
 	}
+
+	public function testFindBoundsIsScopedToTheUser(): void {
+		$bounds = [
+			['trackId' => 1, 'oldest' => '2026-03-07', 'newest' => '2026-07-28'],
+			['trackId' => 2, 'oldest' => '2026-05-01', 'newest' => '2026-05-01'],
+		];
+		$this->tickMapper->expects($this->once())
+			->method('findBoundsByUser')
+			->with($this->userId)
+			->willReturn($bounds);
+
+		$this->assertSame($bounds, $this->service->findBounds($this->userId));
+	}
+
+	public function testFindBoundsReturnsEmptyListWhenNoTicks(): void {
+		$this->tickMapper->method('findBoundsByUser')->willReturn([]);
+
+		$this->assertSame([], $this->service->findBounds($this->userId));
+	}
 }

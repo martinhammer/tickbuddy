@@ -21,6 +21,12 @@ interface Tick {
 	value: number
 }
 
+interface TickBounds {
+	trackId: number
+	oldest: string
+	newest: string
+}
+
 const props = defineProps<{
 	showPrivate: boolean
 	readonly?: boolean
@@ -212,13 +218,12 @@ async function fetchData() {
 	}
 }
 
-// One wide fetch to find where each track's history starts
-async function fetchOldestDates() {
-	const response = await axios.get(ticksUrl, { params: { from: '2000-01-01', to: '2099-12-31' } })
+// Where each track's history starts and ends, aggregated server-side
+async function fetchBounds() {
+	const response = await axios.get(`${ticksUrl}/bounds`)
 	const oldest: Record<number, string> = {}
-	for (const tick of response.data.ocs.data as Tick[]) {
-		const current = oldest[tick.trackId]
-		if (!current || tick.date < current) oldest[tick.trackId] = tick.date
+	for (const entry of response.data.ocs.data as TickBounds[]) {
+		oldest[entry.trackId] = entry.oldest
 	}
 	oldestByTrack.value = oldest
 }
@@ -301,7 +306,7 @@ onBeforeUnmount(() => {
 
 onMounted(() => {
 	fetchData()
-	if (props.readonly) fetchOldestDates()
+	if (props.readonly) fetchBounds()
 })
 </script>
 

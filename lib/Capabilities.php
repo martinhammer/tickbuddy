@@ -48,6 +48,7 @@ class Capabilities implements ICapability {
 	 *             export: bool,
 	 *             counterTracks: bool,
 	 *             privateTracks: bool,
+	 *             tickBounds: bool,
 	 *             syncDelta: bool,
 	 *             counterIncrement: bool,
 	 *         },
@@ -66,6 +67,10 @@ class Capabilities implements ICapability {
 					// Track types and per-track privacy flag.
 					'counterTracks' => true,
 					'privateTracks' => true,
+					// GET /api/ticks/bounds — first/last tick date per track.
+					// Absent on older servers, where the route 404s; clients
+					// fall back to deriving bounds from a wide range fetch.
+					'tickBounds' => true,
 					// Known gaps (see CLAUDE.md): no "changed since" delta
 					// endpoint and no commutative counter increment yet.
 					// Flip to true here when the endpoints land.

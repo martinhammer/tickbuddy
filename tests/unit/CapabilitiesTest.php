@@ -44,6 +44,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertTrue($features['export']);
 		$this->assertTrue($features['counterTracks']);
 		$this->assertTrue($features['privateTracks']);
+		$this->assertTrue($features['tickBounds']);
 		// Known gaps, not yet implemented server-side.
 		$this->assertFalse($features['syncDelta']);
 		$this->assertFalse($features['counterIncrement']);

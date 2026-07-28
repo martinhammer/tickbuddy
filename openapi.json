@@ -48,6 +48,7 @@
                                     "export",
                                     "counterTracks",
                                     "privateTracks",
+                                    "tickBounds",
                                     "syncDelta",
                                     "counterIncrement"
                                 ],
@@ -62,6 +63,9 @@
                                         "type": "boolean"
                                     },
                                     "privateTracks": {
+                                        "type": "boolean"
+                                    },
+                                    "tickBounds": {
                                         "type": "boolean"
                                     },
                                     "syncDelta": {
@@ -187,6 +191,26 @@
                     "value": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "TickBounds": {
+                "type": "object",
+                "required": [
+                    "trackId",
+                    "oldest",
+                    "newest"
+                ],
+                "properties": {
+                    "trackId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "oldest": {
+                        "type": "string"
+                    },
+                    "newest": {
+                        "type": "string"
                     }
                 }
             },
@@ -871,6 +895,99 @@
                                                     "type": "array",
                                                     "items": {
                                                         "$ref": "#/components/schemas/Tick"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/ticks/bounds": {
+            "get": {
+                "operationId": "tick-bounds",
+                "summary": "List the first and last tick date for each track",
+                "description": "Tracks that have no ticks are omitted. Includes private tracks; filter them client-side as with the tick list.",
+                "tags": [
+                    "tick"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Bounds returned",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/TickBounds"
                                                     }
                                                 }
                                             }

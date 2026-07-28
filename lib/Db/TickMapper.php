@@ -44,6 +44,44 @@ class TickMapper extends QBMapper {
 	}
 
 	/**
+	 * First and last tick date per track for a user.
+	 *
+	 * Aggregates in the database rather than returning rows: the result is
+	 * bounded by the track limit, while the tick history it summarises is not.
+	 * Tracks without any ticks are absent from the result, matching the sparse
+	 * storage convention. Served index-only by the (user_id, track_id, date)
+	 * unique index.
+	 *
+	 * @return list<array{trackId: int, oldest: string, newest: string}>
+	 */
+	public function findBoundsByUser(string $userId): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('track_id')
+			->selectAlias($qb->func()->min('date'), 'oldest')
+			->selectAlias($qb->func()->max('date'), 'newest')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+			->groupBy('track_id')
+			->orderBy('track_id', 'ASC');
+
+		$result = $qb->executeQuery();
+		/** @var list<array{track_id: mixed, oldest: mixed, newest: mixed}> $rows */
+		$rows = $result->fetchAll();
+		$result->closeCursor();
+
+		$bounds = [];
+		foreach ($rows as $row) {
+			$bounds[] = [
+				'trackId' => (int)$row['track_id'],
+				'oldest' => (string)$row['oldest'],
+				'newest' => (string)$row['newest'],
+			];
+		}
+
+		return $bounds;
+	}
+
+	/**
 	 * @throws DoesNotExistException
 	 */
 	public function findByUserTrackDate(string $userId, int $trackId, string $date): Tick {

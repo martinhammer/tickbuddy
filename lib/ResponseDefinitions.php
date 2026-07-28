@@ -20,6 +20,12 @@ namespace OCA\Tickbuddy;
  *     value: int,
  * }
  *
+ * @psalm-type TickbuddyTickBounds = array{
+ *     trackId: int,
+ *     oldest: string,
+ *     newest: string,
+ * }
+ *
  * @psalm-type TickbuddyImportResult = array{
  *     tracks: int,
  *     ticks: int,

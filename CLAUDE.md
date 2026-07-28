@@ -70,6 +70,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 
 **Ticks** (`TickController`):
 - `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD` — fetch ticks in date range
+- `GET /api/ticks/bounds` — first/last tick date per track, `[{trackId, oldest, newest}]`. Aggregated in SQL (`MIN`/`MAX` with `GROUP BY track_id`, served by the `(user_id, track_id, date)` unique index) so clients never download whole tick histories just to find where they start. Tracks with no ticks are **omitted** rather than returned with nulls, per the sparse storage convention. Covers all tracks in one response rather than taking a `trackId`: the response is bounded by the 99-track limit, whereas a per-track variant would mean N requests to answer "oldest across all tracks". Private tracks are included — `private` hides tracks in the UI, it is not an authorization boundary, so clients filter it exactly as they do for the tick list.
 - `POST /api/ticks/toggle` — toggle boolean tick `{trackId, date}`
 - `POST /api/ticks/set` — set counter value `{trackId, date, value}`
 
@@ -83,7 +84,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `GET /api/export?includePrivate=bool` — export all data as JSON
 
 **Capabilities** (`Capabilities`, not an OCS controller):
-- `GET /ocs/v2.php/cloud/capabilities` — core Nextcloud endpoint, not under `/apps/tickbuddy`. Returns `data.capabilities.tickbuddy = {version, apiVersion, features{...}}`. Readable by any authenticated user (app password works). Clients (the mobile app) read this on connect to discover the installed version and which optional API features exist, instead of version-sniffing. `apiVersion` (`Capabilities::API_VERSION`) tracks the client-facing API contract; bump it on a breaking change. Feature flags default the two "known gaps" below to `false` — flip them to `true` here when the endpoints land.
+- `GET /ocs/v2.php/cloud/capabilities` — core Nextcloud endpoint, not under `/apps/tickbuddy`. Returns `data.capabilities.tickbuddy = {version, apiVersion, features{...}}`. Readable by any authenticated user (app password works). Clients (the mobile app) read this on connect to discover the installed version and which optional API features exist, instead of version-sniffing. `apiVersion` (`Capabilities::API_VERSION`) tracks the client-facing API contract; bump it on a breaking change. Feature flags default the two "known gaps" below to `false` — flip them to `true` here when the endpoints land. **Any optional endpoint clients may call needs a flag**: additive routes don't bump `apiVersion`, so a flag is the only way a client can tell an endpoint exists rather than discovering it via a 404 (`tickBounds` is the worked example — see `mobile_instructions.md` §1/§3 for the flag + fallback pattern).
 
 ## Build & Dev Commands
 

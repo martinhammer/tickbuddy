@@ -24,6 +24,19 @@ class TickService {
 	}
 
 	/**
+	 * First and last tick date per track. Tracks with no ticks are omitted.
+	 *
+	 * Private tracks are included — `private` hides tracks in the UI, it is not
+	 * an authorization boundary, so clients filter it the same way they do for
+	 * {@see findByDateRange}.
+	 *
+	 * @return list<array{trackId: int, oldest: string, newest: string}>
+	 */
+	public function findBounds(string $userId): array {
+		return $this->tickMapper->findBoundsByUser($userId);
+	}
+
+	/**
 	 * Toggle a boolean track tick. Returns true if the tick now exists, false if removed.
 	 *
 	 * @throws DoesNotExistException if track not found

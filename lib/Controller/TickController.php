@@ -18,6 +18,7 @@ use OCP\IRequest;
 
 /**
  * @psalm-import-type TickbuddyTick from ResponseDefinitions
+ * @psalm-import-type TickbuddyTickBounds from ResponseDefinitions
  *
  * @psalm-suppress UnusedClass
  */
@@ -57,6 +58,22 @@ class TickController extends OCSController {
 	public function index(string $from = '', string $to = ''): DataResponse {
 		$ticks = $this->tickService->findByDateRange($this->userId, $from, $to);
 		return new DataResponse(array_values(array_map(fn (Tick $t) => $this->serializeTick($t), $ticks)));
+	}
+
+	/**
+	 * List the first and last tick date for each track
+	 *
+	 * Tracks that have no ticks are omitted. Includes private tracks; filter
+	 * them client-side as with the tick list.
+	 *
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTickBounds>, array{}>
+	 *
+	 * 200: Bounds returned
+	 */
+	#[NoAdminRequired]
+	#[ApiRoute(verb: 'GET', url: '/api/ticks/bounds')]
+	public function bounds(): DataResponse {
+		return new DataResponse($this->tickService->findBounds($this->userId));
 	}
 
 	/**
