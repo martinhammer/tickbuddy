@@ -27,7 +27,7 @@ This is a personal hobby project which I am using to learn about Nextcloud app d
 
 Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem, so I am hoping others will find this useful.
 
-### Found a bug? Do you have some suggestions of a feature request?
+### Found a bug? Do you have some suggestions or a feature request?
 
 Feel free to get in touch and/or submit an issue.
 
@@ -40,7 +40,7 @@ Edit journal screen
 ![Screenshot of edit journal screen](img/Edit_20260724.png)
 
 View journal screen
-![Screenshot of view journal screen](img/View_20260724.png)
+![Screenshot of view journal screen](img/View_20260729.png)
 
 Analytics screen
 ![Screenshot of analytics screen](img/Analytics_20260724_01.png)

@@ -9,9 +9,9 @@ Tickbuddy is a daily habit tracker.
 
 The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
-Tickbuddy was inspired by the Android app Tickmate, which is no longer actively maintained. Tickbuddy comes with its own Android companion app Tickdroid which has been submitted to the F-Droid app store.
+Tickbuddy comes with its own Android companion app Tickdroid which has been submitted to the F-Droid app store.
 	]]></description>
-	<version>1.0.7</version>
+	<version>1.1.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
@@ -20,9 +20,9 @@ Tickbuddy was inspired by the Android app Tickmate, which is no longer actively 
 	<website>https://github.com/martinhammer/tickbuddy</website>
 	<bugs>https://github.com/martinhammer/tickbuddy</bugs>
 	<repository type="git">https://github.com/martinhammer/tickbuddy</repository>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Edit_20260423.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/View_20260423.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20260511_01.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Edit_20260724.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/View_20260729.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20260724_01.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="32" max-version="35"/>
 	</dependencies>
