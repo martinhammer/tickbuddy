@@ -272,7 +272,7 @@ onMounted(() => {
 				:clearable="false"
 				input-label="Track type"
 				:class="$style.typeSelect" />
-			<NcButton type="primary"
+			<NcButton variant="primary"
 				:disabled="!newTrackName.trim()"
 				:class="$style.addButton"
 				@click="addTrack">
@@ -322,7 +322,7 @@ onMounted(() => {
 						<label :for="`private-${track.id}`" />
 					</td>
 					<td>
-						<NcButton type="tertiary-no-background"
+						<NcButton variant="tertiary-no-background"
 							aria-label="Delete track"
 							@click="deleteTrack(track)">
 							Delete
@@ -357,7 +357,7 @@ onMounted(() => {
 				type="switch">
 				Include private tracks
 			</NcCheckboxRadioSwitch>
-			<NcButton type="secondary"
+			<NcButton variant="secondary"
 				:disabled="exporting"
 				@click="doExport">
 				{{ exporting ? 'Exporting...' : 'Export as JSON' }}
@@ -389,17 +389,17 @@ onMounted(() => {
 			:class="$style.hiddenFileInput"
 			@change="onJsonFileChange">
 		<div :class="$style.importButtons">
-			<NcButton type="secondary"
+			<NcButton variant="secondary"
 				@click="chooseJsonFile">
 				{{ importFormat === 'json' ? importFileName : 'Tickbuddy backup file (.json)' }}
 			</NcButton>
-			<NcButton type="secondary"
+			<NcButton variant="secondary"
 				@click="chooseTickmateFile">
 				{{ importFormat === 'tickmate' ? importFileName : 'Tickmate backup file (.db)' }}
 			</NcButton>
 		</div>
 
-		<NcButton type="primary"
+		<NcButton variant="primary"
 			:disabled="!importFile || importing"
 			:class="$style.importAction"
 			@click="doImport">

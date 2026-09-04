@@ -5,6 +5,7 @@ import { getLocale, getFirstDay } from '@nextcloud/l10n'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcButton from '@nextcloud/vue/components/NcButton'
+import type { ChartOptions } from 'chart.js'
 import { Line, PolarArea } from 'vue-chartjs'
 import {
 	Chart as ChartJS,
@@ -393,6 +394,54 @@ const streaksBreaksData = computed(() => {
 	const labels = runs.map((_, i) => String(i + 1))
 	const color = primaryColor.value
 
+	const options: ChartOptions<'line'> = {
+		responsive: true,
+		maintainAspectRatio: false,
+		plugins: {
+			legend: { display: false },
+			tooltip: {
+				callbacks: {
+					title: (items: any[]) => {
+						const r = runs[items[0].dataIndex]
+						return r.isStreak ? 'Streak' : 'Break'
+					},
+					label: (item: any) => {
+						const r = runs[item.dataIndex]
+						const dates = r.from === r.to ? r.from : `${r.from} – ${r.to}`
+						return `${r.length} day(s) ${dates}`
+					},
+				},
+			},
+			zoom: {
+				// modifierKey is omitted: the plugin already defaults it to null,
+				// i.e. panning needs no modifier key held.
+				pan: {
+					enabled: true,
+					mode: 'x',
+				},
+				zoom: {
+					wheel: { enabled: true, speed: 0.1 },
+					pinch: { enabled: true },
+					drag: { enabled: false },
+					mode: 'x',
+				},
+				limits: {
+					x: { min: 'original', max: 'original', minRange: 3 },
+				},
+			},
+		},
+		scales: {
+			y: {
+				position: 'left',
+				ticks: {
+					precision: 0,
+					callback: (v: number | string) => Math.abs(Number(v)),
+				},
+			},
+			x: { display: false },
+		},
+	}
+
 	return {
 		data: {
 			labels,
@@ -409,52 +458,7 @@ const streaksBreaksData = computed(() => {
 				tension: 0.3,
 			}],
 		},
-		options: {
-			responsive: true,
-			maintainAspectRatio: false,
-			plugins: {
-				legend: { display: false },
-				tooltip: {
-					callbacks: {
-						title: (items: any[]) => {
-							const r = runs[items[0].dataIndex]
-							return r.isStreak ? 'Streak' : 'Break'
-						},
-						label: (item: any) => {
-							const r = runs[item.dataIndex]
-							const dates = r.from === r.to ? r.from : `${r.from} – ${r.to}`
-							return `${r.length} day(s) ${dates}`
-						},
-					},
-				},
-				zoom: {
-					pan: {
-						enabled: true,
-						mode: 'x',
-						modifierKey: null,
-					},
-					zoom: {
-						wheel: { enabled: true, speed: 0.1 },
-						pinch: { enabled: true },
-						drag: { enabled: false },
-						mode: 'x',
-					},
-					limits: {
-						x: { min: 'original', max: 'original', minRange: 3 },
-					},
-				},
-			},
-			scales: {
-				y: {
-					position: 'left',
-					ticks: {
-						precision: 0,
-						callback: (v: number) => Math.abs(v),
-					},
-				},
-				x: { display: false },
-			},
-		},
+		options,
 	}
 })
 

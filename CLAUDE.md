@@ -30,6 +30,7 @@ Key conventions:
 - **First day of week** comes from `getFirstDay()` (`@nextcloud/l10n`), stored as `localeFirstDay` (0=Sun..6=Sat). This reads Nextcloud's server-injected `window.firstDay`, so it is **consistent across browsers** — do **not** revert to calling `Intl.Locale` week-info directly (Chromium exposes the `weekInfo` property, Firefox only the `getWeekInfo()` method, and they disagree on region-less locales).
 - Chart accent colour is read from the `--color-primary-element` CSS variable (`getPrimaryColor`) and tinted via `hexToRgba`, so charts follow the Nextcloud theme.
 - Remember sparse storage: a missing day means zero/not-ticked, which the client-side date walks must fill in (they do not assume a row per day).
+- **Chart.js option objects need an explicit `ChartOptions<'line'>` (or `<'polarArea'>`) annotation**, as `streaksBreaksData` does. Without one, TS infers `mode: 'x'` as `string` and `min: 'original'` as `string`, which are not assignable to Chart.js's narrow unions, so the `:options` binding fails `npm run typecheck`. The same annotation forces axis `ticks.callback` to accept `number | string` (Chart.js's declared signature) even where a linear scale only ever passes numbers.
 
 ### Backend layers
 
@@ -94,6 +95,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `npm run watch` — development build with file watching
 - `npm run lint` — ESLint
 - `npm run stylelint` — Stylelint for Vue/SCSS/CSS
+- `npm run typecheck` — `vue-tsc --noEmit`, type-checks `.ts` **and `.vue` templates**
 
 ### Backend (composer)
 - `composer lint` — PHP syntax check
@@ -119,7 +121,16 @@ vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests
 - App ID constant: `Application::APP_ID` (`'tickbuddy'`)
 - All PHP files use `declare(strict_types=1)`
 - Psalm runs at error level 1 with `findUnusedCode` enabled; suppress unused classes injected by Nextcloud with `@psalm-suppress UnusedClass`
-- Node version: 20 (`.nvmrc`)
+- Node version: 24 — `.nvmrc` and `package.json` `engines` must stay in step; CI reads the version from `engines` (the `fallbackNode: '^20'` in the workflows only applies if `engines` is absent)
+
+### Frontend checks and `@nextcloud/vue` gotchas
+
+`npm run typecheck` is the only check that sees third-party component prop types — ESLint cannot, because no rule reads `@nextcloud/vue`'s type definitions. CI runs it via `.github/workflows/lint-typecheck.yml` (mirrors `lint-eslint.yml`: same pinned action SHAs, same `paths-filter` gate, same summary job for branch protection). **Run it after every `@nextcloud/vue` bump** — that is the class of breakage it exists to catch. It does **not** catch CSS or layout regressions; those need a look at the running app.
+
+Breakages already hit, kept here so they are not reintroduced:
+
+- **`NcButton` colour is `variant`, not `type`.** v9 removed the fallback: `type` is now the native HTML button type (`button`/`submit`/`reset`) and `variant` takes `primary` / `secondary` / `tertiary` / `tertiary-no-background` / …. The same applies to `NcActions` and `NcDialogButton`. `type="primary"` fails silently — the button renders in the default `secondary` variant and emits an invalid HTML `type` attribute.
+- **`NcDateTimePickerNative` renders an `NcInputField` since 9.10**, whose root `.input-field` is `width: 100%`. As a flex child it claims the whole row, so the View journal toolbar wraps each picker in a fixed-width `.dateControl` div (`TickGrid.vue`). Putting a width class on the component itself does not work: `.input-field` is scoped with an attribute selector and outranks a plain class. The same rewrite moved the field label inside the border, which is why the toolbar's buttons carry no `<label>` — the jump button's date hint is a native `title` tooltip instead (`@nextcloud/vue` v9 ships no Tooltip directive).
 
 ## Known gaps / future work
 

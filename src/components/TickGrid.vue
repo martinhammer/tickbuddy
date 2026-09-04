@@ -323,12 +323,12 @@ onMounted(() => {
 					type="date"
 					label="To" />
 			</div>
-			<NcButton type="secondary"
+			<NcButton variant="secondary"
 				@click="sortAsc = !sortAsc">
 				{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
 			</NcButton>
 			<NcButton v-if="oldestDate"
-				type="secondary"
+				variant="secondary"
 				:title="`Oldest entry: ${formatDate(oldestDate)}`"
 				@click="atOldest ? jumpToToday() : jumpToOldest()">
 				{{ atOldest ? 'Jump to today' : 'Jump to oldest' }}
