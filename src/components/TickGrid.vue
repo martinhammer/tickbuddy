@@ -313,28 +313,26 @@ onMounted(() => {
 <template>
 	<div :class="$style.gridWrapper">
 		<div v-if="readonly && visibleTracks.length > 0" :class="$style.toolbar">
-			<NcDateTimePickerNative v-model="dateFrom"
-				type="date"
-				label="From" />
-			<NcDateTimePickerNative v-model="dateTo"
-				type="date"
-				label="To" />
-			<div :class="$style.sortControl">
-				<label :class="$style.sortLabel" for="tickbuddy-sort-order">Sort order</label>
-				<NcButton id="tickbuddy-sort-order"
-					type="secondary"
-					@click="sortAsc = !sortAsc">
-					{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
-				</NcButton>
+			<div :class="$style.dateControl">
+				<NcDateTimePickerNative v-model="dateFrom"
+					type="date"
+					label="From" />
 			</div>
-			<div v-if="oldestDate" :class="$style.sortControl">
-				<label :class="$style.sortLabel" for="tickbuddy-jump">Oldest entry: {{ formatDate(oldestDate) }}</label>
-				<NcButton id="tickbuddy-jump"
-					type="secondary"
-					@click="atOldest ? jumpToToday() : jumpToOldest()">
-					{{ atOldest ? 'Jump to today' : 'Jump to oldest' }}
-				</NcButton>
+			<div :class="$style.dateControl">
+				<NcDateTimePickerNative v-model="dateTo"
+					type="date"
+					label="To" />
 			</div>
+			<NcButton type="secondary"
+				@click="sortAsc = !sortAsc">
+				{{ sortAsc ? '↑ Oldest first' : '↓ Newest first' }}
+			</NcButton>
+			<NcButton v-if="oldestDate"
+				type="secondary"
+				:title="`Oldest entry: ${formatDate(oldestDate)}`"
+				@click="atOldest ? jumpToToday() : jumpToOldest()">
+				{{ atOldest ? 'Jump to today' : 'Jump to oldest' }}
+			</NcButton>
 		</div>
 
 		<p v-if="!loading && tracks.length === 0" :class="$style.empty">
@@ -410,13 +408,14 @@ onMounted(() => {
 	padding-left: 44px;
 }
 
-.sortControl {
-	display: flex;
-	flex-direction: column;
-}
-
-.sortLabel {
-	margin-block-end: 2px;
+/*
+ * NcDateTimePickerNative renders an NcInputField, whose root is width: 100%.
+ * As a flex child that makes each picker claim the whole toolbar, so pin them
+ * to a fixed width instead.
+ */
+.dateControl {
+	flex: 0 0 auto;
+	width: 180px;
 }
 
 .empty {
