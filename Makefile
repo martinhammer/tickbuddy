@@ -67,6 +67,7 @@ lint:
 	composer cs:check
 	npm run lint
 	npm run stylelint
+	npm run typecheck
 
 .PHONY: test
 test:

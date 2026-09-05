@@ -32,6 +32,10 @@ const props = defineProps<{
 	readonly?: boolean
 }>()
 
+const emit = defineEmits<{
+	'select-track': [trackId: number]
+}>()
+
 const tracks = ref<Track[]>([])
 const ticks = ref<Tick[]>([])
 const loading = ref(false)
@@ -346,7 +350,13 @@ onMounted(() => {
 				<tr>
 					<th :class="$style.dateHeader" />
 					<th v-for="track in visibleTracks" :key="track.id" :class="$style.trackHeader">
-						{{ track.name }}
+						<NcButton variant="tertiary"
+							size="small"
+							:class="$style.trackHeaderButton"
+							:title="`Show analytics for ${track.name}`"
+							@click="emit('select-track', track.id)">
+							{{ track.name }}
+						</NcButton>
 					</th>
 				</tr>
 			</thead>
@@ -439,10 +449,18 @@ onMounted(() => {
 	position: sticky;
 	top: 0;
 	background: var(--color-main-background);
-	padding: 8px;
+	/* The header button brings its own padding and bold text, so the cell only
+	   needs enough room to keep columns from touching. */
+	padding: 2px;
 	text-align: center;
 	font-weight: bold;
 	white-space: nowrap;
+}
+
+/* NcButton's root is a block-level flex box with width: fit-content, so the
+   cell's text-align: center does not apply to it — centre it with auto margins. */
+.trackHeaderButton {
+	margin-inline: auto;
 }
 
 .weekendRow {

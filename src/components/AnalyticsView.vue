@@ -41,6 +41,11 @@ interface Tick {
 
 const props = defineProps<{
 	showPrivate: boolean
+	trackId?: number | null
+}>()
+
+const emit = defineEmits<{
+	'update:trackId': [trackId: number | null]
 }>()
 
 const tracks = ref<Track[]>([])
@@ -58,10 +63,26 @@ const trackOptions = computed(() => {
 	return list.map(t => ({ id: t.id, label: t.name }))
 })
 
+// The track to show when nothing valid is selected: the one handed in from a
+// journal column header if it is available, else the first one.
+function resolveTrack(options: { id: number; label: string }[]) {
+	return options.find(o => o.id === props.trackId) ?? options[0] ?? null
+}
+
+// The URL can name a different track while this view stays mounted (history
+// traversal, or a hand-edited hash), so follow the prop when it changes.
+watch(() => props.trackId, (trackId) => {
+	if (trackId == null || selectedTrack.value?.id === trackId) return
+	const option = trackOptions.value.find(o => o.id === trackId)
+	if (option) {
+		selectedTrack.value = option
+	}
+})
+
 // When available tracks change (e.g. private toggle), ensure selection is still valid
 watch(trackOptions, (options) => {
 	if (!selectedTrack.value || !options.some(o => o.id === selectedTrack.value!.id)) {
-		selectedTrack.value = options.length > 0 ? options[0] : null
+		selectedTrack.value = resolveTrack(options)
 	}
 })
 
@@ -933,15 +954,14 @@ async function fetchTicks() {
 	}
 }
 
-watch(selectedTrack, () => {
+watch(selectedTrack, (track) => {
+	emit('update:trackId', track?.id ?? null)
 	fetchTicks()
 })
 
 onMounted(async () => {
 	await fetchTracks()
-	if (trackOptions.value.length > 0) {
-		selectedTrack.value = trackOptions.value[0]
-	}
+	selectedTrack.value = resolveTrack(trackOptions.value)
 })
 </script>
 
