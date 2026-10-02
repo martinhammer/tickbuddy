@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from '@nextcloud/axios'
-import { showConfirmation } from '@nextcloud/dialogs'
+import { showConfirmation, showError, showSuccess } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
@@ -10,6 +10,10 @@ import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
+// Toasts are a Vue component with hashed CSS-module class names since @nextcloud/dialogs 7,
+// so the server's own stylesheets cannot style them — the app must ship this itself.
+import '@nextcloud/dialogs/style.css'
+import { ocsErrorMessage } from '../ocsError.ts'
 
 interface Track {
 	id: number
@@ -45,7 +49,6 @@ const importFile = ref<File | null>(null)
 const importFileName = ref('')
 const importFormat = ref<'tickmate' | 'json' | null>(null)
 const importing = ref(false)
-const importResult = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 const tickmateInputRef = ref<HTMLInputElement | null>(null)
 const jsonInputRef = ref<HTMLInputElement | null>(null)
 
@@ -73,7 +76,13 @@ async function addTrack() {
 	const params = new URLSearchParams()
 	params.append('name', name)
 	params.append('type', newTrackType.value.id)
-	await axios.post(apiUrl, params)
+	try {
+		await axios.post(apiUrl, params)
+	} catch (e) {
+		// Keep the typed name and type so the user can correct and retry.
+		showError(ocsErrorMessage(e, 'Could not add track'))
+		return
+	}
 	newTrackName.value = ''
 	newTrackType.value = trackTypeOptions[0]
 	await fetchTracks()
@@ -87,7 +96,12 @@ async function confirmDeleteTrack() {
 	const track = trackPendingDelete.value
 	if (!track) return
 	trackPendingDelete.value = null
-	await axios.delete(`${apiUrl}/${track.id}`)
+	try {
+		await axios.delete(`${apiUrl}/${track.id}`)
+		showSuccess(`Deleted track "${track.name}".`)
+	} catch (e) {
+		showError(ocsErrorMessage(e, `Could not delete track "${track.name}"`))
+	}
 	await fetchTracks()
 }
 
@@ -103,16 +117,32 @@ async function saveName(track: Track) {
 
 	const params = new URLSearchParams()
 	params.append('name', trimmed)
-	await axios.put(`${apiUrl}/${track.id}`, params)
-	track.name = trimmed
+	try {
+		await axios.put(`${apiUrl}/${track.id}`, params)
+		track.name = trimmed
+	} catch (e) {
+		// The row already fell back to showing the old name, so there is nothing to revert.
+		showError(ocsErrorMessage(e, `Could not rename track "${track.name}"`))
+	}
 }
 
-async function togglePrivate(track: Track) {
+async function togglePrivate(track: Track, event: Event) {
 	const newValue = !track.private
 	const params = new URLSearchParams()
 	params.append('private', String(newValue))
-	await axios.put(`${apiUrl}/${track.id}`, params)
-	track.private = newValue
+	try {
+		await axios.put(`${apiUrl}/${track.id}`, params)
+		track.private = newValue
+	} catch (e) {
+		// The native checkbox flipped itself on click. `track.private` is unchanged, so the
+		// rendered `:checked` prop is unchanged too and Vue patches nothing — the box would
+		// stay visually flipped against the stored value. Put it back by hand.
+		const input = event.target as HTMLInputElement | null
+		if (input) {
+			input.checked = track.private
+		}
+		showError(ocsErrorMessage(e, `Could not update privacy for track "${track.name}"`))
+	}
 }
 
 function onDragStart(index: number, event: DragEvent) {
@@ -146,8 +176,16 @@ async function onDrop(toIndex: number) {
 	const trackIds = tracks.value.map(t => t.id)
 	const params = new URLSearchParams()
 	trackIds.forEach(id => params.append('trackIds[]', String(id)))
-	const response = await axios.put(`${apiUrl}/reorder`, params)
-	tracks.value = response.data.ocs.data
+	try {
+		const response = await axios.put(`${apiUrl}/reorder`, params)
+		tracks.value = response.data.ocs.data
+	} catch (e) {
+		// The move above was applied optimistically; undo it so the list cannot show an
+		// order the server rejected.
+		tracks.value.splice(toIndex, 1)
+		tracks.value.splice(fromIndex, 0, moved)
+		showError(ocsErrorMessage(e, 'Could not save the new track order'))
+	}
 }
 
 function onDragEnd() {
@@ -165,10 +203,17 @@ async function fetchPreferences() {
 }
 
 async function saveDefaultView(option: { id: string; label: string }) {
+	const previous = defaultView.value
 	defaultView.value = option
 	const params = new URLSearchParams()
 	params.append('defaultView', option.id)
-	await axios.put(prefsUrl, params)
+	try {
+		await axios.put(prefsUrl, params)
+		showSuccess(`Default screen set to "${option.label}".`)
+	} catch (e) {
+		defaultView.value = previous
+		showError(ocsErrorMessage(e, 'Could not save the default screen'))
+	}
 }
 
 function onTickmateFileChange(event: Event) {
@@ -177,7 +222,6 @@ function onTickmateFileChange(event: Event) {
 	importFile.value = file
 	importFileName.value = file?.name ?? ''
 	importFormat.value = file ? 'tickmate' : null
-	importResult.value = null
 }
 
 function onJsonFileChange(event: Event) {
@@ -186,7 +230,6 @@ function onJsonFileChange(event: Event) {
 	importFile.value = file
 	importFileName.value = file?.name ?? ''
 	importFormat.value = file ? 'json' : null
-	importResult.value = null
 }
 
 function chooseTickmateFile() {
@@ -210,7 +253,6 @@ async function doImport() {
 	}
 
 	importing.value = true
-	importResult.value = null
 	try {
 		const formData = new FormData()
 		formData.append('file', importFile.value)
@@ -220,14 +262,10 @@ async function doImport() {
 			: generateOcsUrl('/apps/tickbuddy/api/import')
 		const response = await axios.post(url, formData)
 		const data = response.data.ocs.data
-		importResult.value = {
-			type: 'success',
-			message: `Imported ${data.tracks} tracks and ${data.ticks} ticks.`,
-		}
+		showSuccess(`Imported ${data.tracks} tracks and ${data.ticks} ticks.`)
 		await fetchTracks()
-	} catch (e: any) {
-		const message = e.response?.data?.ocs?.data?.message ?? e.message ?? 'Import failed'
-		importResult.value = { type: 'error', message }
+	} catch (e) {
+		showError(ocsErrorMessage(e, 'Import failed'))
 	} finally {
 		importing.value = false
 	}
@@ -248,6 +286,9 @@ async function doExport() {
 		a.download = `tickbuddy-export-${new Date().toISOString().slice(0, 10)}.json`
 		a.click()
 		URL.revokeObjectURL(url)
+		showSuccess('Export downloaded.')
+	} catch (e) {
+		showError(ocsErrorMessage(e, 'Export failed'))
 	} finally {
 		exporting.value = false
 	}
@@ -318,7 +359,7 @@ onMounted(() => {
 							type="checkbox"
 							class="checkbox"
 							:checked="track.private"
-							@change="togglePrivate(track)">
+							@change="togglePrivate(track, $event)">
 						<label :for="`private-${track.id}`" />
 					</td>
 					<td>
@@ -405,11 +446,6 @@ onMounted(() => {
 			@click="doImport">
 			{{ importing ? 'Importing...' : 'Import' }}
 		</NcButton>
-
-		<p v-if="importResult"
-			:class="importResult.type === 'success' ? $style.importSuccess : $style.importError">
-			{{ importResult.message }}
-		</p>
 	</NcSettingsSection>
 
 	<NcDialog v-if="trackPendingDelete"
@@ -524,17 +560,5 @@ onMounted(() => {
 	color: var(--color-text-maxcontrast);
 	margin-top: 4px;
 	padding-left: 56px;
-}
-
-.importSuccess {
-	color: var(--color-success-text);
-	font-weight: bold;
-	margin-top: 12px;
-}
-
-.importError {
-	color: var(--color-error-text);
-	font-weight: bold;
-	margin-top: 12px;
 }
 </style>
