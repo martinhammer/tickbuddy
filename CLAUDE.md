@@ -114,7 +114,7 @@ vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests
 
 ## Demo data
 
-`demo/` holds a ready-made dataset (`tickbuddy-demo-data.json`, JSON import format) for screenshots and manual testing, plus `generate-demo-data.py` — a stdlib-only Python generator that produced it (`python3 demo/generate-demo-data.py`). Regenerate the JSON from the script if you change either, so they stay in sync. See `demo/README.md`.
+`demo/` holds a ready-made dataset (`tickbuddy-demo-data.json`, JSON import format) for screenshots and manual testing, plus `generate-demo-data.py` — a stdlib-only Python generator that produced it (`python3 demo/generate-demo-data.py`). Regenerate the JSON from the script if you change either, so they stay in sync.
 
 ## Key Conventions
 

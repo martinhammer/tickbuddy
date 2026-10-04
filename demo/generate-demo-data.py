@@ -2,16 +2,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Generate a somewhat realistic Tickbuddy demo dataset (JSON import format, version 1).
 
-The dataset tells a small, positive story over ~4.6 years: someone quitting
+The dataset tells a small, positive story over a few years (by default from
+2022-01-01 up to today): someone quitting
 smoking (with believable relapses, but trending the right way) while building
 an exercise habit, cutting down on sweets, and keeping their coffee steady.
+Partway in they also take up daily affirmations, and slowly win back their
+evenings from doomscrolling.
 
 Storage is sparse, matching the app: boolean tracks emit a row only on "yes"
 days; counter tracks emit a row only when the value is >= 1 (a zero means "no
 row"). All track/tick shapes follow lib/Service/ImportService::importJson().
 
 Usage:
-    python3 generate-demo-data.py                 # writes tickbuddy-demo-data.json next to this script
+    python3 generate-demo-data.py                 # writes tickbuddy-demo-data.json next to this script, ending today
     python3 generate-demo-data.py --seed 7        # a different-looking grid
     python3 generate-demo-data.py --start 2020-01-01 --end 2024-12-31
     python3 generate-demo-data.py --out /tmp/my-demo.json
@@ -33,8 +36,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--start", type=date.fromisoformat, default=date(2022, 1, 1),
                    help="First day (inclusive), YYYY-MM-DD.")
-    p.add_argument("--end", type=date.fromisoformat, default=date(2026, 7, 23),
-                   help="Last day (inclusive), YYYY-MM-DD.")
+    p.add_argument("--end", type=date.fromisoformat, default=date.today(),
+                   help="Last day (inclusive), YYYY-MM-DD. Defaults to today.")
     p.add_argument("--seed", type=int, default=42,
                    help="Random seed; the same seed reproduces the same dataset.")
     p.add_argument("--out", type=Path,
@@ -70,7 +73,13 @@ TRACKS = [
     {"name": "Exercise", "type": "boolean", "sortOrder": 3, "private": False},
     {"name": "Made someone smile", "type": "boolean", "sortOrder": 4, "private": False},
     {"name": "Sweets", "type": "counter", "sortOrder": 5, "private": False},
+    {"name": "Affirmations", "type": "boolean", "sortOrder": 6, "private": False},
+    {"name": "Zero doomscrolling", "type": "boolean", "sortOrder": 7, "private": False},
 ]
+
+# Affirmations are taken up during the first serious quit attempt, so the track
+# has no history before this point (fraction of the whole range).
+AFFIRMATIONS_START = 0.28
 
 
 def lerp(a: float, b: float, t: float) -> float:
@@ -88,6 +97,11 @@ def generate(start: date, end: date, seed: int) -> dict:
     if end < start:
         raise SystemExit("--end must not be before --start")
     random.seed(seed)
+    # The later tracks draw from their own stream, so adding them left the
+    # original five tracks' ticks unchanged for a given seed.
+    habits = random.Random(seed + 1)
+    affirmed_yesterday = False
+    scrolled_yesterday = True
 
     days = []
     d = start
@@ -143,6 +157,40 @@ def generate(start: date, end: date, seed: int) -> dict:
         craving = (1 - sp) * (1 - f) * 1.8
         add("Sweets", day, min(5, max(0, round(random.gauss(sweets_mean + craving, 1.1)))))
 
+        # Affirmations: none before they're taken up, then a streaky habit (a
+        # day done makes the next more likely) that firms up over time. The
+        # streak bonus lifts the realised rate above the base, so a 0.73 base
+        # peaks at roughly 80% of days.
+        affirmed = False
+        if f >= AFFIRMATIONS_START:
+            af_p = lerp(0.35, 0.73, (f - AFFIRMATIONS_START) / (1 - AFFIRMATIONS_START))
+            af_p += 0.15 if affirmed_yesterday else -0.10
+            if weekend:
+                af_p -= 0.08              # routines slip at weekends
+            affirmed = habits.random() < min(0.95, max(0.05, af_p))
+            if affirmed:
+                add("Affirmations", day)
+        affirmed_yesterday = affirmed
+
+        # Zero doomscrolling ("yes" = a clean day): rare at first, improving
+        # steadily. Worse at weekends and on smoking (stress) days; better on
+        # exercise and affirmation days. Bad nights tend to come in runs.
+        nd_p = lerp(0.12, 0.65, f)
+        if weekend:
+            nd_p -= 0.12
+        if smoked:
+            nd_p -= 0.08
+        if exercised:
+            nd_p += 0.08
+        if affirmed:
+            nd_p += 0.06
+        if scrolled_yesterday:
+            nd_p -= 0.08
+        clean = habits.random() < min(0.9, max(0.03, nd_p))
+        if clean:
+            add("Zero doomscrolling", day)
+        scrolled_yesterday = not clean
+
     return {
         "version": 1,
         "exportedAt": date.today().isoformat() + "T09:00:00+00:00",
@@ -165,12 +213,14 @@ def print_summary(data: dict, start: date, end: date) -> None:
 
     print(f"Range: {start} .. {end}  ({days} days)")
     print(f"Total tick rows: {len(data['ticks'])}")
-    print(f"{'year':6}{'days':>6}{'smoke%':>8}{'exercise%':>11}")
+    print(f"{'year':6}{'days':>6}{'smoke%':>8}{'exercise%':>11}{'affirm%':>9}{'nodoom%':>9}")
     for y in sorted(per_year_days):
         dd = per_year_days[y]
         smoke = 100 * counts[("Smoking", y)] / dd
         ex = 100 * counts[("Exercise", y)] / dd
-        print(f"{y:<6}{dd:>6}{smoke:>7.0f}%{ex:>10.0f}%")
+        affirm = 100 * counts[("Affirmations", y)] / dd
+        nodoom = 100 * counts[("Zero doomscrolling", y)] / dd
+        print(f"{y:<6}{dd:>6}{smoke:>7.0f}%{ex:>10.0f}%{affirm:>8.0f}%{nodoom:>8.0f}%")
 
 
 def main() -> None:
