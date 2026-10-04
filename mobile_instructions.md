@@ -3,7 +3,7 @@
 Handoff document for building an Android companion app that syncs to the Tickbuddy Nextcloud backend. This file is the single source of truth for the HTTP API, data model, auth, and sync semantics. If anything here contradicts the code, the code wins — re-read `lib/Controller/*.php` and `lib/Service/*.php` and update this doc.
 
 Backend repo: https://github.com/martinhammer/Tickbuddy
-Nextcloud compatibility: 32–34
+Nextcloud compatibility: 33–36
 Backend version at time of writing: 1.0.6
 
 > Don't hardcode that version — the app now advertises its version and feature set at runtime through the Nextcloud capabilities endpoint. Read it on connect; see §1 "Capability & version discovery".
