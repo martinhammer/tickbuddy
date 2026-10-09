@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
 			</NcButton>
 		</div>
 
-		<template v-if="view === 'grid'">
+		<div v-if="view === 'grid'" :class="$style.grid">
 			<div :class="$style.headRow"
 				:style="{ paddingInlineEnd: `${4 + scrollbarWidth}px` }"
 				aria-hidden="true">
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
 					</span>
 				</div>
 			</div>
-		</template>
+		</div>
 
 		<div v-else :class="$style.message">
 			<NcLoadingIcon v-if="view === 'loading'" :size="32" />
@@ -511,8 +511,18 @@ onBeforeUnmount(() => {
 	color: var(--color-primary-element);
 }
 
-.rows {
+/* Takes the space between the top line and the footer and centres the header
+   and rows in it vertically. Once the rows outgrow it they shrink to fit and
+   scroll, so the header stays put. */
+.grid {
 	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+
+.rows {
 	min-height: 0;
 	overflow-y: auto;
 	/* No scrollbar-gutter: a reserved gutter costs classic scrollbars their full
