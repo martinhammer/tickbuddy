@@ -578,7 +578,7 @@ onBeforeUnmount(() => {
 
 /* Drawn inside the square, so today is the same size as the other days. */
 .squareToday {
-	outline: 1.5px solid var(--color-primary-element);
+	outline: 1.5px solid color-mix(in srgb, var(--color-primary-element) 60%, transparent);
 	outline-offset: -1.5px;
 }
 
