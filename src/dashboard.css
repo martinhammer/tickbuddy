@@ -1,0 +1,7 @@
+/* The panel header icon. Nextcloud draws the header before the widget's own
+   chunk loads, so this has to live in the always-loaded entry CSS. */
+.icon-tickbuddy-widget {
+	background-image: url('../img/app-dark.svg');
+	background-repeat: no-repeat;
+	filter: var(--background-invert-if-dark);
+}

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
-import axios from '@nextcloud/axios'
-import { getLocale, getFirstDay } from '@nextcloud/l10n'
-import { generateOcsUrl, generateUrl } from '@nextcloud/router'
+import { getFirstDay } from '@nextcloud/l10n'
+import { generateUrl } from '@nextcloud/router'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import type { ChartOptions } from 'chart.js'
@@ -21,23 +20,13 @@ import {
 	Tooltip,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
+import { fetchAllTicks, fetchTracks } from '../api.ts'
+import { fmtDate, parseDateStr, toDateStr, todayStr, userLocale } from '../dates.ts'
+import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
+import { summariseStreaks } from '../streaks.ts'
+import type { Tick, Track } from '../types.ts'
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
-
-interface Track {
-	id: number
-	name: string
-	type: string
-	sortOrder: number
-	private: boolean
-}
-
-interface Tick {
-	id: number
-	trackId: number
-	date: string
-	value: number
-}
 
 const props = defineProps<{
 	showPrivate: boolean
@@ -53,10 +42,7 @@ const allTicks = ref<Tick[]>([])
 const selectedTrack = ref<{ id: number; label: string } | null>(null)
 const loading = ref(false)
 
-const tracksUrl = generateOcsUrl('/apps/tickbuddy/api/tracks')
-const ticksUrl = generateOcsUrl('/apps/tickbuddy/api/ticks')
 const settingsUrl = generateUrl('/settings/user/tickbuddy')
-const userLocale = getLocale().replace('_', '-')
 
 const trackOptions = computed(() => {
 	const list = props.showPrivate ? tracks.value : tracks.value.filter(t => !t.private)
@@ -99,18 +85,6 @@ const selectedTrackType = computed(() => {
 })
 
 // --- Primary colour extraction ---
-function getPrimaryColor(): string {
-	if (typeof document === 'undefined') return '#0082c9'
-	return getComputedStyle(document.documentElement).getPropertyValue('--color-primary-element').trim() || '#0082c9'
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-	const r = parseInt(hex.slice(1, 3), 16)
-	const g = parseInt(hex.slice(3, 5), 16)
-	const b = parseInt(hex.slice(5, 7), 16)
-	return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
 const primaryColor = ref(getPrimaryColor())
 
 onMounted(() => {
@@ -194,120 +168,46 @@ const twoWeekTrend = computed(() => {
 })
 
 // --- Streaks ---
+// The rule lives in src/streaks.ts so the dashboard widget shows the same
+// numbers: an open today never ends a streak, it counts up to yesterday.
+const streakSummary = computed(() => summariseStreaks(trackTicks.value.map(t => t.date), todayStr()))
+
 const streakData = computed(() => {
-	const ticks = trackTicks.value
-	if (ticks.length === 0) {
-		return {
-			currentLength: 0,
-			currentIsStreak: true,
-			longestStreak: 0,
-			longestBreak: 0,
-			currentFrom: '',
-			currentTo: '',
-			longestStreakFrom: '',
-			longestStreakTo: '',
-			longestBreakFrom: '',
-			longestBreakTo: '',
-		}
-	}
-
-	// Build a set of all ticked dates
-	const tickedDates = new Set(ticks.map(t => t.date))
-
-	// Find the full date range
-	const first = new Date(ticks[0].date + 'T00:00:00')
-	const today = new Date()
-	today.setHours(0, 0, 0, 0)
-
-	const toStr = (d: Date) => {
-		const y = d.getFullYear()
-		const m = String(d.getMonth() + 1).padStart(2, '0')
-		const day = String(d.getDate()).padStart(2, '0')
-		return `${y}-${m}-${day}`
-	}
-
-	let longestStreak = 0
-	let longestBreak = 0
-	let streak = 0
-	let breakLen = 0
-	let streakStart = ''
-	let breakStart = ''
-	let longestStreakFrom = ''
-	let longestStreakTo = ''
-	let longestBreakFrom = ''
-	let longestBreakTo = ''
-
-	// Walk from first tick date to today
-	for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
-		const ds = toStr(d)
-		if (tickedDates.has(ds)) {
-			if (streak === 0) streakStart = ds
-			streak++
-			if (streak > longestStreak) {
-				longestStreak = streak
-				longestStreakFrom = streakStart
-				longestStreakTo = ds
-			}
-			breakLen = 0
-		} else {
-			if (breakLen === 0) breakStart = ds
-			breakLen++
-			if (breakLen > longestBreak) {
-				longestBreak = breakLen
-				longestBreakFrom = breakStart
-				longestBreakTo = ds
-			}
-			streak = 0
-		}
-	}
-
-	// Current run: today is either ticked (streak) or not (break). Count back
-	// the consecutive days matching today's state.
-	const currentIsStreak = tickedDates.has(toStr(today))
-	const currentTo = toStr(today)
-	let currentLength = 0
-	let currentFrom = currentTo
-	for (let d = new Date(today); d >= first; d.setDate(d.getDate() - 1)) {
-		if (tickedDates.has(toStr(d)) === currentIsStreak) {
-			currentLength++
-			currentFrom = toStr(d)
-		} else {
-			break
-		}
-	}
-
+	const { current, upToYesterday, longestStreak, longestBreak } = streakSummary.value
 	return {
-		currentLength,
-		currentIsStreak,
-		longestStreak,
-		longestBreak,
-		currentFrom,
-		currentTo,
-		longestStreakFrom,
-		longestStreakTo,
-		longestBreakFrom,
-		longestBreakTo,
+		currentLength: current?.length ?? 0,
+		currentIsStreak: current?.isStreak ?? true,
+		currentFrom: current?.from ?? '',
+		currentTo: current?.to ?? '',
+		upToYesterday,
+		longestStreak: longestStreak?.length ?? 0,
+		longestStreakFrom: longestStreak?.from ?? '',
+		longestStreakTo: longestStreak?.to ?? '',
+		longestBreak: longestBreak?.length ?? 0,
+		longestBreakFrom: longestBreak?.from ?? '',
+		longestBreakTo: longestBreak?.to ?? '',
 	}
 })
 
 // Format a run's date range for display under a streak stat, e.g.
 // "Fri 1 Jan 2025 - Wed 15 Mar 2025" (or a single date when from === to).
-const streakDateFormatter = new Intl.DateTimeFormat(userLocale, {
-	weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-})
-function fmtStreakDate(ds: string): string {
-	return streakDateFormatter.format(new Date(ds + 'T00:00:00')).replace(',', '')
-}
 function formatStreakRange(from: string, to: string): string {
 	if (!from || !to) return ''
-	return from === to ? fmtStreakDate(from) : `${fmtStreakDate(from)} - ${fmtStreakDate(to)}`
+	return from === to ? fmtDate(from) : `${fmtDate(from)} - ${fmtDate(to)}`
 }
-// The current run always ends today, so show only its start: "Today" for a
-// single day, otherwise "Since <start date>".
-function formatCurrentRange(from: string, to: string): string {
-	if (!from || !to) return ''
-	return from === to ? 'Today' : `Since ${fmtStreakDate(from)}`
-}
+
+// The current run ends today, or yesterday for a streak while today is still
+// open, so show only its start, plus a hint in the yesterday case.
+const currentRunTooltip = computed(() => {
+	const { currentFrom: from, currentTo: to, upToYesterday } = streakData.value
+	if (!from || !to) return []
+	if (upToYesterday) {
+		return from === to
+			? ['Yesterday', 'Today not ticked yet']
+			: [`Since ${fmtDate(from)}`, 'Up to yesterday, today not ticked yet']
+	}
+	return [from === to ? 'Today' : `Since ${fmtDate(from)}`]
+})
 
 // --- Stat card tooltips (custom, styled to match the heatmap tooltip) ---
 // Each stats row positions its own tooltip (the rows are the relative
@@ -342,8 +242,8 @@ const totalTooltip = computed(() => {
 	const ticks = trackTicks.value
 	if (ticks.length === 0) return []
 	return [
-		`Oldest entry: ${fmtStreakDate(ticks[0].date)}`,
-		`Newest entry: ${fmtStreakDate(ticks[ticks.length - 1].date)}`,
+		`Oldest entry: ${fmtDate(ticks[0].date)}`,
+		`Newest entry: ${fmtDate(ticks[ticks.length - 1].date)}`,
 	]
 })
 
@@ -353,7 +253,7 @@ const weeklyMeanTooltip = computed(() => {
 	const weeks = Math.round(spanWeeks.value)
 	return [
 		`Total ${totalCount.value} across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`,
-		`Since ${fmtStreakDate(ticks[0].date)}`,
+		`Since ${fmtDate(ticks[0].date)}`,
 	]
 })
 
@@ -363,8 +263,8 @@ const trendTooltip = computed(() => [
 ])
 
 // --- Streaks/Breaks series ---
-// Walk from first tick to today, producing an alternating sequence of
-// streak (positive) and break (negative) run lengths. Each run becomes one
+// The alternating sequence of streak (positive) and break (negative) run
+// lengths from streakSummary. Each run becomes one
 // point on the chart; streaks point up, breaks point down.
 const streaksBreaksChart = ref<any>(null)
 function resetStreaksBreaksZoom() {
@@ -372,43 +272,7 @@ function resetStreaksBreaksZoom() {
 }
 
 const streaksBreaksData = computed(() => {
-	const ticks = trackTicks.value
-	if (ticks.length === 0) return null
-
-	const tickedDates = new Set(ticks.map(t => t.date))
-	const first = new Date(ticks[0].date + 'T00:00:00')
-	const today = new Date()
-	today.setHours(0, 0, 0, 0)
-
-	const runs: { length: number; isStreak: boolean; from: string; to: string }[] = []
-	let currentLen = 0
-	let currentIsStreak: boolean | null = null
-	let currentFrom = ''
-	let currentTo = ''
-
-	for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
-		const ds = toDateStr(d)
-		const ticked = tickedDates.has(ds)
-		if (currentIsStreak === null) {
-			currentIsStreak = ticked
-			currentLen = 1
-			currentFrom = ds
-			currentTo = ds
-		} else if (ticked === currentIsStreak) {
-			currentLen++
-			currentTo = ds
-		} else {
-			runs.push({ length: currentLen, isStreak: currentIsStreak, from: currentFrom, to: currentTo })
-			currentIsStreak = ticked
-			currentLen = 1
-			currentFrom = ds
-			currentTo = ds
-		}
-	}
-	if (currentIsStreak !== null) {
-		runs.push({ length: currentLen, isStreak: currentIsStreak, from: currentFrom, to: currentTo })
-	}
-
+	const runs = streakSummary.value.runs
 	if (runs.length === 0) return null
 
 	const values = runs.map(r => r.isStreak ? r.length : -r.length)
@@ -623,13 +487,6 @@ const monthsPolar = computed(() => {
 })
 
 // --- Time series helpers ---
-function toDateStr(d: Date): string {
-	const y = d.getFullYear()
-	const m = String(d.getMonth() + 1).padStart(2, '0')
-	const day = String(d.getDate()).padStart(2, '0')
-	return `${y}-${m}-${day}`
-}
-
 function buildTimeSeries(
 	bucketFn: (date: string) => string,
 	labelFn: (key: string) => string,
@@ -770,8 +627,6 @@ const MONTH_LABEL_X_OFFSET = 3
 const HEATMAP_TOP_GUTTER = 42
 const MONTH_LABEL_BASELINE = HEATMAP_TOP_GUTTER - 6
 const HEATMAP_RIGHT_PAD = 52
-// Alpha per level: index 0 is unused (empty days get a background colour).
-const LEVEL_ALPHA = [0, 0.25, 0.45, 0.68, 0.9]
 
 interface HeatmapCell {
 	x: number
@@ -794,7 +649,7 @@ const heatmapData = computed(() => {
 	// Trailing 365 days, extended back to the first tick if history is longer.
 	const windowStart = new Date(today)
 	windowStart.setDate(windowStart.getDate() - 364)
-	const firstTick = new Date(ticks[0].date + 'T00:00:00')
+	const firstTick = parseDateStr(ticks[0].date)
 	const start = firstTick < windowStart ? new Date(firstTick) : new Date(windowStart)
 	// Align to the locale's first weekday so every column is a full week.
 	while (start.getDay() !== localeFirstDay) start.setDate(start.getDate() - 1)
@@ -802,22 +657,7 @@ const heatmapData = computed(() => {
 	const isCounter = selectedTrackType.value === 'counter'
 	const maxValue = isCounter ? Math.max(...ticks.map(t => t.value)) : 1
 
-	// Booleans get a single shade at level 2 — full strength reads as too heavy
-	// when every ticked day is identical. Counters are quantised into four
-	// levels against that track's own maximum; small ranges map value→level
-	// directly so a track that never exceeds 3 still uses distinct shades.
-	function levelFor(value: number): number {
-		if (value <= 0) return 0
-		if (!isCounter) return 2
-		if (maxValue <= 4) return Math.min(4, value)
-		return Math.max(1, Math.min(4, Math.ceil((value / maxValue) * 4)))
-	}
-
 	const color = primaryColor.value
-	const emptyFill = 'var(--color-background-dark)'
-	const dateFormatter = new Intl.DateTimeFormat(userLocale, {
-		weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-	})
 
 	const cells: HeatmapCell[] = []
 	const monthLabels: { x: number; y: number; transform: string; label: string }[] = []
@@ -830,19 +670,12 @@ const heatmapData = computed(() => {
 		const row = offset % 7
 		const ds = toDateStr(d)
 		const value = byDate.get(ds) ?? 0
-		const level = levelFor(value)
-		const fill = level === 0 ? emptyFill : hexToRgba(color, LEVEL_ALPHA[level])
-		const valueText = value > 0
-			? (isCounter ? String(value) : 'Ticked')
-			: (isCounter ? '0' : 'Not ticked')
-
 		cells.push({
 			x: GRID_LEFT_PAD + week * CELL_PITCH,
 			y: HEATMAP_TOP_GUTTER + row * CELL_PITCH,
-			fill,
-			// Chart.js title lines carry no comma; drop the one Intl adds.
-			dateLabel: dateFormatter.format(d).replace(',', ''),
-			valueText,
+			fill: fillFor(levelFor(value, isCounter, maxValue), color),
+			dateLabel: fmtDate(ds),
+			valueText: valueText(value, isCounter),
 		})
 
 		// Label the column containing the 1st, keeping labels from colliding.
@@ -883,7 +716,7 @@ const heatmapData = computed(() => {
 			? 'Hint: showing last 365 days, scroll sideways for earlier history.'
 			: '',
 		legend: LEVEL_ALPHA.slice(1).map(a => hexToRgba(color, a)),
-		emptyFill,
+		emptyFill: EMPTY_FILL,
 		width: GRID_LEFT_PAD + weeks * CELL_PITCH + HEATMAP_RIGHT_PAD,
 		height,
 	}
@@ -928,27 +761,23 @@ function hideHeatmapTooltip() {
 }
 
 // --- Data fetching ---
-async function fetchTracks() {
+async function loadTracks() {
 	loading.value = true
 	try {
-		const response = await axios.get(tracksUrl)
-		tracks.value = response.data.ocs.data
+		tracks.value = await fetchTracks()
 	} finally {
 		loading.value = false
 	}
 }
 
-async function fetchTicks() {
+async function loadTicks() {
 	if (!selectedTrack.value) {
 		allTicks.value = []
 		return
 	}
 	loading.value = true
 	try {
-		const response = await axios.get(ticksUrl, {
-			params: { from: '2000-01-01', to: '2099-12-31' },
-		})
-		allTicks.value = response.data.ocs.data
+		allTicks.value = await fetchAllTicks()
 	} finally {
 		loading.value = false
 	}
@@ -956,11 +785,11 @@ async function fetchTicks() {
 
 watch(selectedTrack, (track) => {
 	emit('update:trackId', track?.id ?? null)
-	fetchTicks()
+	loadTicks()
 })
 
 onMounted(async () => {
-	await fetchTracks()
+	await loadTracks()
 	selectedTrack.value = resolveTrack(trackOptions.value)
 })
 </script>
@@ -1035,8 +864,8 @@ onMounted(async () => {
 				<!-- Streaks -->
 				<div ref="streaksRow" :class="$style.statsRow">
 					<div :class="$style.statCard"
-						@pointerenter="showStatTooltip('streaks', formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
-						@pointermove="showStatTooltip('streaks', formatCurrentRange(streakData.currentFrom, streakData.currentTo), $event)"
+						@pointerenter="showStatTooltip('streaks', currentRunTooltip, $event)"
+						@pointermove="showStatTooltip('streaks', currentRunTooltip, $event)"
 						@pointerleave="hideStatTooltip">
 						<div :class="$style.statValue">
 							{{ streakData.currentLength }}

@@ -8,12 +8,22 @@ Tickbuddy is a Nextcloud app for daily habit/occurrence tracking (a "one-bit jou
 
 ## Architecture
 
-Standard Nextcloud app with a PHP backend and Vue 3 frontend. Two separate screens:
+Standard Nextcloud app with a PHP backend and Vue 3 frontend. Three separate screens:
 
 1. **Main app** (`src/main.ts` → `App.vue` → `TickGrid.vue`): grid of days × tracks where users tick/untick events. Three views accessible via sidebar navigation: **Edit journal** (default, interactive checkboxes/counters), **View journal** (read-only with date range picker and sort toggle), and **Analytics** (`AnalyticsView.vue` — per-track charts, see below). Mounts into `<div id="tickbuddy">` via `templates/index.php`.
-2. **Personal settings** (`src/settings.ts` → `TrackSettings.vue`): track management (add/edit/delete/reorder tracks, private flag), user preferences (default view), and import/export (Tickmate `.db` and Tickbuddy `.json`). Mounts into `<div id="tickbuddy-settings">` via `templates/settings/personal.php`. Registered as a Nextcloud personal settings section in `Application::register()`.
+2. **Personal settings** (`src/settings.ts` → `TrackSettings.vue`): track management (add/edit/delete/reorder tracks, private flag), user preferences (default view), and import/export (Tickmate `.db` and Tickbuddy `.json`). Mounts into `<div id="tickbuddy-settings">` via `templates/settings/personal.php`. Registered as a Nextcloud personal settings section in `appinfo/info.xml` (`<settings>`).
+3. **Dashboard widget** (`src/dashboard.ts` → `dashboardApp.ts` → `DashboardWidget.vue`): read-only Nextcloud dashboard widget, see below. Registered by `lib/Dashboard/WeekWidget.php` in `Application::register()`.
 
 Each screen has its own Vite entry point (configured in `vite.config.ts`).
+
+### Shared front-end modules
+
+Small, Vue-free TypeScript modules in `src/`, used by Analytics and the dashboard widget (and unit-tested with Vitest, `src/*.test.ts`):
+- `types.ts` — `Track` and `Tick` interfaces.
+- `dates.ts` — `userLocale`, local `YYYY-MM-DD` helpers (`toDateStr`, `parseDateStr`, `addDays` via `setDate` so DST days stay one day, `todayStr`) and `fmtDate` ("Mon 5 Oct 2026").
+- `streaks.ts` — `summariseStreaks()`, the streak rule (below).
+- `heatmap.ts` — heatmap shading: `LEVEL_ALPHA`, `levelFor`, `fillFor`, `valueText`, `getPrimaryColor`, `hexToRgba`.
+- `api.ts` — `fetchTracks()` and `fetchAllTicks()` (the whole history, `2000-01-01`–`2099-12-31`).
 
 ### Analytics view
 
@@ -29,8 +39,20 @@ Contents, top to bottom:
 Key conventions:
 - **First day of week** comes from `getFirstDay()` (`@nextcloud/l10n`), stored as `localeFirstDay` (0=Sun..6=Sat). This reads Nextcloud's server-injected `window.firstDay`, so it is **consistent across browsers** — do **not** revert to calling `Intl.Locale` week-info directly (Chromium exposes the `weekInfo` property, Firefox only the `getWeekInfo()` method, and they disagree on region-less locales).
 - Chart accent colour is read from the `--color-primary-element` CSS variable (`getPrimaryColor`) and tinted via `hexToRgba`, so charts follow the Nextcloud theme.
+- **Streak maths lives in `src/streaks.ts`** (`summariseStreaks`), shared with the dashboard widget, and the two must always agree (Tickdroid's per-track stats will follow the same rule). The rule: days count from the first tick on or before today, future ticks are ignored, and **an open today never ends a streak** — if today is unticked but yesterday is ticked, the current streak counts up to yesterday (`upToYesterday`, shown as a second tooltip line on "Current streak"); otherwise an open today joins the break.
 - Remember sparse storage: a missing day means zero/not-ticked, which the client-side date walks must fill in (they do not assume a row per day).
 - **Chart.js option objects need an explicit `ChartOptions<'line'>` (or `<'polarArea'>`) annotation**, as `streaksBreaksData` does. Without one, TS infers `mode: 'x'` as `string` and `min: 'original'` as `string`, which are not assignable to Chart.js's narrow unions, so the `:options` binding fails `npm run typecheck`. The same annotation forces axis `ticks.callback` to accept `number | string` (Chart.js's declared signature) even where a linear scale only ever passes numbers.
+
+### Dashboard widget
+
+`lib/Dashboard/WeekWidget.php` (`IIconWidget`) + `src/components/DashboardWidget.vue`: one row per **non-private** track (always hidden here, whatever "Show private tracks" says) in journal order, the last seven days as heatmap squares (**today first**, on the left), and the current streak or break at the end. Read-only. Uses the existing `GET /api/tracks` and full-range `GET /api/ticks`; streaks and shading come from the shared modules, so they match Analytics. `today` is reactive state that follows midnight (timer) and tab focus/visibility, with a quiet reload on day change or when data is over 5 minutes old.
+
+Facts about Nextcloud's dashboard that constrain changes:
+- **`load()` runs for every registered widget on every dashboard visit**, even when the user hasn't added it. So `src/dashboard.ts` stays tiny: it only registers the `OCA.Dashboard.register` callback and dynamically imports `dashboardApp.ts` when the dashboard calls it. The header icon class lives in the always-loaded `src/dashboard.css`.
+- The dashboard host is **Vue 2 on Nextcloud 33/34 and Vue 3 on 35/36**; the widget mounts its own Vue 3 app into the element it is handed, so it works on both. Re-adding a removed widget calls back with a new element; `dashboard.ts` unmounts the old instance.
+- The widget gets **288 × 424px** (320px panel minus margins); on the one-column layout (under 710px) the content height is `auto`, so the widget caps itself at 424px and scrolls its rows.
+- **Vue widgets get no `IButtonWidget` buttons** (the dashboard only renders them for `IAPIWidgetV2`), so the widget draws its own footer button.
+- **The widget id `tickbuddy-week` is permanent**: it is stored in every user's dashboard layout. `WeekWidget::ID` and `WIDGET_ID` in `src/dashboard.ts` must match. A future editable widget gets its own id.
 
 ### Backend layers
 
@@ -40,6 +62,7 @@ Follows the Nextcloud AppFramework pattern: **Entity → Mapper → Service → 
 - `lib/Service/` — Business logic. `TrackService` enforces the 99-track limit, type validation, and name trimming. `TickService` handles toggle (boolean) and set (counter) operations. `ImportService` handles Tickmate and JSON imports. `ExportService` handles JSON export.
 - `lib/Controller/` — OCS API controllers. Routes are defined via PHP attributes (`#[ApiRoute]`), not in a routes file.
 - `lib/Settings/` — `PersonalSection` (sidebar entry with icon) and `PersonalSettings` (renders the settings template).
+- `lib/Dashboard/` — `WeekWidget`, the dashboard widget (see above).
 - `lib/Capabilities.php` — implements `OCP\Capabilities\ICapability`, registered in `Application::register()`. Advertises the app version and a feature-flag map to clients via the core capabilities endpoint (see below). Keep `getCapabilities()` cheap (no DB) — it runs on every capabilities request.
 - `lib/Migration/` — Database schema migrations.
 - **App metadata**: `appinfo/info.xml` (Nextcloud app manifest — version, dependencies, navigation entry).
@@ -97,6 +120,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `npm run lint` — ESLint
 - `npm run stylelint` — Stylelint for Vue/SCSS/CSS
 - `npm run typecheck` — `vue-tsc --noEmit`, type-checks `.ts` **and `.vue` templates**
+- `npm test` — Vitest unit tests (`src/*.test.ts`), run with `TZ=Europe/Berlin` (set in `vitest.config.ts`) so date walks cross a DST change
 
 ### Backend (composer)
 - `composer lint` — PHP syntax check

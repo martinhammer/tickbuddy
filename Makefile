@@ -18,7 +18,7 @@ help:
 	@echo "  make package      Build and produce $(archive_name) under build/release/"
 	@echo "  make dev          Install all dev dependencies (npm + composer with tooling)"
 	@echo "  make lint         Run all linters (PHP, ESLint, Stylelint)"
-	@echo "  make test         Run PHPUnit"
+	@echo "  make test         Run PHPUnit and Vitest"
 	@echo "  make psalm        Run Psalm"
 	@echo "  make openapi-check  Regenerate openapi.json and fail if it drifts"
 	@echo "  make clean        Remove build artifacts (build/, js/, css/) — keeps dev deps installed"
@@ -72,6 +72,7 @@ lint:
 .PHONY: test
 test:
 	composer test:unit
+	npm test
 
 .PHONY: psalm
 psalm:
@@ -124,6 +125,7 @@ package: build
 	rm -f  $(release_stage)/package.json \
 	       $(release_stage)/package-lock.json \
 	       $(release_stage)/vite.config.ts \
+	       $(release_stage)/vitest.config.ts \
 	       $(release_stage)/tsconfig.json \
 	       $(release_stage)/stylelint.config.cjs \
 	       $(release_stage)/rector.php \
@@ -166,7 +168,7 @@ stage: build
 	      --exclude='.php-cs-fixer.cache' --exclude='.php-cs-fixer.dist.php' \
 	      --exclude='.gitignore' \
 	      --exclude='package.json' --exclude='package-lock.json' \
-	      --exclude='vite.config.ts' --exclude='tsconfig.json' \
+	      --exclude='vite.config.ts' --exclude='vitest.config.ts' --exclude='tsconfig.json' \
 	      --exclude='stylelint.config.cjs' --exclude='rector.php' \
 	      --exclude='psalm.xml' --exclude='composer.json' --exclude='composer.lock' \
 	      --exclude='openapi.json' --exclude='CLAUDE.md' \

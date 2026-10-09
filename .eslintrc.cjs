@@ -18,4 +18,13 @@ module.exports = {
 		// False positive on `for (...; d.setDate(...))` style loops; ESLint can't see method-call mutations
 		'no-unmodified-loop-condition': 'off',
 	},
+	overrides: [
+		{
+			// Unit tests import Vitest, a dev dependency, which is fine outside the bundle.
+			files: ['src/**/*.test.ts'],
+			rules: {
+				'n/no-unpublished-import': 'off',
+			},
+		},
+	],
 }
