@@ -5,11 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Ureleased]
+## [2.1.0] - 2026-10-10
 
 ### Added
-- Toast messages for success and error on default view, import, export, delete actions 
-- Toast messages for errors on add track, rename, toggle private, reorder 
+- Nextcloud dashboard widget showing the last 7 days and the current streak or break of each track
+- Toast messages for success and error on set default view, import, export, delete track actions
+- Toast messages for errors on add track, rename track, toggle track privacy, reorder tracks actions
+
+### Changed
+- Changed streak calculation logic in Analytics: a streak is no longer broken while today is still open; it counts up to yesterday
+- Bumped dependencies
 
 
 ## [2.0.0] - 2026-09-29
@@ -22,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Icon files follow the correct standards
 - Broken screenshots on Nextcloud App store
+
 
 ## [1.1.1] - 2026-09-05
 
