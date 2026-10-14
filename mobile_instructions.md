@@ -296,6 +296,14 @@ Returns the full user data as a JSON blob:
 
 Note: ticks reference tracks by **name**, not id, to be portable across instances. Track IDs are intentionally omitted.
 
+Track names aren't unique, so when a name appears more than once in `tracks`, the ticks of those tracks also carry an optional `trackIndex`: the 0-based position of their track in the file's `tracks` list (after the private-track filter). It is only written for repeated names, so a file without duplicates has exactly the shape above:
+
+```json
+{"track": "Exercise", "trackIndex": 2, "date": "2026-03-01", "value": 1}
+```
+
+Importers should prefer `trackIndex` when present and fall back to the name otherwise. The server rejects a `trackIndex` that isn't a whole number within `tracks`, and a tick without one whose name matches several tracks (older backups), rather than guess.
+
 #### `POST /api/import/json`  (multipart)
 Import a previously exported JSON file.
 

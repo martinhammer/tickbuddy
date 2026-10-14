@@ -30,10 +30,12 @@ class ExportService {
 			$tracks = array_values(array_filter($tracks, fn ($t) => $t->getPrivate() !== 1));
 		}
 
-		$trackIdToName = [];
+		// Position of each track in the exported list, so ticks of tracks whose
+		// name isn't unique in the file can say which one they belong to
+		$trackIdToIndex = [];
 		$exportTracks = [];
 		foreach ($tracks as $track) {
-			$trackIdToName[$track->getId()] = $track->getName();
+			$trackIdToIndex[$track->getId()] = count($exportTracks);
 			$exportTracks[] = [
 				'name' => $track->getName(),
 				'type' => $track->getType(),
@@ -42,18 +44,25 @@ class ExportService {
 			];
 		}
 
+		$nameCounts = array_count_values(array_column($exportTracks, 'name'));
+
 		$ticks = $this->tickMapper->findAllByUser($userId);
 		$exportTicks = [];
 		foreach ($ticks as $tick) {
-			$trackName = $trackIdToName[$tick->getTrackId()] ?? null;
-			if ($trackName === null) {
+			$trackIndex = $trackIdToIndex[$tick->getTrackId()] ?? null;
+			if ($trackIndex === null) {
 				continue;
 			}
-			$exportTicks[] = [
-				'track' => $trackName,
-				'date' => $tick->getDate(),
-				'value' => $tick->getValue(),
-			];
+			$trackName = $exportTracks[$trackIndex]['name'];
+			$exportTick = ['track' => $trackName];
+			// Only written when the name repeats, so files without duplicate
+			// names keep exactly the original format
+			if ($nameCounts[$trackName] > 1) {
+				$exportTick['trackIndex'] = $trackIndex;
+			}
+			$exportTick['date'] = $tick->getDate();
+			$exportTick['value'] = $tick->getValue();
+			$exportTicks[] = $exportTick;
 		}
 
 		return [

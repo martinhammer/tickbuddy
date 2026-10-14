@@ -109,7 +109,6 @@ class ImportService {
 		$jsonTracks = array_values($data['tracks']);
 		$jsonTicks = [];
 		if (isset($data['ticks']) && is_array($data['ticks'])) {
-			/** @var list<array<string, mixed>> $jsonTicks */
 			$jsonTicks = array_values($data['ticks']);
 		}
 
@@ -119,11 +118,10 @@ class ImportService {
 
 		// Validate and normalize tracks
 		$trackEntries = [];
+		/** @var array<string, list<int>> $positionsByName */
+		$positionsByName = [];
 		foreach ($jsonTracks as $i => $t) {
-			$name = trim((string)($t['name'] ?? ''));
-			if ($name === '') {
-				$name = 'Untitled';
-			}
+			$name = $this->cleanJsonTrackName($t['name'] ?? '');
 			$type = (string)($t['type'] ?? 'boolean');
 			if (!in_array($type, TrackService::VALID_TYPES, true)) {
 				throw new ImportException("Track \"{$name}\" has invalid type \"{$type}\"");
@@ -134,12 +132,17 @@ class ImportService {
 				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
 				'private' => (bool)($t['private'] ?? false),
 			];
+			$positionsByName[$name][] = $i;
 		}
+
+		// Resolve every tick to its track's position in the file before writing
+		// anything, so a file whose ticks can't be matched changes nothing
+		$resolvedTicks = $this->resolveJsonTicks($jsonTicks, $positionsByName, count($trackEntries));
 
 		$this->db->beginTransaction();
 		try {
-			$trackNameToId = $this->importJsonTracks($trackEntries, $mode, $userId);
-			$tickCount = $this->importJsonTicks($jsonTicks, $trackNameToId, $userId);
+			$trackIds = $this->importJsonTracks($trackEntries, $mode, $userId);
+			$tickCount = $this->importJsonTicks($resolvedTicks, $trackIds, $userId);
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
@@ -149,12 +152,73 @@ class ImportService {
 			throw new ImportException('Import failed: ' . $e->getMessage());
 		}
 
-		return ['tracks' => count($trackNameToId), 'ticks' => $tickCount];
+		return ['tracks' => count($trackIds), 'ticks' => $tickCount];
+	}
+
+	/**
+	 * Clean a track name from a JSON backup: trimmed, with blank meaning "Untitled".
+	 */
+	private function cleanJsonTrackName(mixed $name): string {
+		$name = trim(is_scalar($name) ? (string)$name : '');
+		return $name === '' ? 'Untitled' : $name;
+	}
+
+	/**
+	 * Match each JSON tick to the position of its track in the file's tracks list.
+	 *
+	 * A tick's `trackIndex` wins when present; otherwise its `track` name must
+	 * match exactly one track. Ticks naming a track that isn't in the file are skipped.
+	 *
+	 * @param list<mixed> $jsonTicks
+	 * @param array<string, list<int>> $positionsByName Cleaned track name → positions in the file
+	 * @return list<array{position: int, date: string, value: int}>
+	 * @throws ImportException
+	 */
+	private function resolveJsonTicks(array $jsonTicks, array $positionsByName, int $trackCount): array {
+		$resolved = [];
+
+		foreach ($jsonTicks as $t) {
+			if (!is_array($t)) {
+				continue;
+			}
+
+			$date = (string)($t['date'] ?? '');
+			$value = (int)($t['value'] ?? 1);
+			if ($date === '' || $value <= 0) {
+				continue;
+			}
+
+			if (array_key_exists('trackIndex', $t)) {
+				$index = $t['trackIndex'];
+				if (!is_int($index) || $index < 0 || $index >= $trackCount) {
+					$shown = is_string($index) ? $index : json_encode($index, JSON_THROW_ON_ERROR);
+					throw new ImportException("Tick on {$date} has an invalid track index \"{$shown}\"");
+				}
+				$position = $index;
+			} else {
+				$name = $this->cleanJsonTrackName($t['track'] ?? '');
+				$positions = $positionsByName[$name] ?? [];
+				if (count($positions) === 0) {
+					continue;
+				}
+				if (count($positions) > 1) {
+					throw new ImportException(
+						"The backup has more than one track named \"{$name}\", so its ticks can't be matched. "
+						. 'Rename one of them in the file and import again.'
+					);
+				}
+				$position = $positions[0];
+			}
+
+			$resolved[] = ['position' => $position, 'date' => $date, 'value' => $value];
+		}
+
+		return $resolved;
 	}
 
 	/**
 	 * @param list<array{name: string, type: string, sortOrder: int, private: bool}> $trackEntries
-	 * @return array<string, int> Map of track name → Tickbuddy track ID
+	 * @return list<int> New Tickbuddy track IDs, in file order
 	 * @throws ImportException
 	 */
 	private function importJsonTracks(array $trackEntries, string $mode, string $userId): array {
@@ -187,7 +251,7 @@ class ImportService {
 			);
 		}
 
-		$trackNameToId = [];
+		$trackIds = [];
 		$sortOrder = $startSortOrder;
 
 		foreach ($trackEntries as $entry) {
@@ -205,40 +269,27 @@ class ImportService {
 			$track->setPrivate($entry['private'] ? 1 : 0);
 			$this->trackMapper->insert($track);
 
-			// Map the original name (from the file) to the new track ID
-			$trackNameToId[$entry['name']] = $track->getId();
+			$trackIds[] = $track->getId();
 			$sortOrder++;
 		}
 
-		return $trackNameToId;
+		return $trackIds;
 	}
 
 	/**
-	 * @param list<array> $jsonTicks
-	 * @param array<string, int> $trackNameToId
+	 * @param list<array{position: int, date: string, value: int}> $resolvedTicks
+	 * @param list<int> $trackIds New track IDs, by position in the file
 	 * @return int Number of ticks imported
 	 */
-	private function importJsonTicks(array $jsonTicks, array $trackNameToId, string $userId): int {
+	private function importJsonTicks(array $resolvedTicks, array $trackIds, string $userId): int {
 		$tickCount = 0;
 
-		foreach ($jsonTicks as $t) {
-			$trackName = (string)($t['track'] ?? '');
-			$trackId = $trackNameToId[$trackName] ?? null;
-			if ($trackId === null) {
-				continue;
-			}
-
-			$date = (string)($t['date'] ?? '');
-			$value = (int)($t['value'] ?? 1);
-			if ($date === '' || $value <= 0) {
-				continue;
-			}
-
+		foreach ($resolvedTicks as $t) {
 			$tick = new Tick();
 			$tick->setUserId($userId);
-			$tick->setTrackId($trackId);
-			$tick->setDate($date);
-			$tick->setValue($value);
+			$tick->setTrackId($trackIds[$t['position']]);
+			$tick->setDate($t['date']);
+			$tick->setValue($t['value']);
 			$this->tickMapper->insert($tick);
 			$tickCount++;
 		}

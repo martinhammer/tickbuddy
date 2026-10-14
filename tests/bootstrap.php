@@ -17,3 +17,10 @@ spl_autoload_register(function (string $class): void {
 		require_once $path;
 	}
 });
+
+// Doctrine DBAL isn't installed, but IQueryBuilder's PARAM_* constants are
+// defined in terms of it, and PHPUnit evaluates them when it mocks
+// IDBConnection (IDBConnection::quote() defaults to IQueryBuilder::PARAM_STR).
+if (!class_exists(\Doctrine\DBAL\ParameterType::class)) {
+	require_once __DIR__ . '/stubs/doctrine-dbal.php';
+}

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated Settings screen for consistency and polish
+- Export to JSON file includes new field `trackIndex` to distinguish tracks with duplicate names
+
+### Fixed
+- Importing a Tickbuddy backup with tracks of the same name now puts each tick on the right track (depends on `trackIndex` field in the backup file)
 
 
 ## [2.1.0] - 2026-10-10
