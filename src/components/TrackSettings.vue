@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import axios from '@nextcloud/axios'
-import { showConfirmation, showError, showSuccess } from '@nextcloud/dialogs'
+import { showError, showSuccess } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
+import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
@@ -14,6 +15,9 @@ import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
 // so the server's own stylesheets cannot style them — the app must ship this itself.
 import '@nextcloud/dialogs/style.css'
 import { ocsErrorMessage } from '../ocsError.ts'
+
+// Material Design Icons "pencil", copied in to avoid a dependency for one icon.
+const MDI_PENCIL = 'M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z'
 
 interface Track {
 	id: number
@@ -49,6 +53,7 @@ const importFile = ref<File | null>(null)
 const importFileName = ref('')
 const importFormat = ref<'tickmate' | 'json' | null>(null)
 const importing = ref(false)
+const confirmingReplace = ref(false)
 const tickmateInputRef = ref<HTMLInputElement | null>(null)
 const jsonInputRef = ref<HTMLInputElement | null>(null)
 
@@ -240,17 +245,23 @@ function chooseJsonFile() {
 	jsonInputRef.value?.click()
 }
 
-async function doImport() {
+function doImport() {
 	if (!importFile.value || !importFormat.value) return
 
 	if (replaceMode.value) {
-		const confirmed = await showConfirmation({
-			name: 'Replace all data',
-			text: 'This will delete all your existing tracks and ticks and replace them with the imported data. Are you sure?',
-			labelConfirm: 'Replace',
-		})
-		if (!confirmed) return
+		confirmingReplace.value = true
+		return
 	}
+	runImport()
+}
+
+function confirmReplaceImport() {
+	confirmingReplace.value = false
+	runImport()
+}
+
+async function runImport() {
+	if (!importFile.value || !importFormat.value) return
 
 	importing.value = true
 	try {
@@ -351,7 +362,12 @@ onMounted(() => {
 							autofocus
 							@keyup.enter="saveName(track)"
 							@blur="saveName(track)" />
-						<span v-else>{{ track.name }}</span>
+						<span v-else :class="$style.nameLabel" title="Rename track">
+							{{ track.name }}
+							<span :class="$style.editIcon">
+								<NcIconSvgWrapper :path="MDI_PENCIL" :size="16" inline />
+							</span>
+						</span>
 					</td>
 					<td>{{ track.type === 'counter' ? 'Counter' : 'Yes / No' }}</td>
 					<td :class="$style.privateCell">
@@ -461,6 +477,20 @@ onMounted(() => {
 			This will permanently delete the track "{{ trackPendingDelete.name }}" and all its ticks. This action cannot be undone.
 		</NcNoteCard>
 	</NcDialog>
+
+	<NcDialog v-if="confirmingReplace"
+		:open="true"
+		name="Replace all data"
+		size="small"
+		:buttons="[
+			{ label: 'Cancel', variant: 'secondary', callback: () => { confirmingReplace = false } },
+			{ label: 'Import and replace', variant: 'primary', callback: confirmReplaceImport },
+		]"
+		@update:open="(open) => { if (!open) confirmingReplace = false }">
+		<NcNoteCard type="warning">
+			This will permanently delete all your existing tracks and ticks and replace them with the imported data. This action cannot be undone.
+		</NcNoteCard>
+	</NcDialog>
 </template>
 
 <style module>
@@ -500,6 +530,32 @@ onMounted(() => {
 
 .nameCell:hover {
 	background: var(--color-background-hover);
+}
+
+.nameLabel {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* Opacity sits on this wrapper because NcIconSvgWrapper's scoped
+   `.icon-vue { opacity: 1 }` outranks a plain class on the component. */
+.editIcon {
+	display: inline-flex;
+	color: var(--color-text-maxcontrast);
+	opacity: 0;
+	transition: opacity var(--animation-quick);
+}
+
+.nameCell:hover .editIcon {
+	opacity: 1;
+}
+
+/* Touch screens cannot hover, so keep the hint visible there. */
+@media (hover: none) {
+	.editIcon {
+		opacity: 1;
+	}
 }
 
 .addForm {
