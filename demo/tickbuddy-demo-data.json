@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-10-04T09:00:00+00:00",
+  "exportedAt": "2026-10-14T09:00:00+00:00",
   "tracks": [
     {
       "name": "Cups of coffee",
@@ -43,6 +43,13 @@
       "type": "boolean",
       "sortOrder": 7,
       "private": false
+    },
+    {
+      "name": "Couch to 5k",
+      "type": "boolean",
+      "sortOrder": 8,
+      "private": false,
+      "archivedAt": "2026-03-02"
     }
   ],
   "ticks": [
@@ -29747,6 +29754,11 @@
       "value": 4
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-01",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2025-12-02",
       "value": 1
@@ -29802,6 +29814,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-03",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2025-12-04",
       "value": 1
@@ -29847,6 +29864,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-05",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2025-12-06",
       "value": 1
@@ -29917,6 +29939,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-08",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2025-12-09",
       "value": 1
@@ -29963,6 +29990,11 @@
     },
     {
       "track": "Affirmations",
+      "date": "2025-12-10",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2025-12-10",
       "value": 1
     },
@@ -30087,6 +30119,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-15",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2025-12-16",
       "value": 1
@@ -30183,6 +30220,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2025-12-19",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2025-12-19",
       "value": 1
     },
@@ -30267,6 +30309,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-22",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2025-12-23",
       "value": 1
@@ -30318,6 +30365,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2025-12-24",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2025-12-24",
       "value": 1
     },
@@ -30355,6 +30407,11 @@
       "track": "Cups of coffee",
       "date": "2025-12-26",
       "value": 2
+    },
+    {
+      "track": "Couch to 5k",
+      "date": "2025-12-26",
+      "value": 1
     },
     {
       "track": "Exercise",
@@ -30412,6 +30469,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2025-12-29",
+      "value": 1
+    },
+    {
       "track": "Cups of coffee",
       "date": "2025-12-30",
       "value": 3
@@ -30453,6 +30515,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2025-12-31",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2025-12-31",
       "value": 1
     },
@@ -30508,6 +30575,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-01-02",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-01-02",
       "value": 1
     },
@@ -30597,6 +30669,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-01-05",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2026-01-06",
       "value": 1
@@ -30687,6 +30764,11 @@
       "value": 3
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-01-09",
+      "value": 1
+    },
+    {
       "track": "Made someone smile",
       "date": "2026-01-10",
       "value": 1
@@ -30767,6 +30849,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-01-12",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-01-13",
       "value": 1
@@ -30823,6 +30910,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-01-14",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-01-14",
       "value": 1
     },
@@ -30947,6 +31039,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-01-19",
+      "value": 1
+    },
+    {
       "track": "Cups of coffee",
       "date": "2026-01-20",
       "value": 2
@@ -30983,6 +31080,11 @@
     },
     {
       "track": "Affirmations",
+      "date": "2026-01-21",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-01-21",
       "value": 1
     },
@@ -31043,6 +31145,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-01-23",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-01-23",
       "value": 1
     },
@@ -31132,6 +31239,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-01-26",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-01-27",
       "value": 1
@@ -31183,6 +31295,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-01-28",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-01-28",
       "value": 1
     },
@@ -31302,6 +31419,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-02-02",
+      "value": 1
+    },
+    {
       "track": "Smoking",
       "date": "2026-02-03",
       "value": 1
@@ -31358,6 +31480,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-02-04",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-02-04",
       "value": 1
     },
@@ -31403,6 +31530,11 @@
     },
     {
       "track": "Affirmations",
+      "date": "2026-02-06",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-02-06",
       "value": 1
     },
@@ -31472,6 +31604,11 @@
       "value": 3
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-02-09",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-02-10",
       "value": 1
@@ -31527,6 +31664,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-02-11",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-02-12",
       "value": 1
@@ -31575,6 +31717,11 @@
       "track": "Sweets",
       "date": "2026-02-13",
       "value": 2
+    },
+    {
+      "track": "Couch to 5k",
+      "date": "2026-02-13",
+      "value": 1
     },
     {
       "track": "Exercise",
@@ -31703,6 +31850,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-02-18",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-02-18",
       "value": 1
     },
@@ -31757,6 +31909,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-02-20",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-02-21",
       "value": 1
@@ -31838,6 +31995,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-02-23",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-02-23",
       "value": 1
     },
@@ -31942,6 +32104,11 @@
       "value": 1
     },
     {
+      "track": "Couch to 5k",
+      "date": "2026-02-27",
+      "value": 1
+    },
+    {
       "track": "Exercise",
       "date": "2026-02-28",
       "value": 1
@@ -32008,6 +32175,11 @@
     },
     {
       "track": "Zero doomscrolling",
+      "date": "2026-03-02",
+      "value": 1
+    },
+    {
+      "track": "Couch to 5k",
       "date": "2026-03-02",
       "value": 1
     },

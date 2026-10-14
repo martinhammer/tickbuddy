@@ -11,7 +11,7 @@ The application enables users to record whether a specific event has occurred or
 
 Tickbuddy comes with its own Android companion app Tickdroid which has been published on the F-Droid app store.
 	]]></description>
-	<version>2.1.0</version>
+	<version>2.2.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
@@ -22,7 +22,7 @@ Tickbuddy comes with its own Android companion app Tickdroid which has been publ
 	<repository type="git">https://github.com/martinhammer/tickbuddy</repository>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Edit_20261009.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261009.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Settings_20261009.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Settings_20261014.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261009.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="33" max-version="36"/>

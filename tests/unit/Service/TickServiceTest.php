@@ -97,6 +97,65 @@ final class TickServiceTest extends TestCase {
 		$this->service->set($this->userId, 1, '2026-04-11', 5);
 	}
 
+	private function archive(Track $track): Track {
+		$track->setArchivedAt('2026-08-14');
+		return $track;
+	}
+
+	private function makeTick(int $value): Tick {
+		$tick = new Tick();
+		$tick->setId(10);
+		$tick->setValue($value);
+		return $tick;
+	}
+
+	private function expectNoTickWrites(): void {
+		$this->tickMapper->expects($this->never())->method('insert');
+		$this->tickMapper->expects($this->never())->method('update');
+		$this->tickMapper->expects($this->never())->method('delete');
+	}
+
+	public function testToggleOnArchivedTrackKeepsExistingTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeBooleanTrack()));
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(1));
+		$this->expectNoTickWrites();
+
+		$this->assertTrue($this->service->toggle($this->userId, 1, '2026-10-14'));
+	}
+
+	public function testToggleOnArchivedTrackAddsNoTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeBooleanTrack()));
+		$this->tickMapper->method('findByUserTrackDate')
+			->willThrowException(new DoesNotExistException(''));
+		$this->expectNoTickWrites();
+
+		$this->assertFalse($this->service->toggle($this->userId, 1, '2026-10-14'));
+	}
+
+	public function testSetOnArchivedTrackKeepsStoredValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeCounterTrack()));
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(3));
+		$this->expectNoTickWrites();
+
+		$this->assertSame(3, $this->service->set($this->userId, 2, '2026-10-14', 5));
+	}
+
+	public function testSetOnArchivedTrackAddsNoTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeCounterTrack()));
+		$this->tickMapper->method('findByUserTrackDate')
+			->willThrowException(new DoesNotExistException(''));
+		$this->expectNoTickWrites();
+
+		$this->assertSame(0, $this->service->set($this->userId, 2, '2026-10-14', 2));
+	}
+
+	public function testToggleOnArchivedCounterTrackStillRejected(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeCounterTrack()));
+
+		$this->expectException(InvalidTrackTypeException::class);
+		$this->service->toggle($this->userId, 2, '2026-10-14');
+	}
+
 	public function testFindBoundsIsScopedToTheUser(): void {
 		$bounds = [
 			['trackId' => 1, 'oldest' => '2026-03-07', 'newest' => '2026-07-28'],

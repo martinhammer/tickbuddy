@@ -14,20 +14,22 @@ import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
 // Toasts are a Vue component with hashed CSS-module class names since @nextcloud/dialogs 7,
 // so the server's own stylesheets cannot style them — the app must ship this itself.
 import '@nextcloud/dialogs/style.css'
+import { fmtDay, todayStr, userLocale } from '../dates.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
+import type { Track } from '../types.ts'
 
-// Material Design Icons "pencil", copied in to avoid a dependency for one icon.
+// Material Design Icons "pencil" and chevrons, copied in to avoid a dependency for three icons.
 const MDI_PENCIL = 'M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z'
+const MDI_CHEVRON_RIGHT = 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z'
+const MDI_CHEVRON_DOWN = 'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z'
 
-interface Track {
-	id: number
-	name: string
-	type: string
-	sortOrder: number
-	private: boolean
-}
+type ArchivedTrack = Track & { archivedAt: string }
 
+// Active tracks in journal order, and archived tracks by name
 const tracks = ref<Track[]>([])
+const archivedTracks = ref<ArchivedTrack[]>([])
+// The archived list starts collapsed on every page load
+const showArchived = ref(false)
 const newTrackName = ref('')
 const trackTypeOptions = [
 	{ id: 'boolean', label: 'Yes / No' },
@@ -44,6 +46,7 @@ const defaultView = ref(defaultViewOptions[0])
 const editingTrackId = ref<number | null>(null)
 const editingName = ref('')
 const trackPendingDelete = ref<Track | null>(null)
+const trackPendingArchive = ref<Track | null>(null)
 const dragIndex = ref<number | null>(null)
 const dragOverIndex = ref<number | null>(null)
 
@@ -67,8 +70,12 @@ const prefsUrl = generateOcsUrl('/apps/tickbuddy/api/preferences')
 async function fetchTracks() {
 	loading.value = true
 	try {
-		const response = await axios.get(apiUrl)
-		tracks.value = response.data.ocs.data
+		const response = await axios.get(apiUrl, { params: { includeArchived: true } })
+		const all: Track[] = response.data.ocs.data
+		tracks.value = all.filter(t => t.archivedAt === null)
+		archivedTracks.value = all
+			.filter((t): t is ArchivedTrack => t.archivedAt !== null)
+			.sort((a, b) => a.name.localeCompare(b.name, userLocale, { sensitivity: 'base' }))
 	} finally {
 		loading.value = false
 	}
@@ -108,6 +115,40 @@ async function confirmDeleteTrack() {
 		showError(ocsErrorMessage(e, `Could not delete track "${track.name}"`))
 	}
 	await fetchTracks()
+}
+
+async function setArchived(track: Track, archived: boolean) {
+	const params = new URLSearchParams()
+	params.append('archived', String(archived))
+	if (archived) {
+		// The browser's date, as for ticks
+		params.append('archivedAt', todayStr())
+	}
+	try {
+		await axios.put(`${apiUrl}/${track.id}`, params)
+		showSuccess(archived ? `Archived track "${track.name}".` : `Restored track "${track.name}".`)
+		if (archived) {
+			// Open the list so the track is seen arriving
+			showArchived.value = true
+		}
+	} catch (e) {
+		showError(ocsErrorMessage(e, archived ? `Could not archive track "${track.name}"` : `Could not restore track "${track.name}"`))
+	}
+	await fetchTracks()
+}
+
+function confirmArchiveTrack() {
+	const track = trackPendingArchive.value
+	if (!track) return
+	trackPendingArchive.value = null
+	setArchived(track, true)
+}
+
+function archiveInsteadOfDelete() {
+	const track = trackPendingDelete.value
+	if (!track) return
+	trackPendingDelete.value = null
+	setArchived(track, true)
 }
 
 function startEditing(track: Track) {
@@ -379,11 +420,18 @@ onMounted(() => {
 						<label :for="`private-${track.id}`" />
 					</td>
 					<td>
-						<NcButton variant="tertiary-no-background"
-							aria-label="Delete track"
-							@click="deleteTrack(track)">
-							Delete
-						</NcButton>
+						<div :class="$style.rowActions">
+							<NcButton variant="tertiary-no-background"
+								aria-label="Archive track"
+								@click="trackPendingArchive = track">
+								Archive
+							</NcButton>
+							<NcButton variant="tertiary-no-background"
+								aria-label="Delete track"
+								@click="deleteTrack(track)">
+								Delete
+							</NcButton>
+						</div>
 					</td>
 				</tr>
 			</tbody>
@@ -391,6 +439,46 @@ onMounted(() => {
 		<p v-else-if="!loading">
 			No tracks defined yet. Add one above.
 		</p>
+
+		<template v-if="archivedTracks.length > 0">
+			<NcButton variant="tertiary"
+				alignment="start-reverse"
+				:aria-expanded="String(showArchived)"
+				aria-controls="tickbuddy-archived-tracks"
+				:class="$style.archivedToggle"
+				@click="showArchived = !showArchived">
+				<template #icon>
+					<!-- directional: the closed chevron points left in right-to-left languages -->
+					<NcIconSvgWrapper :path="showArchived ? MDI_CHEVRON_DOWN : MDI_CHEVRON_RIGHT" directional />
+				</template>
+				Archived tracks ({{ archivedTracks.length }})
+			</NcButton>
+			<table v-show="showArchived" id="tickbuddy-archived-tracks" :class="[$style.trackTable, $style.archivedTable]">
+				<tbody>
+					<tr v-for="track in archivedTracks" :key="track.id">
+						<td>
+							{{ track.name }}
+							<span :class="$style.archivedDate">archived {{ fmtDay(track.archivedAt) }}</span>
+						</td>
+						<td>{{ track.type === 'counter' ? 'Counter' : 'Yes / No' }}{{ track.private ? ' • Private' : '' }}</td>
+						<td>
+							<div :class="$style.rowActions">
+								<NcButton variant="tertiary-no-background"
+									aria-label="Restore track"
+									@click="setArchived(track, false)">
+									Restore
+								</NcButton>
+								<NcButton variant="tertiary-no-background"
+									aria-label="Delete track"
+									@click="deleteTrack(track)">
+									Delete
+								</NcButton>
+							</div>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</template>
 	</NcSettingsSection>
 
 	<NcSettingsSection name="Preferences">
@@ -464,18 +552,46 @@ onMounted(() => {
 		</NcButton>
 	</NcSettingsSection>
 
+	<NcDialog v-if="trackPendingArchive"
+		:open="true"
+		:name="`Archive &quot;${trackPendingArchive.name}&quot;`"
+		size="small"
+		:buttons="[
+			{ label: 'Cancel', variant: 'secondary', callback: () => { trackPendingArchive = null } },
+			{ label: 'Archive', variant: 'primary', callback: confirmArchiveTrack },
+		]"
+		@update:open="(open) => { if (!open) trackPendingArchive = null }">
+		<p :class="$style.dialogText">
+			Archived tracks are no longer tracked or shown in the journal and widgets. All their ticks are kept, and you can restore them at any time.
+		</p>
+	</NcDialog>
+
+	<!-- The actions slot replaces the `buttons` prop, which can't place a button on the left -->
 	<NcDialog v-if="trackPendingDelete"
 		:open="true"
 		:name="`Delete &quot;${trackPendingDelete.name}&quot;`"
 		size="small"
-		:buttons="[
-			{ label: 'Cancel', variant: 'secondary', callback: () => { trackPendingDelete = null } },
-			{ label: 'Delete', variant: 'primary', callback: confirmDeleteTrack },
-		]"
 		@update:open="(open) => { if (!open) trackPendingDelete = null }">
 		<NcNoteCard type="warning">
 			This will permanently delete the track "{{ trackPendingDelete.name }}" and all its ticks. This action cannot be undone.
 		</NcNoteCard>
+		<p v-if="trackPendingDelete.archivedAt === null" :class="$style.dialogText">
+			To keep its history, archive it instead.
+		</p>
+		<template #actions>
+			<NcButton v-if="trackPendingDelete.archivedAt === null"
+				variant="tertiary"
+				:class="$style.archiveInstead"
+				@click="archiveInsteadOfDelete">
+				Archive instead
+			</NcButton>
+			<NcButton variant="secondary" @click="trackPendingDelete = null">
+				Cancel
+			</NcButton>
+			<NcButton variant="primary" @click="confirmDeleteTrack">
+				Delete
+			</NcButton>
+		</template>
 	</NcDialog>
 
 	<NcDialog v-if="confirmingReplace"
@@ -505,6 +621,37 @@ onMounted(() => {
 	padding: 8px 12px;
 	text-align: left;
 	border-bottom: 1px solid var(--color-border);
+}
+
+.rowActions {
+	display: flex;
+	gap: 4px;
+}
+
+.archivedToggle {
+	margin-top: 16px;
+}
+
+/* The toggle sits right above it, so the table's own top margin isn't needed */
+.archivedTable {
+	margin-top: 0;
+}
+
+.archivedDate {
+	color: var(--color-text-maxcontrast);
+	margin-inline-start: 8px;
+	white-space: nowrap;
+}
+
+/* Plain text in a dialog gets NcNoteCard's 1rem above and below, so it sits as far
+   from the title and the buttons as the warning boxes in the other dialogs do */
+.dialogText {
+	margin-block: 1rem;
+}
+
+/* The dialog's action row is justify-content: end; this pushes the button to the left */
+.archiveInstead {
+	margin-inline-end: auto;
 }
 
 .dragHandle {

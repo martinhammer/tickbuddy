@@ -11,6 +11,7 @@ namespace OCA\Tickbuddy;
  *     type: string,
  *     sortOrder: int,
  *     private: bool,
+ *     archivedAt: ?string,
  * }
  *
  * @psalm-type TickbuddyTick = array{

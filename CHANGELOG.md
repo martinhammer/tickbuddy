@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Archive functionality for tracks which the user no longer actively tracks but wants to keep the history
+- Restore functionality to reactivate archived tracks
+
 ### Changed
+- Delete confirmation dialogue offers to archive the track instead
 - Updated Settings screen for consistency and polish
 - Export to JSON file includes new field `trackIndex` to distinguish tracks with duplicate names
 
 ### Fixed
 - Importing a Tickbuddy backup with tracks of the same name now puts each tick on the right track (depends on `trackIndex` field in the backup file)
+- Reordering tracks no longer moves tracks that weren't in the list to the top
 
 
 ## [2.1.0] - 2026-10-10

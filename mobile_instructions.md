@@ -107,6 +107,7 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "counterTracks": true,
     "privateTracks": true,
     "tickBounds": true,
+    "archivedTracks": true,
     "syncDelta": false,
     "counterIncrement": false
   }
@@ -115,7 +116,7 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Three flags gate optional endpoints: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), plus two that matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), plus two that matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -133,11 +134,13 @@ name        string     1..? chars, trimmed, non-empty
 type        enum       "boolean" | "counter"    (immutable after create)
 sortOrder   int        client-influenced display order
 private     bool       hides from default views; export must opt-in
+archivedAt  string?    "YYYY-MM-DD" the track was archived on; null while active
 ```
 
 - **Max 99 tracks per user.** Creating the 100th returns `403` with `{message: "Maximum of 99 tracks reached"}`.
 - **Track `type` is immutable.** `PUT /api/tracks/{id}` silently ignores any `type` field. If a user wants a different type, they must delete and recreate.
 - **Deleting a track cascades**: all its ticks are deleted server-side in the same transaction.
+- **Archived tracks** (`archivedAt` set) are hidden from `GET /api/tracks` unless asked for, keep their ticks, and can't be ticked (writes are quietly ignored, see `toggle`/`set`). They still count towards the 99-track limit, so creating a track can fail with fewer than 99 visible.
 
 ### Tick
 
@@ -168,15 +171,20 @@ All paths below are relative to `{nextcloudBaseUrl}/ocs/v2.php/apps/tickbuddy`. 
 ### Tracks
 
 #### `GET /api/tracks`
-List all tracks for the current user. Returns tracks in `sortOrder` ascending, then `id`.
+List the current user's tracks. Returns tracks in `sortOrder` ascending, then `id`.
+
+Query params:
+- `includeArchived` (boolean, default `false`). Without it, **archived tracks are left out** — which is what keeps clients that predate archiving working: an archived track simply disappears for them. With `true`, archived tracks are included in the same `sortOrder` order; split and sort them client-side.
 
 Response `data`:
 ```json
 [
-  {"id": 1, "name": "Meditate", "type": "boolean", "sortOrder": 1, "private": false},
-  {"id": 2, "name": "Cups of coffee", "type": "counter", "sortOrder": 2, "private": false}
+  {"id": 1, "name": "Meditate", "type": "boolean", "sortOrder": 1, "private": false, "archivedAt": null},
+  {"id": 2, "name": "Cups of coffee", "type": "counter", "sortOrder": 2, "private": false, "archivedAt": null}
 ]
 ```
+
+Every endpoint that returns a track (list, create, update, reorder) includes `archivedAt`.
 
 #### `POST /api/tracks`
 Create a new track.
@@ -197,18 +205,20 @@ Form params (any subset):
 - `name` (string, trimmed, non-empty if provided)
 - `sortOrder` (int) — usually set via `/reorder` instead
 - `private` (boolean; accepts `true`/`false`/`1`/`0`/`yes`/`no` via PHP `FILTER_VALIDATE_BOOLEAN`)
+- `archived` (boolean) — requires `features.archivedTracks`. `true` archives the track (archiving an archived track again sets the new date); `false` restores it, moving it to the **end of the list** (restoring an active track does nothing).
+- `archivedAt` (string, `YYYY-MM-DD`) — only read with `archived=true`. **Send the device's local today**, as for ticks. If omitted the server uses its own date (its default time zone, usually UTC), which can be a day off for the user.
 
-`type` is silently ignored if sent.
+`type` is silently ignored if sent. Name, sortOrder and private are applied before `archived`, so a restore's end-of-list position wins over a `sortOrder` sent with it.
 
-Responses: `200` + updated track, `404`, or `409`.
+Responses: `200` + updated track, `400` `Archive date must be a date as YYYY-MM-DD` (nothing is saved), `404`, or `409`.
 
 #### `PUT /api/tracks/reorder`
-Bulk reorder. Send the desired order of track IDs; server rewrites `sortOrder` of each to match array index.
+Bulk reorder. Send the desired order of track IDs. The listed tracks come first, in the order sent (ids that aren't yours are dropped, a repeated id counts once at its first place); **every other track follows in its previous relative order** — archived tracks, and any track created elsewhere since your last read. `sortOrder` is then renumbered `1..N` over all of the user's tracks.
 
 Form params:
 - `trackIds[]` (array of ints, required, non-empty). In form-encoded bodies this is `trackIds[]=1&trackIds[]=5&trackIds[]=3`.
 
-Response: `200` + full list of the user's tracks in the new order.
+Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`).
 
 #### `DELETE /api/tracks/{id}`
 Delete a track and all its ticks. `204` on success, `404` if not found.
@@ -258,6 +268,8 @@ Form params:
 
 Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed.
 
+On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). Unknown track is still `404` and a counter track still `400`.
+
 #### `POST /api/ticks/set`
 Set a counter value. Only for `type=counter` tracks — returns `400` for boolean tracks.
 
@@ -267,6 +279,8 @@ Form params:
 - `value` (int, required). `<= 0` deletes the tick; `> 0` creates or updates it.
 
 Response: `{"value": <stored value>}`. `0` means no row exists.
+
+On an **archived** track nothing changes and the response carries the value already stored (`0` if none), with `200`, as for `toggle`.
 
 ### Preferences
 
@@ -295,6 +309,8 @@ Returns the full user data as a JSON blob:
 ```
 
 Note: ticks reference tracks by **name**, not id, to be portable across instances. Track IDs are intentionally omitted.
+
+Archived tracks are always exported (a private one only with `includePrivate=true`) and carry `"archivedAt": "YYYY-MM-DD"`; active tracks have no such key. The JSON import reads it back (missing or `null` means active) and rejects a value that isn't a real `YYYY-MM-DD` date.
 
 Track names aren't unique, so when a name appears more than once in `tracks`, the ticks of those tracks also carry an optional `trackIndex`: the 0-based position of their track in the file's `tracks` list (after the private-track filter). It is only written for repeated names, so a file without duplicates has exactly the shape above:
 
@@ -343,7 +359,7 @@ ticks(local_id, server_id NULLABLE, track_local_id, date, value,
 
 On app open, on pull-to-refresh, and periodically (e.g. every 15 min while foregrounded):
 
-1. `GET /api/tracks` → reconcile by `server_id` (and fall back to `name` match for rows that have no `server_id` yet because they were created offline). Track rows missing from the response are considered deleted server-side → delete locally unless the local row is `dirty` (then it's a conflict — see below).
+1. `GET /api/tracks` → reconcile by `server_id` (and fall back to `name` match for rows that have no `server_id` yet because they were created offline). Track rows missing from the response are considered deleted server-side → delete locally unless the local row is `dirty` (then it's a conflict — see below). A track archived elsewhere is missing from the default response too: it isn't deleted on the server (its ticks are kept), so if you need to tell the two apart, pull with `includeArchived=true` (requires `features.archivedTracks`) and treat a track with `archivedAt` set as archived rather than gone — in particular, don't recreate it from a dirty local edit.
 2. `GET /api/ticks?from=X&to=Y` for the visible date range, plus any date range that has `dirty` ticks pending push. Reconcile by `(trackId, date)` — that's the natural key.
 
 > On **first** sync you don't know how far back to go. If `features.tickBounds` is set, one `GET /api/ticks/bounds` (§3) tells you the earliest and latest tick date per track, so you can size the backfill exactly and stop paging when you reach `oldest` instead of walking blindly into empty ranges. Without the flag, page backwards until you hit a few consecutive empty windows and accept the guess.
@@ -379,7 +395,8 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 
 - **`OCS-APIRequest: true` is not optional.** Without it, Nextcloud's router may return HTML login pages or 404s instead of JSON, and the error will be cryptic. Hardcode this in your HTTP client.
 - **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
-- **Reorder is destructive.** `PUT /api/tracks/reorder` rewrites `sortOrder` on every listed track to `1..N`. If you omit tracks, their sort orders are untouched — which can produce duplicates. Always send the full list.
+- **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show; you can't send archived tracks to the front by accident, since you never see them unless you ask.
+- **Ticks on archived tracks are quietly dropped.** `toggle` and `set` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one. Reconcile from the response or the next pull.
 - **`value` on boolean ticks is always 1.** Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
 - **Date range query is inclusive on both ends.** `from=2026-04-01&to=2026-04-30` includes both the 1st and the 30th.
 - **Private tracks are soft-hidden, not encrypted.** Any client that reads `GET /api/tracks` sees them. The `private` flag controls default visibility in the web UI (there's a "Show private tracks" toggle) and whether they appear in exports. The mobile app should offer the same UX — a toggle/PIN gate on showing private tracks — but do not rely on `private` for any security claim.
@@ -454,6 +471,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Handle `type` immutability in UI (no "change type" button)
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
+- [ ] Archive/restore only when `features.archivedTracks` is set; send the device's today as `archivedAt`
 - [ ] Gate `tickBounds` / `counterIncrement` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:

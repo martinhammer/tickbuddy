@@ -18,6 +18,7 @@ class ExportService {
 
 	/**
 	 * Export all tracks and ticks for a user as a JSON-serializable array.
+	 * Archived tracks are always included.
 	 *
 	 * @param string $userId
 	 * @param bool $includePrivate Whether to include private tracks
@@ -36,12 +37,18 @@ class ExportService {
 		$exportTracks = [];
 		foreach ($tracks as $track) {
 			$trackIdToIndex[$track->getId()] = count($exportTracks);
-			$exportTracks[] = [
+			$exportTrack = [
 				'name' => $track->getName(),
 				'type' => $track->getType(),
 				'sortOrder' => $track->getSortOrder(),
 				'private' => $track->getPrivate() === 1,
 			];
+			// Only written on archived tracks, so files with nothing archived
+			// keep exactly the original format
+			if ($track->getArchivedAt() !== null) {
+				$exportTrack['archivedAt'] = $track->getArchivedAt();
+			}
+			$exportTracks[] = $exportTrack;
 		}
 
 		$nameCounts = array_count_values(array_column($exportTracks, 'name'));

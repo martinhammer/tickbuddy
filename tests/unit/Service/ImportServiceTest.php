@@ -196,4 +196,70 @@ final class ImportServiceTest extends TestCase {
 			[103, '2026-03-01', 1],
 		], $this->insertedTicks);
 	}
+
+	public function testArchivedAtIsImported(): void {
+		$this->import([
+			'version' => 1,
+			'tracks' => [
+				['name' => 'Smoking', 'type' => 'boolean', 'archivedAt' => '2026-08-14'],
+				['name' => 'Exercise', 'type' => 'boolean'],
+				['name' => 'Sweets', 'type' => 'counter', 'archivedAt' => null],
+			],
+		]);
+
+		$this->assertSame(
+			['2026-08-14', null, null],
+			array_map(fn (Track $t) => $t->getArchivedAt(), $this->insertedTracks),
+		);
+	}
+
+	public static function invalidArchivedAtProvider(): array {
+		return [
+			'not a real day' => ['2026-02-30', 'Track "Smoking" has invalid archive date "2026-02-30"'],
+			'not a date' => ['14 Aug', 'Track "Smoking" has invalid archive date "14 Aug"'],
+			'not a string' => [true, 'Track "Smoking" has invalid archive date "true"'],
+		];
+	}
+
+	/**
+	 * @dataProvider invalidArchivedAtProvider
+	 */
+	public function testInvalidArchivedAtFails(mixed $archivedAt, string $message): void {
+		$this->expectNoWrites();
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage($message);
+		$this->import([
+			'version' => 1,
+			'tracks' => [
+				['name' => 'Exercise', 'type' => 'boolean'],
+				['name' => 'Smoking', 'type' => 'boolean', 'archivedAt' => $archivedAt],
+			],
+		]);
+	}
+
+	public function testMergeLimitCountsArchivedTracks(): void {
+		$existing = [];
+		for ($i = 1; $i <= 98; $i++) {
+			$track = new Track();
+			$track->setId($i);
+			$track->setName("Track {$i}");
+			$track->setArchivedAt($i % 2 === 0 ? '2026-08-14' : null);
+			$existing[] = $track;
+		}
+		$this->trackMapper->method('findAllByUser')->willReturn($existing);
+		$this->trackMapper->expects($this->never())->method('insert');
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Import would exceed the 99 track limit. You have 98 tracks and the backup contains 2.');
+		$this->import([
+			'version' => 1,
+			'tracks' => [
+				['name' => 'Exercise', 'type' => 'boolean'],
+				['name' => 'Smoking', 'type' => 'boolean'],
+			],
+		], ImportService::MODE_MERGE);
+	}
 }

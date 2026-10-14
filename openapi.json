@@ -49,6 +49,7 @@
                                     "counterTracks",
                                     "privateTracks",
                                     "tickBounds",
+                                    "archivedTracks",
                                     "syncDelta",
                                     "counterIncrement"
                                 ],
@@ -66,6 +67,9 @@
                                         "type": "boolean"
                                     },
                                     "tickBounds": {
+                                        "type": "boolean"
+                                    },
+                                    "archivedTracks": {
                                         "type": "boolean"
                                     },
                                     "syncDelta": {
@@ -221,7 +225,8 @@
                     "name",
                     "type",
                     "sortOrder",
-                    "private"
+                    "private",
+                    "archivedAt"
                 ],
                 "properties": {
                     "id": {
@@ -240,6 +245,10 @@
                     },
                     "private": {
                         "type": "boolean"
+                    },
+                    "archivedAt": {
+                        "type": "string",
+                        "nullable": true
                     }
                 }
             }
@@ -1430,7 +1439,7 @@
         "/ocs/v2.php/apps/tickbuddy/api/tracks": {
             "get": {
                 "operationId": "track-index",
-                "summary": "List all tracks for the current user",
+                "summary": "List the tracks of the current user",
                 "tags": [
                     "track"
                 ],
@@ -1443,6 +1452,15 @@
                     }
                 ],
                 "parameters": [
+                    {
+                        "name": "includeArchived",
+                        "in": "query",
+                        "description": "Whether to include archived tracks",
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
                     {
                         "name": "OCS-APIRequest",
                         "in": "header",
@@ -1708,6 +1726,7 @@
             "put": {
                 "operationId": "track-reorder",
                 "summary": "Reorder tracks",
+                "description": "The listed tracks come first, in the order sent; every other track of the user (archived ones included) follows in its previous order.",
                 "tags": [
                     "track"
                 ],
@@ -1754,7 +1773,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tracks reordered",
+                        "description": "Tracks reordered, active tracks returned in the new order",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1895,6 +1914,18 @@
                                         "nullable": true,
                                         "default": null,
                                         "description": "Whether the track is private"
+                                    },
+                                    "archived": {
+                                        "type": "boolean",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Archive (true) or restore (false) the track. A restored track goes to the end of the list."
+                                    },
+                                    "archivedAt": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Archive date (YYYY-MM-DD), the client's today; the server's date if omitted"
                                     }
                                 }
                             }
@@ -1946,6 +1977,44 @@
                                                 },
                                                 "data": {
                                                     "$ref": "#/components/schemas/Track"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid archive date",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

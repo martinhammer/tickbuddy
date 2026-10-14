@@ -7,7 +7,8 @@ The dataset tells a small, positive story over a few years (by default from
 smoking (with believable relapses, but trending the right way) while building
 an exercise habit, cutting down on sweets, and keeping their coffee steady.
 Partway in they also take up daily affirmations, and slowly win back their
-evenings from doomscrolling.
+evenings from doomscrolling. One winter they follow a Couch to 5k plan to the
+end, then archive the track.
 
 Storage is sparse, matching the app: boolean tracks emit a row only on "yes"
 days; counter tracks emit a row only when the value is >= 1 (a zero means "no
@@ -75,7 +76,18 @@ TRACKS = [
     {"name": "Sweets", "type": "counter", "sortOrder": 5, "private": False},
     {"name": "Affirmations", "type": "boolean", "sortOrder": 6, "private": False},
     {"name": "Zero doomscrolling", "type": "boolean", "sortOrder": 7, "private": False},
+    # Archived, so screenshots and manual checks show the archived list. Only
+    # archived tracks carry the key, as the export writes them.
+    {"name": "Couch to 5k", "type": "boolean", "sortOrder": 8, "private": False,
+     "archivedAt": "2026-03-02"},
 ]
+
+# Couch to 5k: three runs a week (Mon, Wed, Fri) over a fixed winter, ending
+# with the graduation run on the day the track is archived. Fixed dates rather
+# than fractions, so the archive date stays real whatever --start/--end say.
+C25K_START = date(2025, 12, 1)
+C25K_END = date(2026, 3, 2)
+C25K_DAYS = (0, 2, 4)
 
 # Affirmations are taken up during the first serious quit attempt, so the track
 # has no history before this point (fraction of the whole range).
@@ -100,6 +112,8 @@ def generate(start: date, end: date, seed: int) -> dict:
     # The later tracks draw from their own stream, so adding them left the
     # original five tracks' ticks unchanged for a given seed.
     habits = random.Random(seed + 1)
+    # Its own stream again, so adding Couch to 5k changed no other track's ticks.
+    c25k = random.Random(seed + 2)
     affirmed_yesterday = False
     scrolled_yesterday = True
 
@@ -190,6 +204,11 @@ def generate(start: date, end: date, seed: int) -> dict:
         if clean:
             add("Zero doomscrolling", day)
         scrolled_yesterday = not clean
+
+        # Couch to 5k: the odd run missed, never the last one.
+        if C25K_START <= day <= C25K_END and day.weekday() in C25K_DAYS:
+            if day == C25K_END or c25k.random() >= 0.08:
+                add("Couch to 5k", day)
 
     return {
         "version": 1,

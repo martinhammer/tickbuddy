@@ -23,7 +23,7 @@ final class ExportServiceTest extends TestCase {
 		$this->service = new ExportService($this->trackMapper, $this->tickMapper);
 	}
 
-	private function makeTrack(int $id, string $name, string $type, int $sortOrder, bool $private = false): Track {
+	private function makeTrack(int $id, string $name, string $type, int $sortOrder, bool $private = false, ?string $archivedAt = null): Track {
 		$track = new Track();
 		$track->setId($id);
 		$track->setUserId($this->userId);
@@ -31,6 +31,7 @@ final class ExportServiceTest extends TestCase {
 		$track->setType($type);
 		$track->setSortOrder($sortOrder);
 		$track->setPrivate($private ? 1 : 0);
+		$track->setArchivedAt($archivedAt);
 		return $track;
 	}
 
@@ -118,5 +119,31 @@ final class ExportServiceTest extends TestCase {
 		$result = $this->service->export($this->userId, false);
 
 		$this->assertSame([0, 1], array_column($result['ticks'], 'trackIndex'));
+	}
+
+	public function testArchivedTrackCarriesArchivedAt(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(10, 'Exercise', 'boolean', 1),
+			$this->makeTrack(20, 'Smoking', 'boolean', 2, false, '2026-08-14'),
+		]);
+		$this->tickMapper->method('findAllByUser')->willReturn([]);
+
+		$result = $this->service->export($this->userId, true);
+
+		$this->assertSame([
+			['name' => 'Exercise', 'type' => 'boolean', 'sortOrder' => 1, 'private' => false],
+			['name' => 'Smoking', 'type' => 'boolean', 'sortOrder' => 2, 'private' => false, 'archivedAt' => '2026-08-14'],
+		], $result['tracks']);
+	}
+
+	public function testArchivedPrivateTrackFollowsIncludePrivate(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(10, 'Exercise', 'boolean', 1),
+			$this->makeTrack(20, 'Diary', 'boolean', 2, true, '2026-08-14'),
+		]);
+		$this->tickMapper->method('findAllByUser')->willReturn([]);
+
+		$this->assertSame(['Exercise'], array_column($this->service->export($this->userId, false)['tracks'], 'name'));
+		$this->assertSame(['Exercise', 'Diary'], array_column($this->service->export($this->userId, true)['tracks'], 'name'));
 	}
 }
