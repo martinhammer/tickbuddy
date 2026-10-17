@@ -19,7 +19,7 @@ Some of the key features which already exist:
 * [Companion mobile app](https://github.com/martinhammer/tickdroid)
 
 Planned features:
-* Setting and tracking of goals
+* Setting and tracking of targets / goals
 * Further enhancements to track management and analytics
 * Migration options from other tools
 * Support for translations
