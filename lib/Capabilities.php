@@ -49,6 +49,7 @@ class Capabilities implements ICapability {
 	 *             counterTracks: bool,
 	 *             privateTracks: bool,
 	 *             tickBounds: bool,
+	 *             archivedTracks: bool,
 	 *             syncDelta: bool,
 	 *             counterIncrement: bool,
 	 *         },
@@ -71,6 +72,9 @@ class Capabilities implements ICapability {
 					// Absent on older servers, where the route 404s; clients
 					// fall back to deriving bounds from a wide range fetch.
 					'tickBounds' => true,
+					// Archive and restore via PUT /api/tracks/{id} `archived`;
+					// GET /api/tracks hides archived tracks unless includeArchived=true.
+					'archivedTracks' => true,
 					// Known gaps (see CLAUDE.md): no "changed since" delta
 					// endpoint and no commutative counter increment yet.
 					// Flip to true here when the endpoints land.

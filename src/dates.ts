@@ -55,3 +55,16 @@ const dateFormatter = new Intl.DateTimeFormat(userLocale, {
 export function fmtDate(ds: string): string {
 	return dateFormatter.format(parseDateStr(ds)).replace(',', '')
 }
+
+const dayFormatter = new Intl.DateTimeFormat(userLocale, {
+	day: 'numeric', month: 'short', year: 'numeric',
+})
+
+/**
+ * A date without its weekday, e.g. "14 Aug 2026" ("Aug 14, 2026" in US English).
+ *
+ * @param ds the date as YYYY-MM-DD
+ */
+export function fmtDay(ds: string): string {
+	return dayFormatter.format(parseDateStr(ds))
+}

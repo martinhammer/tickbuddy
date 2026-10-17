@@ -17,6 +17,8 @@ use OCP\AppFramework\Db\Entity;
  * @method void setSortOrder(int $sortOrder)
  * @method int getPrivate()
  * @method void setPrivate(int $private)
+ * @method ?string getArchivedAt()
+ * @method void setArchivedAt(?string $archivedAt)
  */
 class Track extends Entity {
 	protected string $userId = '';
@@ -27,6 +29,9 @@ class Track extends Entity {
 	// on all databases, and binding a boolean parameter renders as 't'/'f' on
 	// Postgres, which the integer column rejects. Bool lives only at the API boundary.
 	protected int $private = 0;
+	// The archive date as YYYY-MM-DD (a DATE column, mapped as a string like
+	// Tick's `date`); null while the track is active.
+	protected ?string $archivedAt = null;
 
 	public function __construct() {
 		$this->addType('userId', 'string');
@@ -34,5 +39,6 @@ class Track extends Entity {
 		$this->addType('type', 'string');
 		$this->addType('sortOrder', 'integer');
 		$this->addType('private', 'integer');
+		$this->addType('archivedAt', 'string');
 	}
 }

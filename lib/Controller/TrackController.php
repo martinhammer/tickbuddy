@@ -6,6 +6,7 @@ namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\ResponseDefinitions;
+use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
@@ -48,20 +49,22 @@ class TrackController extends OCSController {
 			'type' => $track->getType(),
 			'sortOrder' => $track->getSortOrder(),
 			'private' => $track->getPrivate() === 1,
+			'archivedAt' => $track->getArchivedAt(),
 		];
 	}
 
 	/**
-	 * List all tracks for the current user
+	 * List the tracks of the current user
 	 *
+	 * @param bool $includeArchived Whether to include archived tracks
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>
 	 *
 	 * 200: Tracks returned
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/tracks')]
-	public function index(): DataResponse {
-		$tracks = $this->trackService->findAll($this->userId);
+	public function index(bool $includeArchived = false): DataResponse {
+		$tracks = $this->trackService->findAll($this->userId, $includeArchived);
 		return new DataResponse(array_values(array_map(fn (Track $t) => $this->serializeTrack($t), $tracks)));
 	}
 
@@ -92,10 +95,13 @@ class TrackController extends OCSController {
 	/**
 	 * Reorder tracks
 	 *
+	 * The listed tracks come first, in the order sent; every other track of the
+	 * user (archived ones included) follows in its previous order.
+	 *
 	 * @param list<int> $trackIds Ordered list of track IDs
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
 	 *
-	 * 200: Tracks reordered
+	 * 200: Tracks reordered, active tracks returned in the new order
 	 * 400: trackIds is required
 	 */
 	// This literal path overlaps `PUT /api/tracks/{id}`. That route constrains
@@ -119,18 +125,30 @@ class TrackController extends OCSController {
 	 * @param ?string $name New track name
 	 * @param ?int $sortOrder New sort order
 	 * @param ?bool $private Whether the track is private
-	 * @return DataResponse<Http::STATUS_OK, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
+	 * @param ?bool $archived Archive (true) or restore (false) the track. A restored track goes to the end of the list.
+	 * @param ?string $archivedAt Archive date (YYYY-MM-DD), the client's today; the server's date if omitted
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
 	 *
 	 * 200: Track updated
+	 * 400: Invalid archive date
 	 * 404: Track not found
 	 * 409: Database conflict
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}', requirements: ['id' => '\d+'])]
-	public function update(int $id, ?string $name = null, ?int $sortOrder = null, ?bool $private = null): DataResponse {
+	public function update(
+		int $id,
+		?string $name = null,
+		?int $sortOrder = null,
+		?bool $private = null,
+		?bool $archived = null,
+		?string $archivedAt = null,
+	): DataResponse {
 		try {
-			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private);
+			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private, $archived, $archivedAt);
 			return new DataResponse($this->serializeTrack($track));
+		} catch (InvalidArchiveDateException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (DbException $e) {

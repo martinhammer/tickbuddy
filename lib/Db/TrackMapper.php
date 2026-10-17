@@ -28,6 +28,21 @@ class TrackMapper extends QBMapper {
 		return $this->findEntities($qb);
 	}
 
+	/**
+	 * Tracks that aren't archived.
+	 *
+	 * @return Track[]
+	 */
+	public function findActiveByUser(string $userId): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->isNull('archived_at'))
+			->orderBy('sort_order', 'ASC');
+		return $this->findEntities($qb);
+	}
+
 	public function countByUser(string $userId): int {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select($qb->func()->count('*', 'count'))
@@ -52,6 +67,10 @@ class TrackMapper extends QBMapper {
 	}
 
 	/**
+	 * Number the given tracks 1..n in the order given. Pass every track of the
+	 * user ({@see \OCA\Tickbuddy\Service\TrackService::reorder} does): one left
+	 * out keeps the negative placeholder below.
+	 *
 	 * @param int[] $trackIds Ordered list of track IDs
 	 */
 	public function reorder(string $userId, array $trackIds): void {

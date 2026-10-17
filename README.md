@@ -9,13 +9,13 @@ Tickbuddy has been published on the [Nextcloud app store](https://apps.nextcloud
 ### Features
 
 Some of the key features which already exist:
-* Settings screen to define, manage, delete events to be tracked
+* Settings screen to define, manage, archive, delete tracks (i.e. events to be tracked)
 * Main app screen for journal entry
 * Read-only screen for journal viewing
-* Import data from Tickmate backup file
-* Import/export data in JSON format
 * Analytics screen with stats and various visualizations
 * Nextcloud dashboard widget
+* Import/export data in JSON format
+* Import data from Tickmate backup file
 * [Companion mobile app](https://github.com/martinhammer/tickdroid)
 
 Planned features:
@@ -23,6 +23,7 @@ Planned features:
 * Further enhancements to track management and analytics
 * Migration options from other tools
 * Support for translations
+* Linux command line client
 * Maybe even a smartwatch app
 
 ### Motivation
@@ -38,7 +39,7 @@ Feel free to get in touch and/or submit an issue.
 ### Screenshots
 
 Settings screen
-![Screenshot of settings screen](img/Settings_20261009.png)
+![Screenshot of settings screen](img/Settings_20261014.png)
 
 Edit journal screen
 ![Screenshot of edit journal screen](img/Edit_20261009.png)

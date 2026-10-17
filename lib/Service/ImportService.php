@@ -126,11 +126,18 @@ class ImportService {
 			if (!in_array($type, TrackService::VALID_TYPES, true)) {
 				throw new ImportException("Track \"{$name}\" has invalid type \"{$type}\"");
 			}
+			// Missing or null: active (files from before archiving have no key)
+			$archivedAt = $t['archivedAt'] ?? null;
+			if ($archivedAt !== null && (!is_string($archivedAt) || !TrackService::isValidDate($archivedAt))) {
+				$shown = is_string($archivedAt) ? $archivedAt : json_encode($archivedAt, JSON_THROW_ON_ERROR);
+				throw new ImportException("Track \"{$name}\" has invalid archive date \"{$shown}\"");
+			}
 			$trackEntries[] = [
 				'name' => $name,
 				'type' => $type,
 				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
 				'private' => (bool)($t['private'] ?? false),
+				'archivedAt' => $archivedAt,
 			];
 			$positionsByName[$name][] = $i;
 		}
@@ -217,7 +224,7 @@ class ImportService {
 	}
 
 	/**
-	 * @param list<array{name: string, type: string, sortOrder: int, private: bool}> $trackEntries
+	 * @param list<array{name: string, type: string, sortOrder: int, private: bool, archivedAt: ?string}> $trackEntries
 	 * @return list<int> New Tickbuddy track IDs, in file order
 	 * @throws ImportException
 	 */
@@ -267,6 +274,7 @@ class ImportService {
 			$track->setType($entry['type']);
 			$track->setSortOrder($sortOrder);
 			$track->setPrivate($entry['private'] ? 1 : 0);
+			$track->setArchivedAt($entry['archivedAt']);
 			$this->trackMapper->insert($track);
 
 			$trackIds[] = $track->getId();
