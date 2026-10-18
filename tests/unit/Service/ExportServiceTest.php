@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Service;
 
+use OCA\Tickbuddy\Db\Note;
+use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
@@ -13,14 +15,16 @@ use PHPUnit\Framework\TestCase;
 
 final class ExportServiceTest extends TestCase {
 	private TickMapper $tickMapper;
+	private NoteMapper $noteMapper;
 	private TrackMapper $trackMapper;
 	private ExportService $service;
 	private string $userId = 'testuser';
 
 	protected function setUp(): void {
 		$this->tickMapper = $this->createMock(TickMapper::class);
+		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
-		$this->service = new ExportService($this->trackMapper, $this->tickMapper);
+		$this->service = new ExportService($this->trackMapper, $this->tickMapper, $this->noteMapper);
 	}
 
 	private function makeTrack(int $id, string $name, string $type, int $sortOrder, bool $private = false, ?string $archivedAt = null): Track {
@@ -145,5 +149,65 @@ final class ExportServiceTest extends TestCase {
 
 		$this->assertSame(['Exercise'], array_column($this->service->export($this->userId, false)['tracks'], 'name'));
 		$this->assertSame(['Exercise', 'Diary'], array_column($this->service->export($this->userId, true)['tracks'], 'name'));
+	}
+
+	// --- notes ---
+
+	private function makeNote(int $trackId, string $date, string $text): Note {
+		$note = new Note();
+		$note->setUserId($this->userId);
+		$note->setTrackId($trackId);
+		$note->setDate($date);
+		$note->setText($text);
+		return $note;
+	}
+
+	public function testNoNotesMeansNoNotesKey(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(10, 'Exercise', 'boolean', 1),
+		]);
+		$this->tickMapper->method('findAllByUser')->willReturn([$this->makeTick(10, '2026-10-13')]);
+		$this->noteMapper->method('findAllByUser')->willReturn([]);
+
+		$result = $this->service->export($this->userId, true);
+
+		$this->assertSame(['version', 'exportedAt', 'tracks', 'ticks'], array_keys($result));
+	}
+
+	public function testNotesCarryTrackIndexOnlyForRepeatedNames(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(10, 'Backup', 'boolean', 1),
+			$this->makeTrack(20, 'Exercise', 'boolean', 2),
+			$this->makeTrack(30, 'Exercise', 'boolean', 3),
+		]);
+		$this->tickMapper->method('findAllByUser')->willReturn([]);
+		$this->noteMapper->method('findAllByUser')->willReturn([
+			$this->makeNote(10, '2026-10-13', 'done 03:14'),
+			$this->makeNote(30, '2026-10-14', "ran\n5 km"),
+		]);
+
+		$result = $this->service->export($this->userId, true);
+
+		$this->assertSame([
+			['track' => 'Backup', 'date' => '2026-10-13', 'text' => 'done 03:14'],
+			['track' => 'Exercise', 'trackIndex' => 2, 'date' => '2026-10-14', 'text' => "ran\n5 km"],
+		], $result['notes']);
+	}
+
+	public function testPrivateTracksNotesLeftOut(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(10, 'Backup', 'boolean', 1),
+			$this->makeTrack(20, 'Diary', 'boolean', 2, true),
+		]);
+		$this->tickMapper->method('findAllByUser')->willReturn([]);
+		$this->noteMapper->method('findAllByUser')->willReturn([
+			$this->makeNote(20, '2026-10-13', 'secret'),
+		]);
+
+		$this->assertArrayNotHasKey('notes', $this->service->export($this->userId, false));
+		$this->assertSame(
+			[['track' => 'Diary', 'date' => '2026-10-13', 'text' => 'secret']],
+			$this->service->export($this->userId, true)['notes'],
+		);
 	}
 }

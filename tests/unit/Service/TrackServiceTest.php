@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Service;
 
+use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
@@ -18,6 +19,7 @@ use PHPUnit\Framework\TestCase;
 final class TrackServiceTest extends TestCase {
 	private TrackMapper $trackMapper;
 	private TickMapper $tickMapper;
+	private NoteMapper $noteMapper;
 	private ITimeFactory $timeFactory;
 	private TrackService $service;
 	private string $userId = 'testuser';
@@ -25,9 +27,10 @@ final class TrackServiceTest extends TestCase {
 	protected function setUp(): void {
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->tickMapper = $this->createMock(TickMapper::class);
+		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->timeFactory = $this->createMock(ITimeFactory::class);
 		$this->timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-15 01:30:00'));
-		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->timeFactory);
+		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory);
 	}
 
 	private function makeTrack(int $id, ?string $archivedAt = null, int $sortOrder = 3): Track {
@@ -263,13 +266,16 @@ final class TrackServiceTest extends TestCase {
 		$this->assertSame($active, $this->service->reorder([3, 1], $this->userId));
 	}
 
-	public function testDeleteRemovesTicksToo(): void {
+	public function testDeleteRemovesTicksAndNotesToo(): void {
 		$track = new Track();
 		$track->setId(5);
 		$track->setUserId($this->userId);
 		$this->trackMapper->method('findByIdAndUser')->willReturn($track);
 
 		$this->tickMapper->expects($this->once())
+			->method('deleteByTrackId')
+			->with(5);
+		$this->noteMapper->expects($this->once())
 			->method('deleteByTrackId')
 			->with(5);
 		$this->trackMapper->expects($this->once())

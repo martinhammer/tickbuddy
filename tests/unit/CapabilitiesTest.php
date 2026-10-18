@@ -50,6 +50,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertTrue($features['counterIncrement']);
 		$this->assertTrue($features['booleanSet']);
 		$this->assertTrue($features['stats']);
+		$this->assertTrue($features['notes']);
 		// Known gap, not yet implemented server-side.
 		$this->assertFalse($features['syncDelta']);
 	}

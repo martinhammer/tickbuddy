@@ -15,6 +15,7 @@ class TickService {
 	public function __construct(
 		private TickMapper $tickMapper,
 		private TrackMapper $trackMapper,
+		private NoteService $noteService,
 	) {
 	}
 
@@ -43,30 +44,35 @@ class TickService {
 	 *
 	 * On an archived track nothing changes and the answer is whether a tick exists.
 	 *
+	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it;
+	 *                                         written whichever way the tick flips
+	 * @return array{ticked: bool, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidTrackTypeException if track is not boolean
-	 * @throws InvalidValueException if the date is not YYYY-MM-DD
+	 * @throws InvalidValueException if the date or the note is not valid
 	 */
-	public function toggle(string $userId, int $trackId, string $date): bool {
+	public function toggle(string $userId, int $trackId, string $date, string|int|float|bool|null $note = null): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		if ($track->getType() !== 'boolean') {
 			throw new InvalidTrackTypeException('Toggle is only available for boolean tracks');
 		}
 		self::checkDate($date);
+		$note = self::checkNote($note);
 		if ($track->getArchivedAt() !== null) {
 			// Archived history can't change. Answer with the stored state so an offline
 			// client's late upload doesn't stall its queue; its next pull drops the tick.
-			return $this->currentValue($userId, $trackId, $date) > 0;
+			return ['ticked' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note);
 		}
 
 		try {
 			$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
 			$this->tickMapper->delete($tick);
-			return false;
+			$ticked = false;
 		} catch (DoesNotExistException) {
 			$this->insertTick($userId, $trackId, $date, 1);
-			return true;
+			$ticked = true;
 		}
+		return ['ticked' => $ticked] + $this->writeNote($userId, $trackId, $date, $note);
 	}
 
 	/**
@@ -79,65 +85,75 @@ class TickService {
 	 * On an archived track nothing changes and the answer is the stored state.
 	 *
 	 * @param mixed $value Counter: a number. Yes/no: true/false, 1/0, on/off or yes/no.
-	 * @return array{value: int|bool}
+	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
+	 * @return array{value: int|bool, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
-	 * @throws InvalidValueException if a yes/no value or the date is not valid
+	 * @throws InvalidValueException if a yes/no value, the date or the note is not valid
 	 */
-	public function set(string $userId, int $trackId, string $date, mixed $value): array {
+	public function set(string $userId, int $trackId, string $date, mixed $value, string|int|float|bool|null $note = null): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		if ($track->getType() === 'boolean') {
-			return ['value' => $this->setYesNo($track, $userId, $date, $value)];
+			return $this->setYesNo($track, $userId, $date, $value, $note);
 		}
 
 		// Read as before this accepted yes/no values: a missing value is 0
 		$value = is_scalar($value) ? (int)$value : 0;
 		self::checkDate($date);
+		$note = self::checkNote($note);
 		if ($track->getArchivedAt() !== null) {
 			// As in toggle(): ignore the write, answer with what's stored
-			return ['value' => $this->currentValue($userId, $trackId, $date)];
+			return ['value' => $this->currentValue($userId, $trackId, $date)] + $this->storedNote($userId, $trackId, $date, $note);
 		}
 
 		try {
 			$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
 			if ($value <= 0) {
 				$this->tickMapper->delete($tick);
-				return ['value' => 0];
+				$value = 0;
+			} else {
+				$tick->setValue($value);
+				$this->tickMapper->update($tick);
 			}
-			$tick->setValue($value);
-			$this->tickMapper->update($tick);
-			return ['value' => $value];
 		} catch (DoesNotExistException) {
 			if ($value <= 0) {
-				return ['value' => 0];
+				$value = 0;
+			} else {
+				$this->insertTick($userId, $trackId, $date, $value);
 			}
-			$this->insertTick($userId, $trackId, $date, $value);
-			return ['value' => $value];
 		}
+		return ['value' => $value] + $this->writeNote($userId, $trackId, $date, $note);
 	}
 
 	/**
+	 * @return array{value: bool, note?: string}
 	 * @throws InvalidValueException
 	 */
-	private function setYesNo(Track $track, string $userId, string $date, mixed $value): bool {
+	private function setYesNo(Track $track, string $userId, string $date, mixed $value, string|int|float|bool|null $note): array {
 		$ticked = self::parseYesNo($value);
 		if ($ticked === null) {
 			throw new InvalidValueException('Yes/no tracks take a value of true or false');
 		}
 		self::checkDate($date);
+		$note = self::checkNote($note);
 		$trackId = $track->getId();
 		if ($track->getArchivedAt() !== null) {
-			return $this->currentValue($userId, $trackId, $date) > 0;
+			return ['value' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note);
 		}
+
+		$this->writeYesNo($userId, $trackId, $date, $ticked);
+		return ['value' => $ticked] + $this->writeNote($userId, $trackId, $date, $note);
+	}
+
+	private function writeYesNo(string $userId, int $trackId, string $date, bool $ticked): void {
 
 		try {
 			$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
 			if (!$ticked) {
 				$this->tickMapper->delete($tick);
 			}
-			return $ticked;
 		} catch (DoesNotExistException) {
 			if (!$ticked) {
-				return false;
+				return;
 			}
 			try {
 				$this->insertTick($userId, $trackId, $date, 1);
@@ -147,7 +163,6 @@ class TickService {
 					throw $e;
 				}
 			}
-			return true;
 		}
 	}
 
@@ -196,11 +211,13 @@ class TickService {
 	 *
 	 * On an archived track nothing changes and the answer is the stored value.
 	 *
+	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
+	 * @return array{value: int, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidTrackTypeException if track is not counter
-	 * @throws InvalidValueException if delta is 0 or the date is not valid
+	 * @throws InvalidValueException if delta is 0, or the date or the note is not valid
 	 */
-	public function increment(string $userId, int $trackId, string $date, int $delta): int {
+	public function increment(string $userId, int $trackId, string $date, int $delta, string|int|float|bool|null $note = null): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		if ($track->getType() !== 'counter') {
 			throw new InvalidTrackTypeException('Increment is only available for counter tracks');
@@ -209,10 +226,19 @@ class TickService {
 			throw new InvalidValueException('Delta must be a whole number other than 0');
 		}
 		self::checkDate($date);
+		$note = self::checkNote($note);
 		if ($track->getArchivedAt() !== null) {
-			return $this->currentValue($userId, $trackId, $date);
+			return ['value' => $this->currentValue($userId, $trackId, $date)] + $this->storedNote($userId, $trackId, $date, $note);
 		}
 
+		$value = $this->addDelta($userId, $trackId, $date, $delta);
+		return ['value' => $value] + $this->writeNote($userId, $trackId, $date, $note);
+	}
+
+	/**
+	 * @return int The value after this request's write
+	 */
+	private function addDelta(string $userId, int $trackId, string $date, int $delta): int {
 		$updated = $this->tickMapper->addToValue($userId, $trackId, $date, $delta);
 		if ($updated === 0) {
 			if ($delta < 0) {
@@ -244,6 +270,41 @@ class TickService {
 		if (!TrackService::isValidDate($date)) {
 			throw new InvalidValueException('Date must be a date as YYYY-MM-DD');
 		}
+	}
+
+	/**
+	 * A note sent with a tick call, checked before anything is written; null when none was sent.
+	 *
+	 * @throws InvalidValueException
+	 */
+	private static function checkNote(string|int|float|bool|null $note): ?string {
+		return $note === null ? null : NoteService::normalise($note);
+	}
+
+	/**
+	 * Write a note sent with a tick call, after the tick, for the answer.
+	 * No transaction around the two writes, as increment() can't have one: a
+	 * failure here leaves the tick written, which a retry of set or increment repairs.
+	 *
+	 * @return array{note?: string} The stored note, if one was sent
+	 */
+	private function writeNote(string $userId, int $trackId, string $date, ?string $note): array {
+		if ($note === null) {
+			return [];
+		}
+		return ['note' => $this->noteService->writeForTick($userId, $trackId, $date, $note)];
+	}
+
+	/**
+	 * On an archived track: the stored note for the answer, if a note was sent.
+	 *
+	 * @return array{note?: string}
+	 */
+	private function storedNote(string $userId, int $trackId, string $date, ?string $note): array {
+		if ($note === null) {
+			return [];
+		}
+		return ['note' => $this->noteService->stored($userId, $trackId, $date)];
 	}
 
 	private function insertTick(string $userId, int $trackId, string $date, int $value): void {

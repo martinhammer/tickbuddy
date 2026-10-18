@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API: set a yes/no tick to a state with `POST /api/ticks/set`
 - API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
 - API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track
+- API: notes on a track's day (`/api/notes`), also settable with toggle, set and increment; exported and imported with backups
 
 ### Changed
 - API: toggle and set reject a date that isn't YYYY-MM-DD
@@ -21,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analytics weekly mean was incorrect in some scenarios
 - Track names over 255 characters gives a clear error instead of a server error
 - Renaming a track to a blank name gives a clear error instead of a server error
+- Import: a backup with an invalid date, an unknown track, an invalid value, a repeated day or a malformed entry now fails with a message instead of being partly imported
+- Import: merging a track with a very long name no longer fails with a database error
 
 
 ## [2.2.0] - 2026-10-17

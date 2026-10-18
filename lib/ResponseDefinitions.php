@@ -27,6 +27,12 @@ namespace OCA\Tickbuddy;
  *     newest: string,
  * }
  *
+ * @psalm-type TickbuddyNote = array{
+ *     trackId: int,
+ *     date: string,
+ *     text: string,
+ * }
+ *
  * @psalm-type TickbuddyRun = array{
  *     isStreak: bool,
  *     length: int,
@@ -55,6 +61,7 @@ namespace OCA\Tickbuddy;
  * @psalm-type TickbuddyImportResult = array{
  *     tracks: int,
  *     ticks: int,
+ *     notes: int,
  * }
  *
  * @psalm-type TickbuddyExport = array{
@@ -62,6 +69,7 @@ namespace OCA\Tickbuddy;
  *     exportedAt: string,
  *     tracks: list<array<string, mixed>>,
  *     ticks: list<array<string, mixed>>,
+ *     notes?: list<array<string, mixed>>,
  * }
  *
  * @psalm-type TickbuddyPreferences = array{

@@ -53,7 +53,8 @@
                                     "syncDelta",
                                     "counterIncrement",
                                     "booleanSet",
-                                    "stats"
+                                    "stats",
+                                    "notes"
                                 ],
                                 "properties": {
                                     "import": {
@@ -84,6 +85,9 @@
                                         "type": "boolean"
                                     },
                                     "stats": {
+                                        "type": "boolean"
+                                    },
+                                    "notes": {
                                         "type": "boolean"
                                     }
                                 }
@@ -125,6 +129,15 @@
                                 "type": "object"
                             }
                         }
+                    },
+                    "notes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "object"
+                            }
+                        }
                     }
                 }
             },
@@ -132,7 +145,8 @@
                 "type": "object",
                 "required": [
                     "tracks",
-                    "ticks"
+                    "ticks",
+                    "notes"
                 ],
                 "properties": {
                     "tracks": {
@@ -142,6 +156,30 @@
                     "ticks": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "notes": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "Note": {
+                "type": "object",
+                "required": [
+                    "trackId",
+                    "date",
+                    "text"
+                ],
+                "properties": {
+                    "trackId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "date": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
                     }
                 }
             },
@@ -700,6 +738,529 @@
                     },
                     "400": {
                         "description": "Upload missing, too large, invalid mode, or import failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/notes": {
+            "get": {
+                "operationId": "note-index",
+                "summary": "List notes within a date range",
+                "description": "Includes the notes of private and archived tracks.",
+                "tags": [
+                    "note"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "description": "Start date (YYYY-MM-DD), inclusive",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "to",
+                        "in": "query",
+                        "description": "End date (YYYY-MM-DD), inclusive",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Notes returned, newest first",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/Note"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "From or to is missing or not a date",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "note-destroy",
+                "summary": "Delete the note on a track's day",
+                "description": "Answers 204 also when the day had no note. On an archived track nothing is deleted.",
+                "tags": [
+                    "note"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "trackId",
+                        "in": "query",
+                        "description": "Track ID",
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "date",
+                        "in": "query",
+                        "description": "Date (YYYY-MM-DD)",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Note deleted"
+                    },
+                    "400": {
+                        "description": "Date invalid",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/notes/set": {
+            "post": {
+                "operationId": "note-set",
+                "summary": "Set the note on a track's day",
+                "description": "On an archived track nothing changes and the answer is the stored note.",
+                "tags": [
+                    "note"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "trackId": {
+                                        "type": "integer",
+                                        "format": "int64",
+                                        "default": 0,
+                                        "description": "Track ID"
+                                    },
+                                    "date": {
+                                        "type": "string",
+                                        "default": "",
+                                        "description": "Date (YYYY-MM-DD)"
+                                    },
+                                    "text": {
+                                        "nullable": true,
+                                        "default": "",
+                                        "description": "Plain text, at most 200 characters; empty deletes the note",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Note set; `text` is the stored text, empty if none",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "text"
+                                                    ],
+                                                    "properties": {
+                                                        "text": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Date or text invalid",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1401,6 +1962,27 @@
                                         "type": "string",
                                         "default": "",
                                         "description": "Date (YYYY-MM-DD)"
+                                    },
+                                    "note": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional note for the day: replaces the day's note, empty deletes it, missing leaves it",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -1421,7 +2003,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick toggled",
+                        "description": "Tick toggled; `note` is the day's stored note, only when one was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1448,6 +2030,9 @@
                                                     "properties": {
                                                         "ticked": {
                                                             "type": "boolean"
+                                                        },
+                                                        "note": {
+                                                            "type": "string"
                                                         }
                                                     }
                                                 }
@@ -1459,7 +2044,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a boolean track, or the date is invalid",
+                        "description": "Track is not a boolean track, or the date or the note is invalid",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1614,6 +2199,27 @@
                                                 "type": "string"
                                             }
                                         ]
+                                    },
+                                    "note": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional note for the day: replaces the day's note, empty deletes it, missing leaves it",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -1634,7 +2240,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value set",
+                        "description": "Value set; `note` is the day's stored note, only when one was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1669,6 +2275,9 @@
                                                                     "type": "boolean"
                                                                 }
                                                             ]
+                                                        },
+                                                        "note": {
+                                                            "type": "string"
                                                         }
                                                     }
                                                 }
@@ -1680,7 +2289,7 @@
                         }
                     },
                     "400": {
-                        "description": "Value not valid for a yes/no track, or the date is invalid",
+                        "description": "Value not valid for a yes/no track, or the date or the note is invalid",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1825,6 +2434,27 @@
                                         "format": "int64",
                                         "default": 0,
                                         "description": "Amount to add, not 0; negative to take away"
+                                    },
+                                    "note": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional note for the day: replaces the day's note, empty deletes it, missing leaves it",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -1845,7 +2475,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value changed",
+                        "description": "Value changed; `note` is the day's stored note, only when one was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1873,6 +2503,9 @@
                                                         "value": {
                                                             "type": "integer",
                                                             "format": "int64"
+                                                        },
+                                                        "note": {
+                                                            "type": "string"
                                                         }
                                                     }
                                                 }
@@ -1884,7 +2517,7 @@
                         }
                     },
                     "400": {
-                        "description": "Not a counter track, or delta or date invalid",
+                        "description": "Not a counter track, or delta, date or note invalid",
                         "content": {
                             "application/json": {
                                 "schema": {

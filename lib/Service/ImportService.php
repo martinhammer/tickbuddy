@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\Tickbuddy\Service;
 
+use OCA\Tickbuddy\Db\Note;
+use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
@@ -13,10 +15,13 @@ use OCP\IDBConnection;
 class ImportService {
 	public const MODE_REPLACE = 'replace';
 	public const MODE_MERGE = 'merge';
+	/** Added in Merge to an imported track whose name is already taken */
+	private const IMPORTED_SUFFIX = ' (imported)';
 
 	public function __construct(
 		private TrackMapper $trackMapper,
 		private TickMapper $tickMapper,
+		private NoteMapper $noteMapper,
 		private IDBConnection $db,
 	) {
 	}
@@ -27,7 +32,7 @@ class ImportService {
 	 * @param string $filePath Path to the uploaded SQLite file
 	 * @param string $mode 'replace' or 'merge'
 	 * @param string $userId Current user ID
-	 * @return array{tracks: int, ticks: int} Count of imported items
+	 * @return array{tracks: int, ticks: int, notes: int} Count of imported items
 	 * @throws ImportException
 	 */
 	public function importTickmate(string $filePath, string $mode, string $userId): array {
@@ -66,7 +71,8 @@ class ImportService {
 			throw new ImportException('Import failed: ' . $e->getMessage());
 		}
 
-		return ['tracks' => count($trackIdMap), 'ticks' => $tickCount];
+		// Tickmate has no notes
+		return ['tracks' => count($trackIdMap), 'ticks' => $tickCount, 'notes' => 0];
 	}
 
 	/**
@@ -75,7 +81,7 @@ class ImportService {
 	 * @param string $filePath Path to the uploaded JSON file
 	 * @param string $mode 'replace' or 'merge'
 	 * @param string $userId Current user ID
-	 * @return array{tracks: int, ticks: int} Count of imported items
+	 * @return array{tracks: int, ticks: int, notes: int} Count of imported items
 	 * @throws ImportException
 	 */
 	public function importJson(string $filePath, string $mode, string $userId): array {
@@ -105,12 +111,9 @@ class ImportService {
 			throw new ImportException('Invalid backup: missing tracks');
 		}
 
-		/** @var list<array<string, mixed>> $jsonTracks */
 		$jsonTracks = array_values($data['tracks']);
-		$jsonTicks = [];
-		if (isset($data['ticks']) && is_array($data['ticks'])) {
-			$jsonTicks = array_values($data['ticks']);
-		}
+		$jsonTicks = self::optionalList($data, 'ticks');
+		$jsonNotes = self::optionalList($data, 'notes');
 
 		if (empty($jsonTracks)) {
 			throw new ImportException('No tracks found in the backup file');
@@ -121,6 +124,9 @@ class ImportService {
 		/** @var array<string, list<int>> $positionsByName */
 		$positionsByName = [];
 		foreach ($jsonTracks as $i => $t) {
+			if (!self::isObject($t)) {
+				throw new ImportException('Invalid backup: track ' . ($i + 1) . ' is not an object');
+			}
 			$name = $this->cleanJsonTrackName($t['name'] ?? '');
 			self::checkNameLength($name);
 			$type = (string)($t['type'] ?? 'boolean');
@@ -143,14 +149,16 @@ class ImportService {
 			$positionsByName[$name][] = $i;
 		}
 
-		// Resolve every tick to its track's position in the file before writing
-		// anything, so a file whose ticks can't be matched changes nothing
-		$resolvedTicks = $this->resolveJsonTicks($jsonTicks, $positionsByName, count($trackEntries));
+		// Resolve and check every tick and note before writing anything, so a
+		// file with one that can't be matched or read changes nothing
+		$resolvedTicks = $this->resolveJsonTicks($jsonTicks, $positionsByName, $trackEntries);
+		$resolvedNotes = $this->resolveJsonNotes($jsonNotes, $positionsByName, $trackEntries);
 
 		$this->db->beginTransaction();
 		try {
 			$trackIds = $this->importJsonTracks($trackEntries, $mode, $userId);
 			$tickCount = $this->importJsonTicks($resolvedTicks, $trackIds, $userId);
+			$noteCount = $this->importJsonNotes($resolvedNotes, $trackIds, $userId);
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
@@ -160,7 +168,7 @@ class ImportService {
 			throw new ImportException('Import failed: ' . $e->getMessage());
 		}
 
-		return ['tracks' => count($trackIds), 'ticks' => $tickCount];
+		return ['tracks' => count($trackIds), 'ticks' => $tickCount, 'notes' => $noteCount];
 	}
 
 	/**
@@ -184,56 +192,197 @@ class ImportService {
 	}
 
 	/**
-	 * Match each JSON tick to the position of its track in the file's tracks list.
+	 * The `ticks` or `notes` list of a backup: empty when the key is missing.
+	 *
+	 * @param array<array-key, mixed> $data
+	 * @return list<mixed>
+	 * @throws ImportException when the key is there but isn't a list
+	 */
+	private static function optionalList(array $data, string $key): array {
+		if (!isset($data[$key])) {
+			return [];
+		}
+		if (!is_array($data[$key]) || !array_is_list($data[$key])) {
+			throw new ImportException("Invalid backup: {$key} is not a list");
+		}
+		return $data[$key];
+	}
+
+	/**
+	 * Whether a decoded JSON value was an object. Decoded as arrays, `{}` and
+	 * `[]` look the same, so an empty one counts as an object.
+	 *
+	 * @psalm-assert-if-true array<array-key, mixed> $value
+	 */
+	private static function isObject(mixed $value): bool {
+		return is_array($value) && ($value === [] || !array_is_list($value));
+	}
+
+	/**
+	 * A value from a backup, quoted in a message as it was written.
+	 */
+	private static function shown(mixed $value): string {
+		return is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR);
+	}
+
+	/**
+	 * Match each JSON tick to the position of its track in the file's tracks
+	 * list, and check it.
 	 *
 	 * A tick's `trackIndex` wins when present; otherwise its `track` name must
-	 * match exactly one track. Ticks naming a track that isn't in the file are skipped.
+	 * match exactly one track. A tick for a track that isn't in the file, with a
+	 * date that isn't real, with a value its track can't take, or on a day its
+	 * track already has a tick on fails the import. Ticks that mean "nothing"
+	 * (a counter's 0, a yes/no track's false) are skipped.
 	 *
 	 * @param list<mixed> $jsonTicks
 	 * @param array<string, list<int>> $positionsByName Cleaned track name → positions in the file
+	 * @param list<array{name: string, type: string, ...}> $trackEntries
 	 * @return list<array{position: int, date: string, value: int}>
 	 * @throws ImportException
 	 */
-	private function resolveJsonTicks(array $jsonTicks, array $positionsByName, int $trackCount): array {
+	private function resolveJsonTicks(array $jsonTicks, array $positionsByName, array $trackEntries): array {
 		$resolved = [];
+		/** @var array<string, true> $seen "position date" of every tick so far */
+		$seen = [];
 
 		foreach ($jsonTicks as $t) {
-			if (!is_array($t)) {
-				continue;
+			if (!self::isObject($t)) {
+				throw new ImportException('Invalid backup: a tick is not an object');
 			}
 
-			$date = (string)($t['date'] ?? '');
-			$value = (int)($t['value'] ?? 1);
-			if ($date === '' || $value <= 0) {
-				continue;
-			}
-
-			if (array_key_exists('trackIndex', $t)) {
-				$index = $t['trackIndex'];
-				if (!is_int($index) || $index < 0 || $index >= $trackCount) {
-					$shown = is_string($index) ? $index : json_encode($index, JSON_THROW_ON_ERROR);
-					throw new ImportException("Tick on {$date} has an invalid track index \"{$shown}\"");
-				}
-				$position = $index;
-			} else {
+			$date = $t['date'] ?? '';
+			if (!is_string($date) || !TrackService::isValidDate($date)) {
 				$name = $this->cleanJsonTrackName($t['track'] ?? '');
-				$positions = $positionsByName[$name] ?? [];
-				if (count($positions) === 0) {
-					continue;
-				}
-				if (count($positions) > 1) {
-					throw new ImportException(
-						"The backup has more than one track named \"{$name}\", so its ticks can't be matched. "
-						. 'Rename one of them in the file and import again.'
-					);
-				}
-				$position = $positions[0];
+				throw new ImportException("Tick on track \"{$name}\" has an invalid date \"" . self::shown($date) . '"');
 			}
 
-			$resolved[] = ['position' => $position, 'date' => $date, 'value' => $value];
+			$position = $this->resolveJsonTrackPosition($t, 'Tick', $date, $positionsByName, count($trackEntries));
+			$track = $trackEntries[$position];
+
+			// Missing: 1, as in files from before counters
+			$value = array_key_exists('value', $t)
+				? self::jsonTickValue($track['type'], $t['value'])
+				: 1;
+			if ($value === null) {
+				throw new ImportException("Tick on {$date} has an invalid value \"" . self::shown($t['value']) . '"');
+			}
+
+			if (isset($seen["{$position} {$date}"])) {
+				throw new ImportException("Tick on {$date} for track \"{$track['name']}\" appears twice");
+			}
+			$seen["{$position} {$date}"] = true;
+
+			if ($value > 0) {
+				$resolved[] = ['position' => $position, 'date' => $date, 'value' => $value];
+			}
 		}
 
 		return $resolved;
+	}
+
+	/**
+	 * A tick value from a backup: yes/no tracks take what `set` takes (true
+	 * is 1, false 0), counters a whole number from 0 up. 0 means no tick.
+	 *
+	 * @return ?int Null when the track can't take the value
+	 */
+	private static function jsonTickValue(string $type, mixed $value): ?int {
+		if ($type === 'boolean') {
+			$ticked = TickService::parseYesNo($value);
+			return $ticked === null ? null : (int)$ticked;
+		}
+		return is_int($value) && $value >= 0 ? $value : null;
+	}
+
+	/**
+	 * Match each JSON note to its track's position in the file, as for ticks,
+	 * and check it with the API's rules. A note that can't be matched or read
+	 * fails the import; one whose text is empty after cleaning is skipped, as
+	 * empty text means "no note".
+	 *
+	 * @param list<mixed> $jsonNotes
+	 * @param array<string, list<int>> $positionsByName Cleaned track name → positions in the file
+	 * @param list<array{name: string, type: string, ...}> $trackEntries
+	 * @return list<array{position: int, date: string, text: string}>
+	 * @throws ImportException
+	 */
+	private function resolveJsonNotes(array $jsonNotes, array $positionsByName, array $trackEntries): array {
+		$resolved = [];
+		/** @var array<string, true> $seen "position date" of every note so far */
+		$seen = [];
+
+		foreach ($jsonNotes as $n) {
+			if (!self::isObject($n)) {
+				throw new ImportException('Invalid backup: a note is not an object');
+			}
+
+			$date = $n['date'] ?? '';
+			if (!is_string($date) || !TrackService::isValidDate($date)) {
+				throw new ImportException('Note has an invalid date "' . self::shown($date) . '"');
+			}
+
+			$position = $this->resolveJsonTrackPosition($n, 'Note', $date, $positionsByName, count($trackEntries));
+
+			try {
+				$text = NoteService::normalise($n['text'] ?? null);
+			} catch (InvalidValueException $e) {
+				throw new ImportException("Note on {$date}: " . $e->getMessage());
+			}
+
+			if (isset($seen["{$position} {$date}"])) {
+				throw new ImportException("Note on {$date} for track \"{$trackEntries[$position]['name']}\" appears twice");
+			}
+			$seen["{$position} {$date}"] = true;
+
+			if ($text !== '') {
+				$resolved[] = ['position' => $position, 'date' => $date, 'text' => $text];
+			}
+		}
+
+		return $resolved;
+	}
+
+	/**
+	 * The position in the file's tracks list of the track a JSON tick or note
+	 * belongs to: its `trackIndex` when present, else the one track with its
+	 * `track` name.
+	 *
+	 * @param array<array-key, mixed> $item
+	 * @param 'Tick'|'Note' $kind For the messages
+	 * @param array<string, list<int>> $positionsByName
+	 * @throws ImportException for an invalid index, a name no track has, or a name several tracks share
+	 */
+	private function resolveJsonTrackPosition(array $item, string $kind, string $date, array $positionsByName, int $trackCount): int {
+		if (array_key_exists('trackIndex', $item)) {
+			$index = $item['trackIndex'];
+			if (!is_int($index) || $index < 0 || $index >= $trackCount) {
+				throw new ImportException("{$kind} on {$date} has an invalid track index \"" . self::shown($index) . '"');
+			}
+			return $index;
+		}
+
+		$name = $this->cleanJsonTrackName($item['track'] ?? '');
+		$positions = $positionsByName[$name] ?? [];
+		if (count($positions) === 0) {
+			throw new ImportException("{$kind} on {$date} is for a track \"{$name}\" that isn't in the backup");
+		}
+		if (count($positions) > 1) {
+			$items = strtolower($kind) . 's';
+			throw new ImportException(
+				"The backup has more than one track named \"{$name}\", so its {$items} can't be matched. "
+				. 'Rename one of them in the file and import again.'
+			);
+		}
+		return $positions[0];
+	}
+
+	/**
+	 * A clashing name with the Merge suffix, cut so the result fits the column.
+	 */
+	private static function withImportedSuffix(string $name): string {
+		$room = TrackService::MAX_NAME_LENGTH - mb_strlen(self::IMPORTED_SUFFIX);
+		return mb_substr($name, 0, $room) . self::IMPORTED_SUFFIX;
 	}
 
 	/**
@@ -245,6 +394,7 @@ class ImportService {
 		$existingNames = [];
 
 		if ($mode === self::MODE_REPLACE) {
+			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);
 			$startSortOrder = 1;
@@ -278,7 +428,7 @@ class ImportService {
 			$name = $entry['name'];
 
 			if ($mode === self::MODE_MERGE && isset($existingNames[mb_strtolower($name)])) {
-				$name .= ' (imported)';
+				$name = self::withImportedSuffix($name);
 			}
 
 			$track = new Track();
@@ -316,6 +466,27 @@ class ImportService {
 		}
 
 		return $tickCount;
+	}
+
+	/**
+	 * @param list<array{position: int, date: string, text: string}> $resolvedNotes
+	 * @param list<int> $trackIds New track IDs, by position in the file
+	 * @return int Number of notes imported
+	 */
+	private function importJsonNotes(array $resolvedNotes, array $trackIds, string $userId): int {
+		$noteCount = 0;
+
+		foreach ($resolvedNotes as $n) {
+			$note = new Note();
+			$note->setUserId($userId);
+			$note->setTrackId($trackIds[$n['position']]);
+			$note->setDate($n['date']);
+			$note->setText($n['text']);
+			$this->noteMapper->insert($note);
+			$noteCount++;
+		}
+
+		return $noteCount;
 	}
 
 	private function validateTickmateDb(\SQLite3 $sqlite): void {
@@ -386,6 +557,10 @@ class ImportService {
 			$year = (int)$row['year'];
 			$day = (int)$row['day'];
 			$date = sprintf('%04d-%02d-%02d', $year, $month, $day);
+			if (!TrackService::isValidDate($date)) {
+				$name = $tmTracks[$trackId]['name'];
+				throw new ImportException("Tickmate tick on track \"{$name}\" has an invalid date \"{$date}\"");
+			}
 
 			$ticks[$trackId][] = [
 				'date' => $date,
@@ -430,6 +605,7 @@ class ImportService {
 		$existingNames = [];
 
 		if ($mode === self::MODE_REPLACE) {
+			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);
 			$startSortOrder = 1;
@@ -468,7 +644,7 @@ class ImportService {
 
 			// Handle name collision in merge mode
 			if ($mode === self::MODE_MERGE && isset($existingNames[mb_strtolower($name)])) {
-				$name .= ' (imported)';
+				$name = self::withImportedSuffix($name);
 			}
 
 			$type = isset($counterTracks[$tmId]) ? 'counter' : 'boolean';

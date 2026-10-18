@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\Tickbuddy\Service;
 
+use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
@@ -19,6 +20,7 @@ class TrackService {
 	public function __construct(
 		private TrackMapper $trackMapper,
 		private TickMapper $tickMapper,
+		private NoteMapper $noteMapper,
 		private ITimeFactory $timeFactory,
 	) {
 	}
@@ -186,6 +188,7 @@ class TrackService {
 	public function delete(int $id, string $userId): void {
 		$track = $this->trackMapper->findByIdAndUser($id, $userId);
 		$this->tickMapper->deleteByTrackId($id);
+		$this->noteMapper->deleteByTrackId($id);
 		$this->trackMapper->delete($track);
 	}
 }

@@ -82,18 +82,20 @@ class TickController extends OCSController {
 	 *
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
-	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
+	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
 	 *
-	 * 200: Tick toggled
-	 * 400: Track is not a boolean track, or the date is invalid
+	 * 200: Tick toggled; `note` is the day's stored note, only when one was sent
+	 * 400: Track is not a boolean track, or the date or the note is invalid
 	 * 404: Track not found
 	 */
+	// $note is a union for the framework: typed string, Nextcloud would answer a
+	// bare 400 to a JSON number. NoteService::normalise reads it.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/toggle')]
-	public function toggle(int $trackId = 0, string $date = ''): DataResponse {
+	public function toggle(int $trackId = 0, string $date = '', string|int|float|bool|null $note = null): DataResponse {
 		try {
-			$ticked = $this->tickService->toggle($this->userId, $trackId, $date);
-			return new DataResponse(['ticked' => $ticked]);
+			return new DataResponse($this->tickService->toggle($this->userId, $trackId, $date, $note));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {
@@ -107,19 +109,20 @@ class TickController extends OCSController {
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param int|bool|string|null $value Counter: the new value (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)
-	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
 	 *
-	 * 200: Value set
-	 * 400: Value not valid for a yes/no track, or the date is invalid
+	 * 200: Value set; `note` is the day's stored note, only when one was sent
+	 * 400: Value not valid for a yes/no track, or the date or the note is invalid
 	 * 404: Track not found
 	 */
 	// $value is untyped for the framework: typed int, Nextcloud would turn
 	// "true" or "on" into 0 before the service sees it.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/set')]
-	public function set(int $trackId = 0, string $date = '', int|bool|string|null $value = null): DataResponse {
+	public function set(int $trackId = 0, string $date = '', int|bool|string|null $value = null, string|int|float|bool|null $note = null): DataResponse {
 		try {
-			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value));
+			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value, $note));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {
@@ -136,17 +139,18 @@ class TickController extends OCSController {
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param int $delta Amount to add, not 0; negative to take away
-	 * @return DataResponse<Http::STATUS_OK, array{value: int}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
+	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
 	 *
-	 * 200: Value changed
-	 * 400: Not a counter track, or delta or date invalid
+	 * 200: Value changed; `note` is the day's stored note, only when one was sent
+	 * 400: Not a counter track, or delta, date or note invalid
 	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/increment')]
-	public function increment(int $trackId = 0, string $date = '', int $delta = 0): DataResponse {
+	public function increment(int $trackId = 0, string $date = '', int $delta = 0, string|int|float|bool|null $note = null): DataResponse {
 		try {
-			return new DataResponse(['value' => $this->tickService->increment($this->userId, $trackId, $date, $delta)]);
+			return new DataResponse($this->tickService->increment($this->userId, $trackId, $date, $delta, $note));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {

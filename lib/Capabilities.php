@@ -54,6 +54,7 @@ class Capabilities implements ICapability {
 	 *             counterIncrement: bool,
 	 *             booleanSet: bool,
 	 *             stats: bool,
+	 *             notes: bool,
 	 *         },
 	 *     },
 	 * }
@@ -87,6 +88,10 @@ class Capabilities implements ICapability {
 					'booleanSet' => true,
 					// GET /api/stats — totals, streaks and highest/lowest per track.
 					'stats' => true,
+					// Notes on a track's day: GET/DELETE /api/notes, POST /api/notes/set,
+					// and `note` on toggle, set and increment. Older servers 404 the
+					// routes and silently ignore `note`, so check this before sending one.
+					'notes' => true,
 				],
 			],
 		];

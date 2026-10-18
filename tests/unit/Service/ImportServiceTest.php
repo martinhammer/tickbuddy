@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Service;
 
+use OCA\Tickbuddy\Db\Note;
+use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
@@ -15,6 +17,7 @@ use PHPUnit\Framework\TestCase;
 
 final class ImportServiceTest extends TestCase {
 	private TickMapper $tickMapper;
+	private NoteMapper $noteMapper;
 	private TrackMapper $trackMapper;
 	private IDBConnection $db;
 	private ImportService $service;
@@ -28,9 +31,10 @@ final class ImportServiceTest extends TestCase {
 
 	protected function setUp(): void {
 		$this->tickMapper = $this->createMock(TickMapper::class);
+		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->db = $this->createMock(IDBConnection::class);
-		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->db);
+		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db);
 
 		$this->trackMapper->method('insert')->willReturnCallback(function (Track $track): Track {
 			$track->setId(101 + count($this->insertedTracks));
@@ -83,7 +87,7 @@ final class ImportServiceTest extends TestCase {
 	public function testTrackIndexPutsEachTickOnItsOwnTrack(): void {
 		$result = $this->import($this->duplicateNamesBackup());
 
-		$this->assertSame(['tracks' => 3, 'ticks' => 4], $result);
+		$this->assertSame(['tracks' => 3, 'ticks' => 4, 'notes' => 0], $result);
 		$this->assertSame([
 			[101, '2026-10-13', 2],
 			[102, '2026-10-13', 1],
@@ -134,7 +138,7 @@ final class ImportServiceTest extends TestCase {
 
 		$result = $this->import($data);
 
-		$this->assertSame(['tracks' => 3, 'ticks' => 1], $result);
+		$this->assertSame(['tracks' => 3, 'ticks' => 1, 'notes' => 0], $result);
 		$this->assertSame([[101, '2026-10-13', 2]], $this->insertedTicks);
 	}
 
@@ -151,28 +155,12 @@ final class ImportServiceTest extends TestCase {
 			],
 		]);
 
-		$this->assertSame(['tracks' => 2, 'ticks' => 2], $result);
+		$this->assertSame(['tracks' => 2, 'ticks' => 2, 'notes' => 0], $result);
 		$this->assertSame(['Exercise', 'Untitled'], array_map(fn (Track $t) => $t->getName(), $this->insertedTracks));
 		$this->assertSame([
 			[101, '2026-10-13', 1],
 			[102, '2026-10-12', 1],
 		], $this->insertedTicks);
-	}
-
-	public function testTickForUnknownTrackIsSkipped(): void {
-		$result = $this->import([
-			'version' => 1,
-			'tracks' => [
-				['name' => 'Exercise', 'type' => 'boolean'],
-			],
-			'ticks' => [
-				['track' => 'Reading', 'date' => '2026-10-13', 'value' => 1],
-				['track' => 'Exercise', 'date' => '2026-10-13', 'value' => 1],
-			],
-		]);
-
-		$this->assertSame(['tracks' => 1, 'ticks' => 1], $result);
-		$this->assertSame([[101, '2026-10-13', 1]], $this->insertedTicks);
 	}
 
 	public function testMergeRenamesDuplicatesAndKeepsTheirTicks(): void {
@@ -184,7 +172,7 @@ final class ImportServiceTest extends TestCase {
 
 		$result = $this->import($this->duplicateNamesBackup(), ImportService::MODE_MERGE);
 
-		$this->assertSame(['tracks' => 3, 'ticks' => 4], $result);
+		$this->assertSame(['tracks' => 3, 'ticks' => 4, 'notes' => 0], $result);
 		$this->assertSame(
 			['Cups of coffee', 'Exercise (imported)', 'Exercise (imported)'],
 			array_map(fn (Track $t) => $t->getName(), $this->insertedTracks),
@@ -292,5 +280,313 @@ final class ImportServiceTest extends TestCase {
 		$this->expectException(ImportException::class);
 		$this->expectExceptionMessage('Track "' . str_repeat('a', 40) . '…" has a name longer than 255 characters');
 		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+	}
+
+	// --- notes ---
+
+	/** @var list<array{int, string, string}> Notes inserted as [trackId, date, text] */
+	private array $insertedNotes = [];
+
+	private function captureNotes(): void {
+		$this->noteMapper->method('insert')->willReturnCallback(function (Note $note): Note {
+			$this->insertedNotes[] = [$note->getTrackId(), $note->getDate(), $note->getText()];
+			return $note;
+		});
+	}
+
+	private function notesBackup(array $notes): array {
+		$data = $this->duplicateNamesBackup();
+		$data['notes'] = $notes;
+		return $data;
+	}
+
+	public function testNotesAreImported(): void {
+		$this->captureNotes();
+		$this->db->expects($this->once())->method('commit');
+
+		$result = $this->import($this->notesBackup([
+			['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => 'decaf'],
+			['track' => 'Exercise', 'trackIndex' => 2, 'date' => '2026-10-13', 'text' => " ran\r\n5 km "],
+			['track' => 'Cups of coffee', 'date' => '2026-10-14', 'text' => '  '],
+		]));
+
+		$this->assertSame(['tracks' => 3, 'ticks' => 4, 'notes' => 2], $result);
+		$this->assertSame([
+			[101, '2026-10-13', 'decaf'],
+			[103, '2026-10-13', "ran\n5 km"],
+		], $this->insertedNotes);
+	}
+
+	public function testMergeImportsNotesOnTheNewTracks(): void {
+		$this->captureNotes();
+		$existing = new Track();
+		$existing->setId(1);
+		$existing->setName('Cups of coffee');
+		$this->trackMapper->method('findAllByUser')->willReturn([$existing]);
+		$this->noteMapper->expects($this->never())->method('deleteAllByUser');
+
+		$this->import($this->notesBackup([
+			['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => 'decaf'],
+		]), ImportService::MODE_MERGE);
+
+		$this->assertSame('Cups of coffee (imported)', $this->insertedTracks[0]->getName());
+		$this->assertSame([[101, '2026-10-13', 'decaf']], $this->insertedNotes);
+	}
+
+	public function testReplaceDeletesNotes(): void {
+		$this->noteMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
+
+		$this->import($this->duplicateNamesBackup());
+	}
+
+	public function testTickmateReplaceDeletesNotes(): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		$sqlite = new \SQLite3($this->file);
+		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
+		$sqlite->exec('CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)');
+		$sqlite->exec("INSERT INTO tracks VALUES (1, 'Exercise', 1, 1)");
+		$sqlite->exec('INSERT INTO ticks VALUES (1, 1, 2026, 9, 17)');
+		$sqlite->close();
+		$this->noteMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
+
+		$result = $this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame(['tracks' => 1, 'ticks' => 1, 'notes' => 0], $result);
+	}
+
+	public static function invalidNoteProvider(): array {
+		return [
+			'unknown track' => [
+				['track' => 'Reading', 'date' => '2026-10-13', 'text' => 'a'],
+				'Note on 2026-10-13 is for a track "Reading" that isn\'t in the backup',
+			],
+			'invalid track index' => [
+				['track' => 'Exercise', 'trackIndex' => 3, 'date' => '2026-10-13', 'text' => 'a'],
+				'Note on 2026-10-13 has an invalid track index "3"',
+			],
+			'repeated name without index' => [
+				['track' => 'Exercise', 'date' => '2026-10-13', 'text' => 'a'],
+				'The backup has more than one track named "Exercise", so its notes can\'t be matched. Rename one of them in the file and import again.',
+			],
+			'not a real date' => [
+				['track' => 'Cups of coffee', 'date' => '2026-02-30', 'text' => 'a'],
+				'Note has an invalid date "2026-02-30"',
+			],
+			'missing date' => [
+				['track' => 'Cups of coffee', 'text' => 'a'],
+				'Note has an invalid date ""',
+			],
+			'201 characters' => [
+				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => str_repeat('a', 201)],
+				'Note on 2026-10-13: Notes can be at most 200 characters',
+			],
+			'control characters' => [
+				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => "\x1b[2J"],
+				"Note on 2026-10-13: Notes can't contain control characters",
+			],
+			'JSON true as text' => [
+				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => true],
+				'Note on 2026-10-13: Notes must be UTF-8 text',
+			],
+			'repeated day' => [
+				['track' => 'Cups of coffee', 'date' => '2026-10-11', 'text' => 'again'],
+				'Note on 2026-10-11 for track "Cups of coffee" appears twice',
+			],
+			'not an object' => ['a note', 'Invalid backup: a note is not an object'],
+		];
+	}
+
+	/**
+	 * @dataProvider invalidNoteProvider
+	 */
+	public function testInvalidNoteFails(mixed $note, string $message): void {
+		$this->expectNoWrites();
+		$this->noteMapper->expects($this->never())->method('deleteAllByUser');
+		$this->noteMapper->expects($this->never())->method('insert');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage($message);
+		$this->import($this->notesBackup([
+			['track' => 'Cups of coffee', 'date' => '2026-10-11', 'text' => 'first'],
+			$note,
+		]));
+	}
+
+	public function testEmptyNotesAreSkipped(): void {
+		$this->captureNotes();
+
+		$result = $this->import($this->notesBackup([
+			['track' => 'Cups of coffee', 'date' => '2026-10-11', 'text' => " \n "],
+			['track' => 'Cups of coffee', 'date' => '2026-10-12'],
+			['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => 7],
+		]));
+
+		$this->assertSame(1, $result['notes']);
+		$this->assertSame([[101, '2026-10-13', '7']], $this->insertedNotes);
+	}
+
+	// --- checks on ticks and entries ---
+
+	/** One counter and one yes/no track, and the given ticks */
+	private function ticksBackup(array $ticks): array {
+		return [
+			'version' => 1,
+			'tracks' => [
+				['name' => 'Coffee', 'type' => 'counter'],
+				['name' => 'Exercise', 'type' => 'boolean'],
+			],
+			'ticks' => $ticks,
+		];
+	}
+
+	public static function invalidTickProvider(): array {
+		return [
+			'impossible date' => [
+				['track' => 'Coffee', 'date' => '2026-02-30', 'value' => 1],
+				'Tick on track "Coffee" has an invalid date "2026-02-30"',
+			],
+			'no date' => [
+				['track' => 'Coffee', 'value' => 1],
+				'Tick on track "Coffee" has an invalid date ""',
+			],
+			'unknown track' => [
+				['track' => 'Reading', 'date' => '2026-10-13', 'value' => 1],
+				'Tick on 2026-10-13 is for a track "Reading" that isn\'t in the backup',
+			],
+			'negative counter' => [
+				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => -3],
+				'Tick on 2026-10-13 has an invalid value "-3"',
+			],
+			'fractional counter' => [
+				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => 2.7],
+				'Tick on 2026-10-13 has an invalid value "2.7"',
+			],
+			'text on a counter' => [
+				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => 'abc'],
+				'Tick on 2026-10-13 has an invalid value "abc"',
+			],
+			'5 on a yes/no track' => [
+				['track' => 'Exercise', 'date' => '2026-10-13', 'value' => 5],
+				'Tick on 2026-10-13 has an invalid value "5"',
+			],
+			'repeated day' => [
+				['track' => 'Coffee', 'date' => '2026-10-10', 'value' => 3],
+				'Tick on 2026-10-10 for track "Coffee" appears twice',
+			],
+			'not an object' => [
+				'a tick',
+				'Invalid backup: a tick is not an object',
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider invalidTickProvider
+	 */
+	public function testInvalidTickFails(mixed $tick, string $message): void {
+		$this->expectNoWrites();
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage($message);
+		$this->import($this->ticksBackup([
+			['track' => 'Coffee', 'date' => '2026-10-10', 'value' => 2],
+			$tick,
+		]));
+	}
+
+	public static function malformedBackupProvider(): array {
+		$base = ['version' => 1, 'tracks' => [['name' => 'Coffee', 'type' => 'counter']]];
+		return [
+			'track not an object' => [
+				['version' => 1, 'tracks' => [['name' => 'Coffee'], 'Exercise']],
+				'Invalid backup: track 2 is not an object',
+			],
+			'ticks a string' => [$base + ['ticks' => 'none'], 'Invalid backup: ticks is not a list'],
+			'ticks an object' => [$base + ['ticks' => ['a' => []]], 'Invalid backup: ticks is not a list'],
+			'notes a string' => [$base + ['notes' => 'none'], 'Invalid backup: notes is not a list'],
+		];
+	}
+
+	/**
+	 * @dataProvider malformedBackupProvider
+	 */
+	public function testMalformedBackupFails(array $data, string $message): void {
+		$this->expectNoWrites();
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage($message);
+		$this->import($data);
+	}
+
+	public function testTickValuesThatImport(): void {
+		$result = $this->import($this->ticksBackup([
+			['track' => 'Coffee', 'date' => '2026-10-01'],
+			['track' => 'Coffee', 'date' => '2026-10-02', 'value' => 0],
+			['track' => 'Coffee', 'date' => '2026-10-03', 'value' => 4],
+			['track' => 'Exercise', 'date' => '2026-10-01', 'value' => 'Yes'],
+			['track' => 'Exercise', 'date' => '2026-10-02', 'value' => 'on'],
+			['track' => 'Exercise', 'date' => '2026-10-03', 'value' => true],
+			['track' => 'Exercise', 'date' => '2026-10-04', 'value' => 'off'],
+			['track' => 'Exercise', 'date' => '2026-10-05', 'value' => false],
+			['track' => 'Exercise', 'date' => '2026-10-06'],
+		]));
+
+		$this->assertSame(6, $result['ticks']);
+		$this->assertSame([
+			[101, '2026-10-01', 1],
+			[101, '2026-10-03', 4],
+			[102, '2026-10-01', 1],
+			[102, '2026-10-02', 1],
+			[102, '2026-10-03', 1],
+			[102, '2026-10-06', 1],
+		], $this->insertedTicks);
+	}
+
+	private function tickmateFile(string $tracks, string $ticks): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		$sqlite = new \SQLite3($this->file);
+		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
+		$sqlite->exec('CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)');
+		$sqlite->exec("INSERT INTO tracks VALUES {$tracks}");
+		$sqlite->exec("INSERT INTO ticks VALUES {$ticks}");
+		$sqlite->close();
+	}
+
+	public function testTickmateImpossibleDateFails(): void {
+		// Tickmate months are 0-based: 1 is February
+		$this->tickmateFile("(1, 'Exercise', 1, 1)", '(1, 1, 2026, 9, 17), (2, 1, 2026, 1, 30)');
+		$this->expectNoWrites();
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Tickmate tick on track "Exercise" has an invalid date "2026-02-30"');
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+	}
+
+	private function existingTrack(string $name): void {
+		$existing = new Track();
+		$existing->setId(1);
+		$existing->setName($name);
+		$this->trackMapper->method('findAllByUser')->willReturn([$existing]);
+	}
+
+	public function testMergeSuffixKeepsLongNameWithin255Characters(): void {
+		$name = str_repeat('é', 255);
+		$this->existingTrack($name);
+
+		$this->import(['version' => 1, 'tracks' => [['name' => $name, 'type' => 'boolean']]], ImportService::MODE_MERGE);
+
+		$imported = $this->insertedTracks[0]->getName();
+		$this->assertSame(str_repeat('é', 244) . ' (imported)', $imported);
+		$this->assertSame(255, mb_strlen($imported));
+	}
+
+	public function testTickmateMergeSuffixKeepsLongNameWithin255Characters(): void {
+		$name = str_repeat('a', 255);
+		$this->existingTrack($name);
+		$this->tickmateFile("(1, '{$name}', 1, 1)", '(1, 1, 2026, 9, 17)');
+
+		$this->service->importTickmate($this->file, ImportService::MODE_MERGE, $this->userId);
+
+		$this->assertSame(str_repeat('a', 244) . ' (imported)', $this->insertedTracks[0]->getName());
 	}
 }
