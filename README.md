@@ -19,11 +19,13 @@ Some of the key features which already exist:
 * [Companion mobile app](https://github.com/martinhammer/tickdroid)
 
 Planned features:
+* [Linux command line client](https://github.com/martinhammer/tickcli)
+* [Claude Desktop plugin and MCP server](https://github.com/martinhammer/tickllme)
+* Ping webhooks for automation integrations
 * Setting and tracking of targets / goals
 * Further enhancements to track management and analytics
 * Migration options from other tools
 * Support for translations
-* Linux command line client
 * Maybe even a smartwatch app
 
 ### Motivation
