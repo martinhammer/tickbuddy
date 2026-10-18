@@ -130,7 +130,7 @@ class TrackController extends OCSController {
 	 * @return DataResponse<Http::STATUS_OK, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
 	 *
 	 * 200: Track updated
-	 * 400: Invalid archive date
+	 * 400: Invalid name or archive date
 	 * 404: Track not found
 	 * 409: Database conflict
 	 */
@@ -147,7 +147,7 @@ class TrackController extends OCSController {
 		try {
 			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private, $archived, $archivedAt);
 			return new DataResponse($this->serializeTrack($track));
-		} catch (InvalidArchiveDateException $e) {
+		} catch (InvalidTrackNameException|InvalidArchiveDateException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);

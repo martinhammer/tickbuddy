@@ -18,6 +18,11 @@ import { fmtDay, todayStr, userLocale } from '../dates.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
 import type { Track } from '../types.ts'
 
+// The server's limit (TrackService::MAX_NAME_LENGTH), so a longer paste is cut
+// here instead of refused. maxlength counts UTF-16 units, so names with emoji
+// stop a little sooner, never later.
+const MAX_NAME_LENGTH = 255
+
 // Material Design Icons "pencil" and chevrons, copied in to avoid a dependency for three icons.
 const MDI_PENCIL = 'M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z'
 const MDI_CHEVRON_RIGHT = 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z'
@@ -358,6 +363,7 @@ onMounted(() => {
 		<div :class="$style.addForm">
 			<NcTextField v-model="newTrackName"
 				label="Track name"
+				:maxlength="MAX_NAME_LENGTH"
 				placeholder="e.g. Exercise, Coffee, Reading..."
 				@keyup.enter="addTrack" />
 			<NcSelect v-model="newTrackType"
@@ -400,6 +406,7 @@ onMounted(() => {
 						<NcTextField v-if="editingTrackId === track.id"
 							v-model="editingName"
 							label="Track name"
+							:maxlength="MAX_NAME_LENGTH"
 							autofocus
 							@keyup.enter="saveName(track)"
 							@blur="saveName(track)" />

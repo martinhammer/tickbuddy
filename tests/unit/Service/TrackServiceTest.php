@@ -8,6 +8,7 @@ use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
+use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackService;
@@ -276,5 +277,67 @@ final class TrackServiceTest extends TestCase {
 			->with($track);
 
 		$this->service->delete(5, $this->userId);
+	}
+
+	// --- track names ---
+
+	private function givenRoomForATrack(): void {
+		$this->trackMapper->method('countByUser')->willReturn(0);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(0);
+		$this->trackMapper->method('insert')->willReturnCallback(fn (Track $t) => $t);
+	}
+
+	public function testCreateTakes255Characters(): void {
+		$this->givenRoomForATrack();
+		$name = str_repeat('a', 255);
+
+		$this->assertSame($name, $this->service->create($name, 'boolean', $this->userId)->getName());
+	}
+
+	public function testCreateCountsCharactersNotBytes(): void {
+		$this->givenRoomForATrack();
+		$name = str_repeat('é', 255);
+
+		$this->assertSame($name, $this->service->create($name, 'boolean', $this->userId)->getName());
+	}
+
+	public function testCreateRefuses256Characters(): void {
+		$this->trackMapper->expects($this->never())->method('insert');
+
+		$this->expectException(InvalidTrackNameException::class);
+		$this->expectExceptionMessage('Track names can be at most 255 characters');
+		$this->service->create(str_repeat('a', 256), 'boolean', $this->userId);
+	}
+
+	public function testRenameRefuses256Characters(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeTrack(5));
+		$this->trackMapper->expects($this->never())->method('update');
+
+		$this->expectException(InvalidTrackNameException::class);
+		$this->expectExceptionMessage('Track names can be at most 255 characters');
+		$this->service->update(5, $this->userId, str_repeat('a', 256));
+	}
+
+	public function testRenameRefuses256CharactersAlsoWhenArchiving(): void {
+		$track = $this->makeTrack(5);
+		$this->trackMapper->method('findByIdAndUser')->willReturn($track);
+		$this->trackMapper->expects($this->never())->method('update');
+
+		try {
+			$this->service->update(5, $this->userId, str_repeat('a', 256), archived: true, archivedAt: '2026-10-17');
+			$this->fail('Expected InvalidTrackNameException');
+		} catch (InvalidTrackNameException) {
+			$this->assertNull($track->getArchivedAt());
+			$this->assertSame('Exercise', $track->getName());
+		}
+	}
+
+	public function testRenameToBlankThrows(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeTrack(5));
+		$this->trackMapper->expects($this->never())->method('update');
+
+		$this->expectException(InvalidTrackNameException::class);
+		$this->expectExceptionMessage('Track name cannot be empty');
+		$this->service->update(5, $this->userId, '   ');
 	}
 }

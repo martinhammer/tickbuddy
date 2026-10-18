@@ -20,11 +20,10 @@ import {
 	Tooltip,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
-import { fetchAllTicks, fetchTracks } from '../api.ts'
+import { fetchAllTicks, fetchStats, fetchTracks } from '../api.ts'
 import { fmtDate, parseDateStr, toDateStr, todayStr, userLocale } from '../dates.ts'
 import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
-import { summariseStreaks } from '../streaks.ts'
-import type { Tick, Track } from '../types.ts'
+import type { Tick, Track, TrackStats } from '../types.ts'
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
 
@@ -39,6 +38,8 @@ const emit = defineEmits<{
 
 const tracks = ref<Track[]>([])
 const allTicks = ref<Tick[]>([])
+// The selected track's stats, with runs, from GET /api/stats.
+const trackStats = ref<TrackStats | null>(null)
 const selectedTrack = ref<{ id: number; label: string } | null>(null)
 const loading = ref(false)
 
@@ -92,94 +93,47 @@ onMounted(() => {
 })
 
 // --- Summary stats ---
-const totalCount = computed(() => {
-	return trackTicks.value.reduce((sum, t) => sum + t.value, 0)
-})
+// Worked out by the server (GET /api/stats, StatsService), so every client
+// shows the same numbers. Ticks dated after today don't count.
+const totalCount = computed(() => trackStats.value?.total ?? 0)
 
-// Span the mean is taken over: first to last entry, floored at one week so a
-// track with a single entry doesn't divide by ~0.
-const spanWeeks = computed(() => {
-	const ticks = trackTicks.value
-	if (ticks.length === 0) return 0
-	const first = new Date(ticks[0].date + 'T00:00:00')
-	const last = new Date(ticks[ticks.length - 1].date + 'T00:00:00')
-	return Math.max(1, (last.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000))
-})
+const weeklyMean = computed(() => trackStats.value?.weeklyMean ?? 0)
 
-const weeklyMean = computed(() => {
-	if (spanWeeks.value === 0) return 0
-	return totalCount.value / spanWeeks.value
-})
-
-// The two halves the trend arrow compares: the last 7 days against the 7
-// before them.
-const twoWeekWindows = computed(() => {
-	const today = new Date()
-	today.setHours(0, 0, 0, 0)
-	const oneWeekAgo = new Date(today)
-	oneWeekAgo.setDate(today.getDate() - 7)
-	const twoWeeksAgo = new Date(today)
-	twoWeeksAgo.setDate(today.getDate() - 14)
-
-	const todayStr = toDateStr(today)
-	const oneWeekStr = toDateStr(oneWeekAgo)
-	const twoWeekStr = toDateStr(twoWeeksAgo)
-
-	return {
-		thisWeek: trackTicks.value
-			.filter(t => t.date > oneWeekStr && t.date <= todayStr)
-			.reduce((s, t) => s + t.value, 0),
-		lastWeek: trackTicks.value
-			.filter(t => t.date > twoWeekStr && t.date <= oneWeekStr)
-			.reduce((s, t) => s + t.value, 0),
-	}
-})
+// The weeks the mean is taken over: from the first tick to today, counting
+// both days, floored at one week.
+const spanWeeks = computed(() => weeklyMean.value > 0 ? totalCount.value / weeklyMean.value : 0)
 
 const twoWeekTrend = computed(() => {
-	const today = new Date()
-	today.setHours(0, 0, 0, 0)
-	const { thisWeek, lastWeek } = twoWeekWindows.value
+	const stats = trackStats.value
+	if (!stats) return 0
+	const { last7, previous7, peak7 } = stats
 
-	if (thisWeek === 0 && lastWeek === 0) return 0
+	if (last7 === 0 && previous7 === 0) return 0
 
-	// Scale by peak rolling 7-day sum across history (floored at 7 so sparse
-	// boolean tracks still calibrate sensibly — 7 = max possible per week).
-	const byDate = new Map<string, number>()
-	for (const t of trackTicks.value) byDate.set(t.date, t.value)
-	let peak = 0
-	const sorted = [...byDate.keys()].sort()
-	if (sorted.length > 0) {
-		const first = new Date(sorted[0] + 'T00:00:00')
-		const window: number[] = []
-		let windowSum = 0
-		for (let d = new Date(first); d <= today; d.setDate(d.getDate() + 1)) {
-			const v = byDate.get(toDateStr(d)) ?? 0
-			window.push(v)
-			windowSum += v
-			if (window.length > 7) windowSum -= window.shift()!
-			if (windowSum > peak) peak = windowSum
-		}
-	}
-	const scale = Math.max(peak, 7)
+	// Scale by the peak rolling 7-day sum across history (floored at 7 so
+	// sparse boolean tracks still calibrate sensibly — 7 = max possible per week).
+	const scale = Math.max(peak7, 7)
 
-	const ratio = Math.max(-1, Math.min(1, (thisWeek - lastWeek) / scale))
+	const ratio = Math.max(-1, Math.min(1, (last7 - previous7) / scale))
 	const step = Math.round(ratio * 4) // -4..+4
 	return step * 22.5
 })
 
 // --- Streaks ---
-// The rule lives in src/streaks.ts so the dashboard widget shows the same
-// numbers: an open today never ends a streak, it counts up to yesterday.
-const streakSummary = computed(() => summariseStreaks(trackTicks.value.map(t => t.date), todayStr()))
-
+// The rule lives on the server (GET /api/stats, StatsService) so the dashboard
+// widget shows the same numbers: an open today never ends a streak, it counts
+// up to yesterday.
 const streakData = computed(() => {
-	const { current, upToYesterday, longestStreak, longestBreak } = streakSummary.value
+	const stats = trackStats.value
+	const current = stats?.current ?? null
+	const longestStreak = stats?.longestStreak ?? null
+	const longestBreak = stats?.longestBreak ?? null
 	return {
 		currentLength: current?.length ?? 0,
 		currentIsStreak: current?.isStreak ?? true,
 		currentFrom: current?.from ?? '',
 		currentTo: current?.to ?? '',
-		upToYesterday,
+		upToYesterday: stats?.upToYesterday ?? false,
 		longestStreak: longestStreak?.length ?? 0,
 		longestStreakFrom: longestStreak?.from ?? '',
 		longestStreakTo: longestStreak?.to ?? '',
@@ -239,32 +193,32 @@ function hideStatTooltip() {
 
 // --- Summary card tooltip contents ---
 const totalTooltip = computed(() => {
-	const ticks = trackTicks.value
-	if (ticks.length === 0) return []
+	const { firstTick, lastTick } = trackStats.value ?? {}
+	if (!firstTick || !lastTick) return []
 	return [
-		`Oldest entry: ${fmtDate(ticks[0].date)}`,
-		`Newest entry: ${fmtDate(ticks[ticks.length - 1].date)}`,
+		`Oldest entry: ${fmtDate(firstTick)}`,
+		`Newest entry: ${fmtDate(lastTick)}`,
 	]
 })
 
 const weeklyMeanTooltip = computed(() => {
-	const ticks = trackTicks.value
-	if (ticks.length === 0) return []
+	const firstTick = trackStats.value?.firstTick
+	if (!firstTick) return []
 	const weeks = Math.round(spanWeeks.value)
 	return [
 		`Total ${totalCount.value} across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`,
-		`Since ${fmtDate(ticks[0].date)}`,
+		`Since ${fmtDate(firstTick)}`,
 	]
 })
 
 const trendTooltip = computed(() => [
-	`Last 7 days: ${twoWeekWindows.value.thisWeek}`,
-	`Previous 7 days: ${twoWeekWindows.value.lastWeek}`,
+	`Last 7 days: ${trackStats.value?.last7 ?? 0}`,
+	`Previous 7 days: ${trackStats.value?.previous7 ?? 0}`,
 ])
 
 // --- Streaks/Breaks series ---
 // The alternating sequence of streak (positive) and break (negative) run
-// lengths from streakSummary. Each run becomes one
+// lengths from the stats' runs. Each run becomes one
 // point on the chart; streaks point up, breaks point down.
 const streaksBreaksChart = ref<any>(null)
 function resetStreaksBreaksZoom() {
@@ -272,7 +226,7 @@ function resetStreaksBreaksZoom() {
 }
 
 const streaksBreaksData = computed(() => {
-	const runs = streakSummary.value.runs
+	const runs = trackStats.value?.runs ?? []
 	if (runs.length === 0) return null
 
 	const values = runs.map(r => r.isStreak ? r.length : -r.length)
@@ -655,7 +609,9 @@ const heatmapData = computed(() => {
 	while (start.getDay() !== localeFirstDay) start.setDate(start.getDate() - 1)
 
 	const isCounter = selectedTrackType.value === 'counter'
-	const maxValue = isCounter ? Math.max(...ticks.map(t => t.value)) : 1
+	// The stats' maxValue ignores future-dated ticks, so the widget and this
+	// heatmap shade the same day the same way.
+	const maxValue = isCounter ? (trackStats.value?.maxValue ?? 0) : 1
 
 	const color = primaryColor.value
 
@@ -770,16 +726,29 @@ async function loadTracks() {
 	}
 }
 
+let loadSeq = 0
+
 async function loadTicks() {
-	if (!selectedTrack.value) {
+	const seq = ++loadSeq
+	const track = selectedTrack.value
+	if (!track) {
 		allTicks.value = []
+		trackStats.value = null
+		loading.value = false
 		return
 	}
 	loading.value = true
 	try {
-		allTicks.value = await fetchAllTicks()
+		const [ticks, stats] = await Promise.all([
+			fetchAllTicks(),
+			fetchStats(todayStr(), { trackId: track.id, includeRuns: true }),
+		])
+		// The selection changed meanwhile: its own load has the last word.
+		if (seq !== loadSeq) return
+		allTicks.value = ticks
+		trackStats.value = stats[0] ?? null
 	} finally {
-		loading.value = false
+		if (seq === loadSeq) loading.value = false
 	}
 }
 

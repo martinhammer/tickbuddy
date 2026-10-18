@@ -51,7 +51,9 @@
                                     "tickBounds",
                                     "archivedTracks",
                                     "syncDelta",
-                                    "counterIncrement"
+                                    "counterIncrement",
+                                    "booleanSet",
+                                    "stats"
                                 ],
                                 "properties": {
                                     "import": {
@@ -76,6 +78,12 @@
                                         "type": "boolean"
                                     },
                                     "counterIncrement": {
+                                        "type": "boolean"
+                                    },
+                                    "booleanSet": {
+                                        "type": "boolean"
+                                    },
+                                    "stats": {
                                         "type": "boolean"
                                     }
                                 }
@@ -169,6 +177,124 @@
                 "properties": {
                     "defaultView": {
                         "type": "string"
+                    }
+                }
+            },
+            "Run": {
+                "type": "object",
+                "required": [
+                    "isStreak",
+                    "length",
+                    "from",
+                    "to"
+                ],
+                "properties": {
+                    "isStreak": {
+                        "type": "boolean"
+                    },
+                    "length": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "from": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Stats": {
+                "type": "object",
+                "required": [
+                    "trackId",
+                    "total",
+                    "weeklyMean",
+                    "last7",
+                    "previous7",
+                    "peak7",
+                    "current",
+                    "upToYesterday",
+                    "longestStreak",
+                    "longestBreak",
+                    "firstTick",
+                    "lastTick",
+                    "maxValue",
+                    "minValue"
+                ],
+                "properties": {
+                    "trackId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "weeklyMean": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "last7": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "previous7": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "peak7": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "current": {
+                        "nullable": true,
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Run"
+                            }
+                        ]
+                    },
+                    "upToYesterday": {
+                        "type": "boolean"
+                    },
+                    "longestStreak": {
+                        "nullable": true,
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Run"
+                            }
+                        ]
+                    },
+                    "longestBreak": {
+                        "nullable": true,
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Run"
+                            }
+                        ]
+                    },
+                    "firstTick": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "lastTick": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "maxValue": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "minValue": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "runs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Run"
+                        }
                     }
                 }
             },
@@ -834,6 +960,212 @@
                 }
             }
         },
+        "/ocs/v2.php/apps/tickbuddy/api/stats": {
+            "get": {
+                "operationId": "stats-index",
+                "summary": "Stats and streaks per track",
+                "description": "Every track gets an entry, also with no ticks, in track list order. Each is worked out up to `today`, or for an archived track up to its archive date if that is earlier; later ticks are ignored. Includes private tracks.",
+                "tags": [
+                    "stats"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "today",
+                        "in": "query",
+                        "description": "The client's date (YYYY-MM-DD); the server's date if omitted",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "trackId",
+                        "in": "query",
+                        "description": "One track only (also an archived one); 0 for all tracks",
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "includeRuns",
+                        "in": "query",
+                        "description": "Add every streak and break to each entry",
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    {
+                        "name": "includeArchived",
+                        "in": "query",
+                        "description": "With all tracks, include archived ones",
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stats returned",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/Stats"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Today is not a valid date",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/ocs/v2.php/apps/tickbuddy/api/ticks": {
             "get": {
                 "operationId": "tick-index",
@@ -1127,7 +1459,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a boolean track",
+                        "description": "Track is not a boolean track, or the date is invalid",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1236,7 +1568,7 @@
         "/ocs/v2.php/apps/tickbuddy/api/ticks/set": {
             "post": {
                 "operationId": "tick-set",
-                "summary": "Set the absolute value of a counter tick",
+                "summary": "Set a tick (counter: its absolute value; yes/no: ticked or not)",
                 "tags": [
                     "tick"
                 ],
@@ -1267,10 +1599,21 @@
                                         "description": "Date (YYYY-MM-DD)"
                                     },
                                     "value": {
-                                        "type": "integer",
-                                        "format": "int64",
-                                        "default": 0,
-                                        "description": "New value (0 deletes the tick)"
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Counter: the new value (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)",
+                                        "oneOf": [
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "string"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -1317,6 +1660,217 @@
                                                     ],
                                                     "properties": {
                                                         "value": {
+                                                            "oneOf": [
+                                                                {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                {
+                                                                    "type": "boolean"
+                                                                }
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Value not valid for a yes/no track, or the date is invalid",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/ticks/increment": {
+            "post": {
+                "operationId": "tick-increment",
+                "summary": "Add to a counter tick",
+                "description": "Concurrent increments of the same day, from any mix of clients, all count. The value never goes below 0; reaching 0 deletes the tick.",
+                "tags": [
+                    "tick"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "trackId": {
+                                        "type": "integer",
+                                        "format": "int64",
+                                        "default": 0,
+                                        "description": "Track ID"
+                                    },
+                                    "date": {
+                                        "type": "string",
+                                        "default": "",
+                                        "description": "Date (YYYY-MM-DD)"
+                                    },
+                                    "delta": {
+                                        "type": "integer",
+                                        "format": "int64",
+                                        "default": 0,
+                                        "description": "Amount to add, not 0; negative to take away"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Value changed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "value"
+                                                    ],
+                                                    "properties": {
+                                                        "value": {
                                                             "type": "integer",
                                                             "format": "int64"
                                                         }
@@ -1330,7 +1884,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a counter track",
+                        "description": "Not a counter track, or delta or date invalid",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1986,7 +2540,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid archive date",
+                        "description": "Invalid name or archive date",
                         "content": {
                             "application/json": {
                                 "schema": {

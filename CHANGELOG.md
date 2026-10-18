@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- API: set a yes/no tick to a state with `POST /api/ticks/set`
+- API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
+- API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track
+
+### Changed
+- API: toggle and set reject a date that isn't YYYY-MM-DD
+- Dashboard widget no longer loads the whole tick history
+- Analytics ignores future-dated ticks in the total and weekly mean, and the weekly mean runs to today instead of the last tick
+
+### Fixed
+- Analytics weekly mean was incorrect in some scenarios
+- Track names over 255 characters gives a clear error instead of a server error
+- Renaming a track to a blank name gives a clear error instead of a server error
+
+
 ## [2.2.0] - 2026-10-17
 
 ### Added

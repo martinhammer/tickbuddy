@@ -9,8 +9,10 @@ use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
+use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
+use OCP\DB\Exception as DbException;
 use PHPUnit\Framework\TestCase;
 
 final class TickServiceTest extends TestCase {
@@ -76,7 +78,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->expects($this->once())->method('insert');
 
 		$result = $this->service->set($this->userId, 2, '2026-04-11', 3);
-		$this->assertEquals(3, $result);
+		$this->assertSame(['value' => 3], $result);
 	}
 
 	public function testSetDeletesTickWhenValueIsZero(): void {
@@ -87,14 +89,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
 
 		$result = $this->service->set($this->userId, 2, '2026-04-11', 0);
-		$this->assertEquals(0, $result);
-	}
-
-	public function testSetRejectsBooleanTrack(): void {
-		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
-
-		$this->expectException(InvalidTrackTypeException::class);
-		$this->service->set($this->userId, 1, '2026-04-11', 5);
+		$this->assertSame(['value' => 0], $result);
 	}
 
 	private function archive(Track $track): Track {
@@ -137,7 +132,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(3));
 		$this->expectNoTickWrites();
 
-		$this->assertSame(3, $this->service->set($this->userId, 2, '2026-10-14', 5));
+		$this->assertSame(['value' => 3], $this->service->set($this->userId, 2, '2026-10-14', 5));
 	}
 
 	public function testSetOnArchivedTrackAddsNoTick(): void {
@@ -146,7 +141,7 @@ final class TickServiceTest extends TestCase {
 			->willThrowException(new DoesNotExistException(''));
 		$this->expectNoTickWrites();
 
-		$this->assertSame(0, $this->service->set($this->userId, 2, '2026-10-14', 2));
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-14', 2));
 	}
 
 	public function testToggleOnArchivedCounterTrackStillRejected(): void {
@@ -154,6 +149,273 @@ final class TickServiceTest extends TestCase {
 
 		$this->expectException(InvalidTrackTypeException::class);
 		$this->service->toggle($this->userId, 2, '2026-10-14');
+	}
+
+	// --- set on yes/no tracks ---
+
+	private function noTick(): void {
+		$this->tickMapper->method('findByUserTrackDate')
+			->willThrowException(new DoesNotExistException(''));
+	}
+
+	public static function trueValueProvider(): array {
+		return [[true], ['true'], ['TRUE'], [' on '], ['Yes'], [1], ['1']];
+	}
+
+	public static function falseValueProvider(): array {
+		return [[false], ['off'], ['NO'], [0], ['0']];
+	}
+
+	public static function invalidYesNoProvider(): array {
+		return [[null], [''], [2], ['maybe']];
+	}
+
+	/**
+	 * @dataProvider trueValueProvider
+	 */
+	public function testSetTrueTicksAnUntickedDay(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Tick $t) => $t->getValue() === 1 && $t->getDate() === '2026-10-17'));
+
+		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', $value));
+	}
+
+	/**
+	 * @dataProvider trueValueProvider
+	 */
+	public function testSetTrueOnATickedDayChangesNothing(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(1));
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', $value));
+	}
+
+	/**
+	 * @dataProvider falseValueProvider
+	 */
+	public function testSetFalseUnticksATickedDay(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$tick = $this->makeTick(1);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+
+		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-17', $value));
+	}
+
+	/**
+	 * @dataProvider falseValueProvider
+	 */
+	public function testSetFalseOnAnUntickedDayChangesNothing(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-17', $value));
+	}
+
+	/**
+	 * @dataProvider invalidYesNoProvider
+	 */
+	public function testSetRejectsAnInvalidYesNoValue(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Yes/no tracks take a value of true or false');
+		$this->service->set($this->userId, 1, '2026-10-17', $value);
+	}
+
+	public function testSetTrueRacingAnotherInsertIsTicked(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->tickMapper->method('insert')->willThrowException($this->uniqueViolation());
+
+		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', true));
+	}
+
+	public function testSetCounterReadsAStringValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Tick $t) => $t->getValue() === 5));
+
+		$this->assertSame(['value' => 5], $this->service->set($this->userId, 2, '2026-10-17', '5'));
+	}
+
+	public function testSetCounterWithoutValueIsZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$tick = $this->makeTick(3);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-17', null));
+	}
+
+	public function testSetOnArchivedYesNoTrackAnswersTheStoredState(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeBooleanTrack()));
+		$this->noTick();
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-14', true));
+	}
+
+	public function testSetOnArchivedYesNoTrackStillRejectsAnInvalidValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeBooleanTrack()));
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->service->set($this->userId, 1, '2026-10-14', 'maybe');
+	}
+
+	// --- dates ---
+
+	public static function invalidDateProvider(): array {
+		return [['2026-02-30'], ['2026-2-3'], ['']];
+	}
+
+	/**
+	 * @dataProvider invalidDateProvider
+	 */
+	public function testToggleRejectsAnInvalidDate(string $date): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
+		$this->service->toggle($this->userId, 1, $date);
+	}
+
+	/**
+	 * @dataProvider invalidDateProvider
+	 */
+	public function testSetCounterRejectsAnInvalidDate(string $date): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
+		$this->service->set($this->userId, 2, $date, 3);
+	}
+
+	/**
+	 * @dataProvider invalidDateProvider
+	 */
+	public function testSetYesNoRejectsAnInvalidDate(string $date): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
+		$this->service->set($this->userId, 1, $date, true);
+	}
+
+	public function testArchivedTrackStillRejectsAnInvalidDate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeBooleanTrack()));
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->service->toggle($this->userId, 1, '2026-02-30');
+	}
+
+	public function testWrongTypeIsReportedBeforeAnInvalidDate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+
+		$this->expectException(InvalidTrackTypeException::class);
+		$this->service->toggle($this->userId, 2, '2026-02-30');
+	}
+
+	// --- increment ---
+
+	private function uniqueViolation(): DbException {
+		$e = $this->createMock(DbException::class);
+		$e->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+		return $e;
+	}
+
+	public function testIncrementRejectsYesNoTrack(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+
+		$this->expectException(InvalidTrackTypeException::class);
+		$this->expectExceptionMessage('Increment is only available for counter tracks');
+		$this->service->increment($this->userId, 1, '2026-10-17', 1);
+	}
+
+	public function testIncrementRejectsDeltaZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->never())->method('addToValue');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Delta must be a whole number other than 0');
+		$this->service->increment($this->userId, 2, '2026-10-17', 0);
+	}
+
+	public function testIncrementRejectsAnInvalidDate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->never())->method('addToValue');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
+		$this->service->increment($this->userId, 2, '2026-02-30', 1);
+	}
+
+	public function testIncrementOfAnExistingRowAnswersTheNewValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->once())->method('addToValue')
+			->with($this->userId, 2, '2026-10-17', 2)->willReturn(1);
+		$this->tickMapper->method('deleteIfNotPositive')->willReturn(0);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(5));
+		$this->tickMapper->expects($this->never())->method('insert');
+
+		$this->assertSame(5, $this->service->increment($this->userId, 2, '2026-10-17', 2));
+	}
+
+	public function testIncrementToZeroOrLessAnswersZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->method('addToValue')->willReturn(1);
+		$this->tickMapper->expects($this->once())->method('deleteIfNotPositive')->willReturn(1);
+
+		$this->assertSame(0, $this->service->increment($this->userId, 2, '2026-10-17', -10));
+	}
+
+	public function testIncrementOfAnEmptyDayInsertsTheDelta(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->method('addToValue')->willReturn(0);
+		$this->tickMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Tick $t) => $t->getValue() === 3));
+
+		$this->assertSame(3, $this->service->increment($this->userId, 2, '2026-10-17', 3));
+	}
+
+	public function testDecrementOfAnEmptyDayAnswersZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->method('addToValue')->willReturn(0);
+		$this->tickMapper->expects($this->never())->method('insert');
+
+		$this->assertSame(0, $this->service->increment($this->userId, 2, '2026-10-17', -2));
+	}
+
+	public function testIncrementRacingAnotherInsertAddsToItsRow(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->exactly(2))->method('addToValue')
+			->with($this->userId, 2, '2026-10-17', 3)
+			->willReturnOnConsecutiveCalls(0, 1);
+		$this->tickMapper->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->method('deleteIfNotPositive')->willReturn(0);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(4));
+
+		$this->assertSame(4, $this->service->increment($this->userId, 2, '2026-10-17', 3));
+	}
+
+	public function testIncrementOnArchivedCounterAnswersTheStoredValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeCounterTrack()));
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(3));
+		$this->tickMapper->expects($this->never())->method('addToValue');
+		$this->expectNoTickWrites();
+
+		$this->assertSame(3, $this->service->increment($this->userId, 2, '2026-10-14', 2));
 	}
 
 	public function testFindBoundsIsScopedToTheUser(): void {

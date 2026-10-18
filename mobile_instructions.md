@@ -109,14 +109,16 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "tickBounds": true,
     "archivedTracks": true,
     "syncDelta": false,
-    "counterIncrement": false
+    "counterIncrement": true,
+    "booleanSet": true,
+    "stats": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), plus two that matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -190,19 +192,19 @@ Every endpoint that returns a track (list, create, update, reorder) includes `ar
 Create a new track.
 
 Form params:
-- `name` (string, required, trimmed, non-empty)
+- `name` (string, required, trimmed, non-empty, at most 255 characters)
 - `type` (string, required, `"boolean"` or `"counter"`)
 
 Responses:
 - `201` + serialized track on success
-- `400` on invalid name or type: `{message: "..."}`
+- `400` on invalid name or type: `{message: "..."}` (`Track name cannot be empty`, `Track names can be at most 255 characters`)
 - `403` if already at 99 tracks
 
 #### `PUT /api/tracks/{id}`
 Update an existing track. All fields optional; omitted fields untouched.
 
 Form params (any subset):
-- `name` (string, trimmed, non-empty if provided)
+- `name` (string, trimmed, non-empty if provided, at most 255 characters)
 - `sortOrder` (int) — usually set via `/reorder` instead
 - `private` (boolean; accepts `true`/`false`/`1`/`0`/`yes`/`no` via PHP `FILTER_VALIDATE_BOOLEAN`)
 - `archived` (boolean) — requires `features.archivedTracks`. `true` archives the track (archiving an archived track again sets the new date); `false` restores it, moving it to the **end of the list** (restoring an active track does nothing).
@@ -210,7 +212,7 @@ Form params (any subset):
 
 `type` is silently ignored if sent. Name, sortOrder and private are applied before `archived`, so a restore's end-of-list position wins over a `sortOrder` sent with it.
 
-Responses: `200` + updated track, `400` `Archive date must be a date as YYYY-MM-DD` (nothing is saved), `404`, or `409`.
+Responses: `200` + updated track, `400` (nothing is saved) with `Track name cannot be empty`, `Track names can be at most 255 characters` or `Archive date must be a date as YYYY-MM-DD`, `404`, or `409`.
 
 #### `PUT /api/tracks/reorder`
 Bulk reorder. Send the desired order of track IDs. The listed tracks come first, in the order sent (ids that aren't yours are dropped, a repeated id counts once at its first place); **every other track follows in its previous relative order** — archived tracks, and any track created elsewhere since your last read. `sortOrder` is then renumbered `1..N` over all of the user's tracks.
@@ -266,21 +268,75 @@ Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
 
-Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed.
+Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed. A `date` that isn't a real `YYYY-MM-DD` date answers `400` `Date must be a date as YYYY-MM-DD` and changes nothing.
 
 On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). Unknown track is still `404` and a counter track still `400`.
 
+Prefer `set` (with `features.booleanSet`) over `toggle` for anything that may be retried: a replayed toggle undoes itself, a replayed `set` doesn't.
+
 #### `POST /api/ticks/set`
-Set a counter value. Only for `type=counter` tracks — returns `400` for boolean tracks.
+Set a tick to a state: a counter's absolute value, or (with `features.booleanSet`) whether a yes/no day is ticked.
 
 Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
-- `value` (int, required). `<= 0` deletes the tick; `> 0` creates or updates it.
+- `value`:
+  - **Counter**: int. `<= 0` deletes the tick; `> 0` creates or updates it. Missing counts as `0`.
+  - **Yes/no** (requires `features.booleanSet`): `true` or `false`; also `1`/`0`, `on`/`off`, `yes`/`no`, in any letter case, and in a JSON body a JSON boolean or the numbers 1 and 0. Anything else, or no value, answers `400` `Yes/no tracks take a value of true or false`.
 
-Response: `{"value": <stored value>}`. `0` means no row exists.
+Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no `{"value": true}` or `{"value": false}`. Setting the state a day already has changes nothing and gives the same answer, so a retried request is always safe. You know which shape you get from the track's type.
 
-On an **archived** track nothing changes and the response carries the value already stored (`0` if none), with `200`, as for `toggle`.
+Errors, in this order: `404` unknown track; `400` bad yes/no value; `400` `Date must be a date as YYYY-MM-DD`. On a server without `booleanSet`, a yes/no track answers `400` `Set is only available for counter tracks`.
+
+On an **archived** track nothing changes and the response carries the state already stored (`0`/`false` if none), with `200`, as for `toggle`. A bad value or date still answers `400`.
+
+#### `POST /api/ticks/increment`
+> Requires `features.counterIncrement` (§1). On servers without it this route returns `404`.
+
+Add a signed delta to a counter tick. Atomic: concurrent increments of the same day from any mix of devices all count, including the first write of a day.
+
+Form params:
+- `trackId` (int, required)
+- `date` (string, required, `YYYY-MM-DD`)
+- `delta` (int, required, not 0; negative to take away)
+
+Response: `{"value": n}`, the value right after this request's write (under concurrency it may already include another device's delta). The value never goes below 0: a result of 0 or less deletes the tick and answers `{"value": 0}`. So a decrement that hits 0 isn't undone by a later increment of the same size (−3 on 2 gives 0, then +3 gives 3).
+
+Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`.
+
+### Stats
+
+#### `GET /api/stats?today=YYYY-MM-DD[&trackId=n][&includeRuns=true][&includeArchived=true]`
+> Requires `features.stats` (§1). On servers without it this route returns `404`.
+
+Totals, streaks and highest/lowest value per track, worked out on the server with the same rule the web uses, so you don't need a track's whole history to show them.
+
+Params:
+- `today` — **the device's local date**. Whether today is still open decides where a streak ends, so always send it. If missing, the server's date is used (its default time zone, usually UTC). Not a real date: `400` `Today must be a date as YYYY-MM-DD`.
+- `trackId` — one track only (`404` if not yours). An archived track is returned even without `includeArchived`. The response is still a list, with one entry.
+- `includeRuns` — add `runs`: every streak and break, oldest first.
+- `includeArchived` — with all tracks, include archived ones (default: left out, as `GET /api/tracks`).
+
+Every track gets an entry, also with no ticks, in track list order. Private tracks are included. Each track is worked out up to its **end day**: `today`, or for an archived track its `archivedAt` if earlier. Ticks after the end day are ignored everywhere.
+
+```json
+[{
+  "trackId": 3, "total": 412, "weeklyMean": 9.58,
+  "last7": 11, "previous7": 14, "peak7": 31,
+  "current": {"isStreak": true, "length": 6, "from": "2026-10-11", "to": "2026-10-16"},
+  "upToYesterday": true,
+  "longestStreak": {"isStreak": true, "length": 41, "from": "2026-03-02", "to": "2026-04-11"},
+  "longestBreak": {"isStreak": false, "length": 9, "from": "2026-07-20", "to": "2026-07-28"},
+  "firstTick": "2025-12-21", "lastTick": "2026-10-16",
+  "maxValue": 7, "minValue": 0
+}]
+```
+
+- `total` — sum of values (yes/no: ticked days). `weeklyMean` — `total` ÷ (days from `firstTick` to the end day, counting both, ÷ 7), floored at one week; not rounded. Ticking every day gives exactly 7.
+- `last7` / `previous7` — sums over the end day and the 6 before it, and the 7 days before those. `peak7` — the highest 7-day sum in the history. The web's trend arrow compares `last7` with `previous7`, scaled by `max(peak7, 7)`.
+- `current`, `longestStreak`, `longestBreak` — runs `{isStreak, length, from, to}`, or `null` with no ticks; the first of equally long runs wins.
+- `upToYesterday` — `true` when the current run is a streak ending yesterday because today isn't ticked yet. **An open today never ends a streak**: if today is unticked but yesterday is ticked, counting stops at yesterday; otherwise an open today joins the break.
+- `maxValue` / `minValue` — over every day from `firstTick` to the end day, an unticked day counting as 0 (so `minValue` is 0 whenever a day was missed).
 
 ### Preferences
 
@@ -339,7 +395,7 @@ Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Als
 
 As of the version this doc targets, the backend has no sync protocol of its own (no `modifiedAt`, no delta endpoint, no ETags, no push). So the mobile app must build sync client-side. Suggested approach below.
 
-> **Forward-compat:** two of the sharpest edges here (full-range polling and lost counter increments) are slated to be fixed server-side and are already discoverable via capability flags (§1). Guard those code paths on `features.syncDelta` and `features.counterIncrement` so the app upgrades its own behavior when it detects a newer backend. The full-poll + absolute-set approach below remains the correct fallback whenever the flags are `false`.
+> **Forward-compat:** two of the sharpest edges here (full-range polling and lost counter increments) are fixed or slated to be fixed server-side, discoverable via capability flags (§1). Guard those code paths on `features.syncDelta`, `features.counterIncrement` and `features.booleanSet` so the app upgrades its own behavior when it detects a newer backend. The full-poll + absolute-set approach below remains the correct fallback whenever the flags are `false`.
 
 ### Local schema
 
@@ -373,8 +429,8 @@ Walk dirty rows in order: **track creates → track updates → track deletes �
 - Track created offline: `POST /api/tracks`, store returned `id` as `server_id`, clear `dirty`.
 - Track renamed: `PUT /api/tracks/{server_id}`.
 - Track deleted: `DELETE /api/tracks/{server_id}`; on 404 treat as already gone.
-- Tick toggled (boolean): `POST /api/ticks/toggle` — this is idempotent *per tap*, not per state. If you replay a queued toggle that was already applied, you'll flip it back. Safer pattern: instead of queuing "toggle", queue the **desired end state** (`ticked: true/false`) and on push compare with server state. A pragmatic shortcut: after queueing a toggle, immediately fetch the current server value before pushing, and only toggle if it differs.
-- Tick counter set: `POST /api/ticks/set` with the desired value — this IS idempotent, always safe to replay.
+- Tick toggled (boolean): queue the **desired end state** (`ticked: true/false`), not "toggle". With `features.booleanSet`, push it with `POST /api/ticks/set` and `value=true|false`: idempotent, always safe to replay. Without the flag, `POST /api/ticks/toggle` is idempotent *per tap*, not per state — replaying a queued toggle that was already applied flips it back — so fetch the current server value before pushing, and only toggle if it differs.
+- Tick counter set: `POST /api/ticks/set` with the desired value — this IS idempotent, always safe to replay. With `features.counterIncrement`, prefer queuing taps as deltas (see Conflict resolution).
 
 ### Conflict resolution
 
@@ -397,7 +453,10 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
 - **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show; you can't send archived tracks to the front by accident, since you never see them unless you ask.
 - **Ticks on archived tracks are quietly dropped.** `toggle` and `set` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one. Reconcile from the response or the next pull.
-- **`value` on boolean ticks is always 1.** Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
+- **`value` on boolean ticks is always 1** in `GET /api/ticks`. Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
+- **`set` answers a number for counters and a boolean for yes/no tracks.** `{"value": 3}` vs `{"value": true}`; pick the parser from the track's type.
+- **`toggle`, `set` and `increment` reject a date that isn't `YYYY-MM-DD` with `400`.** `2026-2-3` and `2026-02-30` included; nothing is stored. Send `LocalDate.toString()`.
+- **Stats needs the client's today.** Send `today` on every `GET /api/stats`: where a streak ends depends on whether today is still open, and the server's date (usually UTC) can be a day off for the user.
 - **Date range query is inclusive on both ends.** `from=2026-04-01&to=2026-04-30` includes both the 1st and the 30th.
 - **Private tracks are soft-hidden, not encrypted.** Any client that reads `GET /api/tracks` sees them. The `private` flag controls default visibility in the web UI (there's a "Show private tracks" toggle) and whether they appear in exports. The mobile app should offer the same UX — a toggle/PIN gate on showing private tracks — but do not rely on `private` for any security claim.
 - **No pagination.** Track and tick endpoints return all matching rows. Ticks are bounded by the `from/to` window. Tracks are capped at 99 per user so unbounded list is fine.
@@ -472,7 +531,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
 - [ ] Archive/restore only when `features.archivedTracks` is set; send the device's today as `archivedAt`
-- [ ] Gate `tickBounds` / `counterIncrement` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
+- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

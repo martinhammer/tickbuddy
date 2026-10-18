@@ -33,6 +33,7 @@ final class CapabilitiesTest extends TestCase {
 		$capabilities = $this->capabilities->getCapabilities();
 
 		$this->assertSame(Capabilities::API_VERSION, $capabilities['tickbuddy']['apiVersion']);
+		$this->assertSame(1, $capabilities['tickbuddy']['apiVersion']);
 	}
 
 	public function testExposesFeatureFlags(): void {
@@ -46,8 +47,10 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertTrue($features['privateTracks']);
 		$this->assertTrue($features['tickBounds']);
 		$this->assertTrue($features['archivedTracks']);
-		// Known gaps, not yet implemented server-side.
+		$this->assertTrue($features['counterIncrement']);
+		$this->assertTrue($features['booleanSet']);
+		$this->assertTrue($features['stats']);
+		// Known gap, not yet implemented server-side.
 		$this->assertFalse($features['syncDelta']);
-		$this->assertFalse($features['counterIncrement']);
 	}
 }

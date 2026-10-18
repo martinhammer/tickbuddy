@@ -27,6 +27,31 @@ namespace OCA\Tickbuddy;
  *     newest: string,
  * }
  *
+ * @psalm-type TickbuddyRun = array{
+ *     isStreak: bool,
+ *     length: int,
+ *     from: string,
+ *     to: string,
+ * }
+ *
+ * @psalm-type TickbuddyStats = array{
+ *     trackId: int,
+ *     total: int,
+ *     weeklyMean: float,
+ *     last7: int,
+ *     previous7: int,
+ *     peak7: int,
+ *     current: ?TickbuddyRun,
+ *     upToYesterday: bool,
+ *     longestStreak: ?TickbuddyRun,
+ *     longestBreak: ?TickbuddyRun,
+ *     firstTick: ?string,
+ *     lastTick: ?string,
+ *     maxValue: int,
+ *     minValue: int,
+ *     runs?: list<TickbuddyRun>,
+ * }
+ *
  * @psalm-type TickbuddyImportResult = array{
  *     tracks: int,
  *     ticks: int,

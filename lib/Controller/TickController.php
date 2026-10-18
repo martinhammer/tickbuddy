@@ -7,6 +7,7 @@ namespace OCA\Tickbuddy\Controller;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
+use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
@@ -84,7 +85,7 @@ class TickController extends OCSController {
 	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
 	 *
 	 * 200: Tick toggled
-	 * 400: Track is not a boolean track
+	 * 400: Track is not a boolean track, or the date is invalid
 	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
@@ -95,32 +96,60 @@ class TickController extends OCSController {
 			return new DataResponse(['ticked' => $ticked]);
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
-		} catch (InvalidTrackTypeException $e) {
+		} catch (InvalidTrackTypeException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}
 	}
 
 	/**
-	 * Set the absolute value of a counter tick
+	 * Set a tick (counter: its absolute value; yes/no: ticked or not)
 	 *
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
-	 * @param int $value New value (0 deletes the tick)
-	 * @return DataResponse<Http::STATUS_OK, array{value: int}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param int|bool|string|null $value Counter: the new value (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
 	 *
 	 * 200: Value set
-	 * 400: Track is not a counter track
+	 * 400: Value not valid for a yes/no track, or the date is invalid
+	 * 404: Track not found
+	 */
+	// $value is untyped for the framework: typed int, Nextcloud would turn
+	// "true" or "on" into 0 before the service sees it.
+	#[NoAdminRequired]
+	#[ApiRoute(verb: 'POST', url: '/api/ticks/set')]
+	public function set(int $trackId = 0, string $date = '', int|bool|string|null $value = null): DataResponse {
+		try {
+			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value));
+		} catch (DoesNotExistException) {
+			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
+		} catch (InvalidTrackTypeException|InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		}
+	}
+
+	/**
+	 * Add to a counter tick
+	 *
+	 * Concurrent increments of the same day, from any mix of clients, all
+	 * count. The value never goes below 0; reaching 0 deletes the tick.
+	 *
+	 * @param int $trackId Track ID
+	 * @param string $date Date (YYYY-MM-DD)
+	 * @param int $delta Amount to add, not 0; negative to take away
+	 * @return DataResponse<Http::STATUS_OK, array{value: int}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 *
+	 * 200: Value changed
+	 * 400: Not a counter track, or delta or date invalid
 	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
-	#[ApiRoute(verb: 'POST', url: '/api/ticks/set')]
-	public function set(int $trackId = 0, string $date = '', int $value = 0): DataResponse {
+	#[ApiRoute(verb: 'POST', url: '/api/ticks/increment')]
+	public function increment(int $trackId = 0, string $date = '', int $delta = 0): DataResponse {
 		try {
-			$newValue = $this->tickService->set($this->userId, $trackId, $date, $value);
-			return new DataResponse(['value' => $newValue]);
+			return new DataResponse(['value' => $this->tickService->increment($this->userId, $trackId, $date, $delta)]);
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
-		} catch (InvalidTrackTypeException $e) {
+		} catch (InvalidTrackTypeException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
 		}
 	}

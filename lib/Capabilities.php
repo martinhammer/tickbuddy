@@ -52,6 +52,8 @@ class Capabilities implements ICapability {
 	 *             archivedTracks: bool,
 	 *             syncDelta: bool,
 	 *             counterIncrement: bool,
+	 *             booleanSet: bool,
+	 *             stats: bool,
 	 *         },
 	 *     },
 	 * }
@@ -75,11 +77,16 @@ class Capabilities implements ICapability {
 					// Archive and restore via PUT /api/tracks/{id} `archived`;
 					// GET /api/tracks hides archived tracks unless includeArchived=true.
 					'archivedTracks' => true,
-					// Known gaps (see CLAUDE.md): no "changed since" delta
-					// endpoint and no commutative counter increment yet.
-					// Flip to true here when the endpoints land.
+					// Known gap (see CLAUDE.md): no "changed since" delta
+					// endpoint yet. Flip to true here when it lands.
 					'syncDelta' => false,
-					'counterIncrement' => false,
+					// POST /api/ticks/increment — atomic signed delta on a counter.
+					'counterIncrement' => true,
+					// POST /api/ticks/set on yes/no tracks with value true/false.
+					// Older servers answer 400 there.
+					'booleanSet' => true,
+					// GET /api/stats — totals, streaks and highest/lowest per track.
+					'stats' => true,
 				],
 			],
 		];

@@ -12,6 +12,8 @@ use OCP\AppFramework\Utility\ITimeFactory;
 
 class TrackService {
 	public const MAX_TRACKS = 99;
+	/** The name column's size. Checked here because SQLite doesn't enforce it. */
+	public const MAX_NAME_LENGTH = 255;
 	public const VALID_TYPES = ['boolean', 'counter'];
 
 	public function __construct(
@@ -29,6 +31,22 @@ class TrackService {
 			return false;
 		}
 		return checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+	}
+
+	/**
+	 * A track name trimmed, refused when blank or longer than the column.
+	 *
+	 * @throws InvalidTrackNameException
+	 */
+	private static function cleanName(string $name): string {
+		$name = trim($name);
+		if ($name === '') {
+			throw new InvalidTrackNameException('Track name cannot be empty');
+		}
+		if (mb_strlen($name) > self::MAX_NAME_LENGTH) {
+			throw new InvalidTrackNameException('Track names can be at most ' . self::MAX_NAME_LENGTH . ' characters');
+		}
+		return $name;
 	}
 
 	/**
@@ -50,13 +68,11 @@ class TrackService {
 
 	/**
 	 * @throws TrackLimitReachedException
+	 * @throws InvalidTrackNameException
 	 * @throws InvalidTrackTypeException
 	 */
 	public function create(string $name, string $type, string $userId): Track {
-		$name = trim($name);
-		if ($name === '') {
-			throw new InvalidTrackNameException('Track name cannot be empty');
-		}
+		$name = self::cleanName($name);
 		if (!in_array($type, self::VALID_TYPES, true)) {
 			throw new InvalidTrackTypeException('Invalid track type: ' . $type);
 		}
@@ -101,12 +117,9 @@ class TrackService {
 		if ($archived === true && $archivedAt !== null && !self::isValidDate($archivedAt)) {
 			throw new InvalidArchiveDateException('Archive date must be a date as YYYY-MM-DD');
 		}
+		// Checked before anything is changed on the entity
 		if ($name !== null) {
-			$name = trim($name);
-			if ($name === '') {
-				throw new InvalidTrackNameException('Track name cannot be empty');
-			}
-			$track->setName($name);
+			$track->setName(self::cleanName($name));
 		}
 		if ($sortOrder !== null) {
 			$track->setSortOrder($sortOrder);

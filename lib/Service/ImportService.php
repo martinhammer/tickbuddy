@@ -122,6 +122,7 @@ class ImportService {
 		$positionsByName = [];
 		foreach ($jsonTracks as $i => $t) {
 			$name = $this->cleanJsonTrackName($t['name'] ?? '');
+			self::checkNameLength($name);
 			$type = (string)($t['type'] ?? 'boolean');
 			if (!in_array($type, TrackService::VALID_TYPES, true)) {
 				throw new ImportException("Track \"{$name}\" has invalid type \"{$type}\"");
@@ -160,6 +161,18 @@ class ImportService {
 		}
 
 		return ['tracks' => count($trackIds), 'ticks' => $tickCount];
+	}
+
+	/**
+	 * Refuse a track name longer than the column, before anything is written.
+	 *
+	 * @throws ImportException
+	 */
+	private static function checkNameLength(string $name): void {
+		if (mb_strlen($name) > TrackService::MAX_NAME_LENGTH) {
+			$shown = mb_substr($name, 0, 40) . '…';
+			throw new ImportException("Track \"{$shown}\" has a name longer than " . TrackService::MAX_NAME_LENGTH . ' characters');
+		}
 	}
 
 	/**
@@ -339,9 +352,11 @@ class ImportService {
 		$tracks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
 			$id = (int)$row['_id'];
+			$name = trim((string)$row['name']);
+			self::checkNameLength($name);
 			$tracks[$id] = [
 				'id' => $id,
-				'name' => trim((string)$row['name']),
+				'name' => $name,
 				'order' => (int)$row['sort_col'],
 			];
 		}

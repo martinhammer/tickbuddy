@@ -4,11 +4,10 @@ import { generateUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-import { fetchAllTicks, fetchTracks } from '../api.ts'
+import { fetchStats, fetchTicks, fetchTracks } from '../api.ts'
 import { addDays, fmtDate, parseDateStr, todayStr, userLocale } from '../dates.ts'
 import { fillFor, getPrimaryColor, levelFor, valueText } from '../heatmap.ts'
-import { summariseStreaks, type StreakSummary } from '../streaks.ts'
-import type { Tick, Track } from '../types.ts'
+import type { Tick, Track, TrackStats } from '../types.ts'
 
 // Material Design Icons "refresh", copied in to avoid a dependency for one icon.
 const MDI_REFRESH = 'M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z'
@@ -30,7 +29,9 @@ type LoadStatus = 'loading' | 'ready' | 'error'
 const status = ref<LoadStatus>('loading')
 const refreshing = ref(false)
 const tracks = ref<Track[]>([])
+// Only the seven days shown; streaks and shading come from the stats.
 const ticks = ref<Tick[]>([])
+const stats = ref<TrackStats[]>([])
 // The day the widget shows. Follows midnight and tab focus (see below), and
 // everything date-dependent is computed from it.
 const today = ref(todayStr())
@@ -54,11 +55,9 @@ const view = computed<'loading' | 'error' | 'empty' | 'allPrivate' | 'grid'>(() 
 	return 'grid'
 })
 
-// Per-track date → value, and each track's highest value ever (counter shading
-// is relative to it, as in the Analytics heatmap).
+// Per-track date → value for the seven days shown.
 const tickIndex = computed(() => {
 	const byTrack = new Map<number, Map<string, number>>()
-	const maxByTrack = new Map<number, number>()
 	for (const t of ticks.value) {
 		let byDate = byTrack.get(t.trackId)
 		if (!byDate) {
@@ -66,10 +65,13 @@ const tickIndex = computed(() => {
 			byTrack.set(t.trackId, byDate)
 		}
 		byDate.set(t.date, t.value)
-		maxByTrack.set(t.trackId, Math.max(maxByTrack.get(t.trackId) ?? 0, t.value))
 	}
-	return { byTrack, maxByTrack }
+	return byTrack
 })
+
+// Per-track stats. Counter shading is relative to the track's highest value
+// (maxValue), as in the Analytics heatmap.
+const statsByTrack = computed(() => new Map(stats.value.map(s => [s.trackId, s])))
 
 // Rolling seven days, today first.
 const days = computed(() => Array.from({ length: 7 }, (_, i) => addDays(today.value, -i)))
@@ -97,15 +99,18 @@ interface Row {
 	track: Track
 	isCounter: boolean
 	cells: Cell[]
-	summary: StreakSummary
+	// Undefined for a track missing from the stats answer (deleted between
+	// the requests): it shows no number, as "No ticks yet".
+	stats: TrackStats | undefined
 	todayOpen: boolean
 }
 
 // Cells carry their track and date (also as data attributes), so an editable
 // widget can add a click handler without reshaping anything.
 const rows = computed<Row[]>(() => visibleTracks.value.map((track) => {
-	const byDate = tickIndex.value.byTrack.get(track.id) ?? new Map<string, number>()
-	const maxValue = tickIndex.value.maxByTrack.get(track.id) ?? 0
+	const byDate = tickIndex.value.get(track.id) ?? new Map<string, number>()
+	const trackStats = statsByTrack.value.get(track.id)
+	const maxValue = trackStats?.maxValue ?? 0
 	const isCounter = track.type === 'counter'
 	const cells = days.value.map((date) => {
 		const value = byDate.get(date) ?? 0
@@ -116,19 +121,19 @@ const rows = computed<Row[]>(() => visibleTracks.value.map((track) => {
 		track,
 		isCounter,
 		cells,
-		summary: summariseStreaks(byDate.keys(), today.value),
+		stats: trackStats,
 		todayOpen: cells[0].value <= 0,
 	}
 }))
 
 function numText(row: Row): string {
-	return row.summary.current ? String(row.summary.current.length) : '–'
+	return row.stats?.current ? String(row.stats.current.length) : '–'
 }
 
 function numTooltip(row: Row): string {
-	const current = row.summary.current
+	const current = row.stats?.current
 	if (!current) return 'No ticks yet'
-	if (row.summary.upToYesterday) return `${current.length}-day streak, up to yesterday`
+	if (row.stats?.upToYesterday) return `${current.length}-day streak, up to yesterday`
 	return `${current.isStreak ? 'Streak' : 'Break'} since ${fmtDate(current.from)}`
 }
 
@@ -145,10 +150,15 @@ async function load(mode: 'initial' | 'refresh' | 'quiet'): Promise<void> {
 	if (mode === 'refresh') refreshing.value = true
 	today.value = todayStr()
 	try {
-		const [t, k] = await Promise.all([fetchTracks(), fetchAllTicks()])
+		const [t, s, k] = await Promise.all([
+			fetchTracks(),
+			fetchStats(today.value),
+			fetchTicks(addDays(today.value, -6), today.value),
+		])
 		// A newer load started meanwhile: let it have the last word.
 		if (seq !== loadSeq) return
 		tracks.value = t
+		stats.value = s
 		ticks.value = k
 		status.value = 'ready'
 		lastLoadedAt = Date.now()
@@ -373,8 +383,8 @@ onBeforeUnmount(() => {
 						@pointerleave="hideTooltip" />
 					<span :class="[
 							$style.num,
-							row.summary.current?.isStreak ? $style.numStreak : $style.numBreak,
-							row.summary.upToYesterday && $style.numUpToYesterday,
+							row.stats?.current?.isStreak ? $style.numStreak : $style.numBreak,
+							row.stats?.upToYesterday && $style.numUpToYesterday,
 						]"
 						@pointerenter="showNumTooltip($event, row)"
 						@pointerleave="hideTooltip">

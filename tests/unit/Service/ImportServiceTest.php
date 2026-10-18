@@ -262,4 +262,35 @@ final class ImportServiceTest extends TestCase {
 			],
 		], ImportService::MODE_MERGE);
 	}
+
+	public function testTrackNameOver255CharactersFails(): void {
+		$this->expectNoWrites();
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Track "' . str_repeat('a', 40) . '…" has a name longer than 255 characters');
+		$this->import([
+			'version' => 1,
+			'tracks' => [
+				['name' => 'Exercise', 'type' => 'boolean'],
+				['name' => str_repeat('a', 256), 'type' => 'boolean'],
+			],
+		]);
+	}
+
+	public function testTickmateTrackNameOver255CharactersFails(): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		$sqlite = new \SQLite3($this->file);
+		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
+		$sqlite->exec('CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)');
+		$sqlite->exec("INSERT INTO tracks VALUES (1, 'Exercise', 1, 1), (2, '" . str_repeat('a', 256) . "', 1, 2)");
+		$sqlite->exec('INSERT INTO ticks VALUES (1, 1, 2026, 9, 17)');
+		$sqlite->close();
+		$this->expectNoWrites();
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Track "' . str_repeat('a', 40) . '…" has a name longer than 255 characters');
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+	}
 }

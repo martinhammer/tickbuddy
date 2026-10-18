@@ -14,3 +14,38 @@ export interface Tick {
 	date: string
 	value: number
 }
+
+/** A streak (ticked days in a row) or a break (unticked days in a row). */
+export interface Run {
+	isStreak: boolean
+	length: number
+	from: string // YYYY-MM-DD, first day of the run
+	to: string // YYYY-MM-DD, last day of the run
+}
+
+/**
+ * One track's entry in `GET /api/stats`, worked out up to the track's end day:
+ * the `today` sent, or an archived track's archive date if earlier.
+ */
+export interface TrackStats {
+	trackId: number
+	total: number
+	/** Not rounded. */
+	weeklyMean: number
+	last7: number
+	previous7: number
+	peak7: number
+	/** The last run, null with no ticks. */
+	current: Run | null
+	/** True when the current run is a streak that ends yesterday because today is still open. */
+	upToYesterday: boolean
+	longestStreak: Run | null
+	longestBreak: Run | null
+	firstTick: string | null
+	lastTick: string | null
+	/** Highest value over every day from the first tick, an unticked day counting as 0. */
+	maxValue: number
+	minValue: number
+	/** Only when asked for with includeRuns. */
+	runs?: Run[]
+}
