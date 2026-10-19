@@ -112,14 +112,15 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "counterIncrement": true,
     "booleanSet": true,
     "stats": true,
-    "notes": true
+    "notes": true,
+    "statsPeriod": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -355,18 +356,19 @@ Deletes the day's note. `204`, also when there was none. `404` unknown track, `4
 
 ### Stats
 
-#### `GET /api/stats?today=YYYY-MM-DD[&trackId=n][&includeRuns=true][&includeArchived=true]`
+#### `GET /api/stats?today=YYYY-MM-DD[&from=YYYY-MM-DD][&to=YYYY-MM-DD][&trackId=n][&includeRuns=true][&includeArchived=true]`
 > Requires `features.stats` (§1). On servers without it this route returns `404`.
 
 Totals, streaks and highest/lowest value per track, worked out on the server with the same rule the web uses, so you don't need a track's whole history to show them.
 
 Params:
 - `today` — **the device's local date**. Whether today is still open decides where a streak ends, so always send it. If missing, the server's date is used (its default time zone, usually UTC). Not a real date: `400` `Today must be a date as YYYY-MM-DD`.
+- `from`, `to` — optional, a period (requires `features.statsPeriod`); either may be given alone. Only the period's ticks count, and streaks and breaks crossing either edge are cut there. With `from`, **every day from `from` takes part**, not just from the first tick: unticked days at the start are a break, and a period with no ticks is one break covering it. Not a real date: `400` `From and to must be dates as YYYY-MM-DD`; `from` after `to`: `400` `From must be on or before to`. Comparing two periods is two calls.
 - `trackId` — one track only (`404` if not yours). An archived track is returned even without `includeArchived`. The response is still a list, with one entry.
 - `includeRuns` — add `runs`: every streak and break, oldest first.
 - `includeArchived` — with all tracks, include archived ones (default: left out, as `GET /api/tracks`).
 
-Every track gets an entry, also with no ticks, in track list order. Private tracks are included. Each track is worked out up to its **end day**: `today`, or for an archived track its `archivedAt` if earlier. Ticks after the end day are ignored everywhere.
+Every track gets an entry, also with no ticks, in track list order. Private tracks are included. Each track is worked out up to its **end day**: the earliest of `to`, `today` and, for an archived track, its `archivedAt`. Ticks after the end day are ignored everywhere. Its **first day** is `from`, else its first tick. Every field below is measured from the first day to the end day: `current` and `upToYesterday` are as of the end day (for a past period, how it ended), and an end day before the first day (say, archived before `from`) gives the empty answer, as for a track with no ticks.
 
 ```json
 [{
@@ -381,7 +383,7 @@ Every track gets an entry, also with no ticks, in track list order. Private trac
 }]
 ```
 
-- `total` — sum of values (yes/no: ticked days). `weeklyMean` — `total` ÷ (days from `firstTick` to the end day, counting both, ÷ 7), floored at one week; not rounded. Ticking every day gives exactly 7.
+- `total` — sum of values (yes/no: ticked days). `weeklyMean` — `total` ÷ (days from `from`, else `firstTick`, to the end day, counting both, ÷ 7), floored at one week; not rounded. Ticking every day gives exactly 7.
 - `last7` / `previous7` — sums over the end day and the 6 before it, and the 7 days before those. `peak7` — the highest 7-day sum in the history. The web's trend arrow compares `last7` with `previous7`, scaled by `max(peak7, 7)`.
 - `current`, `longestStreak`, `longestBreak` — runs `{isStreak, length, from, to}`, or `null` with no ticks; the first of equally long runs wins.
 - `upToYesterday` — `true` when the current run is a streak ending yesterday because today isn't ticked yet. **An open today never ends a streak**: if today is unticked but yesterday is ticked, counting stops at yesterday; otherwise an open today joins the break.

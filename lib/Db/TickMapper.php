@@ -101,9 +101,10 @@ class TickMapper extends QBMapper {
 	 * times the memory.
 	 *
 	 * @param ?int $trackId One track only, or every track of the user
+	 * @param ?string $from The first date to read, or null for the whole history
 	 * @return array<int, array<string, int>>
 	 */
-	public function findValuesByUser(string $userId, string $to, ?int $trackId = null): array {
+	public function findValuesByUser(string $userId, string $to, ?int $trackId = null, ?string $from = null): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('track_id', 'date', 'value')
 			->from($this->getTableName())
@@ -113,6 +114,9 @@ class TickMapper extends QBMapper {
 			->addOrderBy('date', 'ASC');
 		if ($trackId !== null) {
 			$qb->andWhere($qb->expr()->eq('track_id', $qb->createNamedParameter($trackId, IQueryBuilder::PARAM_INT)));
+		}
+		if ($from !== null) {
+			$qb->andWhere($qb->expr()->gte('date', $qb->createNamedParameter($from)));
 		}
 
 		$values = [];

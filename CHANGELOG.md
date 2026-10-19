@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - API: set a yes/no tick to a state with `POST /api/ticks/set`
 - API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
-- API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track
+- API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track, with an optional period (`from`, `to`)
 - API: notes on a track's day (`/api/notes`), also settable with toggle, set and increment; exported and imported with backups
 
 ### Changed

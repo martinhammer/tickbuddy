@@ -54,7 +54,8 @@
                                     "counterIncrement",
                                     "booleanSet",
                                     "stats",
-                                    "notes"
+                                    "notes",
+                                    "statsPeriod"
                                 ],
                                 "properties": {
                                     "import": {
@@ -88,6 +89,9 @@
                                         "type": "boolean"
                                     },
                                     "notes": {
+                                        "type": "boolean"
+                                    },
+                                    "statsPeriod": {
                                         "type": "boolean"
                                     }
                                 }
@@ -1525,7 +1529,7 @@
             "get": {
                 "operationId": "stats-index",
                 "summary": "Stats and streaks per track",
-                "description": "Every track gets an entry, also with no ticks, in track list order. Each is worked out up to `today`, or for an archived track up to its archive date if that is earlier; later ticks are ignored. Includes private tracks.",
+                "description": "Every track gets an entry, also with no ticks, in track list order. Each is worked out up to the earliest of `to`, `today` and, for an archived track, its archive date; later ticks are ignored. With `from`, every day of the period from `from` takes part (unticked days at its start are a break), and streaks and breaks crossing either edge are cut there. Includes private tracks. Check the `statsPeriod` capability before sending `from` or `to`: older servers ignore them and answer all-time stats.",
                 "tags": [
                     "stats"
                 ],
@@ -1542,6 +1546,24 @@
                         "name": "today",
                         "in": "query",
                         "description": "The client's date (YYYY-MM-DD); the server's date if omitted",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "description": "The period's first day (YYYY-MM-DD); from the first tick if omitted",
+                        "schema": {
+                            "type": "string",
+                            "default": ""
+                        }
+                    },
+                    {
+                        "name": "to",
+                        "in": "query",
+                        "description": "The period's last day (YYYY-MM-DD); up to today if omitted",
                         "schema": {
                             "type": "string",
                             "default": ""
@@ -1621,7 +1643,7 @@
                         }
                     },
                     "400": {
-                        "description": "Today is not a valid date",
+                        "description": "Today, from or to is not a valid date, or from is after to",
                         "content": {
                             "application/json": {
                                 "schema": {

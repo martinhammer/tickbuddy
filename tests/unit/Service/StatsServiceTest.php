@@ -352,4 +352,139 @@ final class StatsServiceTest extends TestCase {
 		$this->assertSame(6, $s['last7']); // 08-08 .. 08-14
 		$this->assertEqualsWithDelta(13 / 2, $s['weeklyMean'], 1e-9); // 14 days
 	}
+	// --- a period (from, to) ---
+
+	public function testAStreakCrossingFromIsCutAtFrom(): void {
+		$ticks = self::daily(self::range('2026-02-20', '2026-03-05'));
+		$s = StatsService::summarise($ticks, '2026-03-10', true, '2026-03-01');
+		$this->assertSame(5, $s['total']);
+		$this->assertSame('2026-03-01', $s['firstTick']);
+		$this->assertSame(self::makeRun(true, '2026-03-01', '2026-03-05', 5), $s['runs'][0]);
+		$this->assertSame(self::makeRun(false, '2026-03-06', '2026-03-10', 5), $s['current']);
+	}
+
+	public function testAStreakCrossingToIsCutAtTo(): void {
+		$this->trackService->method('find')->willReturn($this->makeTrack(1));
+		$this->tickMapper->method('findValuesByUser')->with($this->userId, '2026-03-31', 1, '2026-03-01')
+			->willReturn([1 => self::daily(self::range('2026-03-25', '2026-04-05'))]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 1, true, false, '2026-03-01', '2026-03-31')[0];
+
+		$this->assertSame(7, $s['total']);
+		$this->assertSame('2026-03-31', $s['lastTick']);
+		$this->assertSame(self::makeRun(true, '2026-03-25', '2026-03-31', 7), $s['current']);
+		$this->assertFalse($s['upToYesterday']);
+	}
+
+	public function testWeeklyMeanCoversTheWholePeriod(): void {
+		// Four ticks, all in the period's last 9 days: 4 / 4 weeks, not 4 / (9 / 7)
+		$ticks = self::daily(['2026-03-20', '2026-03-23', '2026-03-25', '2026-03-28']);
+		$s = StatsService::summarise($ticks, '2026-03-28', false, '2026-03-01');
+		$this->assertEqualsWithDelta(1.0, $s['weeklyMean'], 1e-9);
+	}
+
+	public function testUntickedDaysAtThePeriodStartAreABreak(): void {
+		$s = StatsService::summarise(self::daily(['2026-03-10']), '2026-03-10', true, '2026-03-01');
+		$this->assertSame([
+			self::makeRun(false, '2026-03-01', '2026-03-09', 9),
+			self::makeRun(true, '2026-03-10', '2026-03-10', 1),
+		], $s['runs']);
+		$this->assertSame(0, $s['minValue']);
+	}
+
+	public function testAPeriodWithoutTicksIsOneBreak(): void {
+		$s = StatsService::summarise([], '2025-12-31', true, '2025-01-01');
+		$break = self::makeRun(false, '2025-01-01', '2025-12-31', 365);
+		$this->assertSame([$break], $s['runs']);
+		$this->assertSame($break, $s['current']);
+		$this->assertSame($break, $s['longestBreak']);
+		$this->assertNull($s['longestStreak']);
+		$this->assertSame(0, $s['total']);
+		$this->assertEqualsWithDelta(0.0, $s['weeklyMean'], 1e-9);
+		$this->assertNull($s['firstTick']);
+	}
+
+	public function testToAfterTodayStopsAtToday(): void {
+		$this->trackService->method('find')->willReturn($this->makeTrack(1));
+		$this->tickMapper->expects($this->once())->method('findValuesByUser')
+			->with($this->userId, self::TODAY, 1, '2026-10-01')
+			->willReturn([1 => ['2026-10-07' => 1, '2026-10-12' => 1]]); // a tick after today
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 1, true, false, '2026-10-01', '2026-12-31')[0];
+
+		$this->assertSame(1, $s['total']);
+		$this->assertSame('2026-10-07', $s['lastTick']);
+		$this->assertSame(self::makeRun(true, '2026-10-07', '2026-10-07', 1), $s['current']);
+		$this->assertTrue($s['upToYesterday']);
+		$this->assertEqualsWithDelta(7 / 8, $s['weeklyMean'], 1e-9); // 8 days
+	}
+
+	public function testCurrentIsAsOfTheEndOfAPastPeriod(): void {
+		$ticks = self::daily(self::range('2025-12-20', '2025-12-30'));
+		$s = StatsService::summarise($ticks, '2025-12-31', false, '2025-01-01');
+		$this->assertSame(self::makeRun(true, '2025-12-20', '2025-12-30', 11), $s['current']);
+		$this->assertTrue($s['upToYesterday']);
+		$this->assertSame(self::makeRun(false, '2025-01-01', '2025-12-19', 353), $s['longestBreak']);
+	}
+
+	public function testATrackArchivedBeforeFromGivesTheEmptyAnswer(): void {
+		$this->trackService->method('find')->willReturn($this->makeTrack(3, '2025-06-30'));
+		$this->tickMapper->method('findValuesByUser')->willReturn([]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 3, true, false, '2026-01-01', '2026-12-31')[0];
+
+		$this->assertSame(['trackId' => 3] + StatsService::summarise([], self::TODAY, true), $s);
+	}
+
+	public function testATrackArchivedInsideThePeriodStopsOnItsArchiveDate(): void {
+		$this->trackService->method('find')->willReturn($this->makeTrack(3, '2026-03-14'));
+		$this->tickMapper->method('findValuesByUser')
+			->willReturn([3 => self::daily(['2026-03-10', '2026-03-12', '2026-03-20'])]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 3, true, false, '2026-03-01', '2026-03-31')[0];
+
+		$this->assertSame(2, $s['total']);
+		$this->assertSame('2026-03-14', end($s['runs'])['to'] ?? null);
+		$this->assertEqualsWithDelta(1.0, $s['weeklyMean'], 1e-9); // 2 / (14 / 7)
+	}
+
+	public function testSevenDaySumsAreRelativeToTheEndDayAndInsideThePeriod(): void {
+		$values = [
+			'2026-02-27' => 50, // before the period: ignored
+			'2026-03-01' => 2,  // previous7: 03-01 .. 03-07 (only those inside)
+			'2026-03-05' => 3,
+			'2026-03-09' => 4,  // last7: 03-08 .. 03-14
+			'2026-03-14' => 1,
+			'2026-03-20' => 99, // after to: ignored
+		];
+		$s = StatsService::summarise($values, '2026-03-14', false, '2026-03-01');
+		$this->assertSame(5, $s['last7']);
+		$this->assertSame(5, $s['previous7']);
+		$this->assertSame(7, $s['peak7']); // 03-05 .. 03-11
+		$this->assertSame(10, $s['total']);
+		$this->assertSame(4, $s['maxValue']);
+	}
+
+	public static function invalidPeriodProvider(): array {
+		return [['2026-02-30', ''], ['', '17 Oct'], ['2026-1-1', '2026-12-31']];
+	}
+
+	/**
+	 * @dataProvider invalidPeriodProvider
+	 */
+	public function testInvalidFromOrToThrows(string $from, string $to): void {
+		$this->tickMapper->expects($this->never())->method('findValuesByUser');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From and to must be dates as YYYY-MM-DD');
+		$this->service->forUser($this->userId, self::TODAY, null, false, false, $from, $to);
+	}
+
+	public function testFromAfterToThrows(): void {
+		$this->tickMapper->expects($this->never())->method('findValuesByUser');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From must be on or before to');
+		$this->service->forUser($this->userId, self::TODAY, null, false, false, '2026-03-02', '2026-03-01');
+	}
 }

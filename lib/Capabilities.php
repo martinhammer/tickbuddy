@@ -55,6 +55,7 @@ class Capabilities implements ICapability {
 	 *             booleanSet: bool,
 	 *             stats: bool,
 	 *             notes: bool,
+	 *             statsPeriod: bool,
 	 *         },
 	 *     },
 	 * }
@@ -92,6 +93,9 @@ class Capabilities implements ICapability {
 					// and `note` on toggle, set and increment. Older servers 404 the
 					// routes and silently ignore `note`, so check this before sending one.
 					'notes' => true,
+					// GET /api/stats takes a period (`from`, `to`). Older servers
+					// ignore both and answer all-time stats, so check this first.
+					'statsPeriod' => true,
 				],
 			],
 		];
