@@ -1,6 +1,6 @@
 # Tickbuddy
 
-Tickbuddy is a Nextcloud application for daily habit or occurrence tracking.
+Tickbuddy is a Nextcloud application for daily habit or occurrence logging and tracking.
 
 The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
@@ -16,10 +16,10 @@ Some of the key features which already exist:
 * Nextcloud dashboard widget
 * Import/export data in JSON format
 * Import data from Tickmate backup file
-* [Companion mobile app](https://github.com/martinhammer/tickdroid)
+* Tickdroid: [companion mobile app](https://github.com/martinhammer/tickdroid)
+* Tickcli: [command line client](https://github.com/martinhammer/tickcli)
 
 Planned features:
-* [Linux command line client](https://github.com/martinhammer/tickcli)
 * [Claude Desktop plugin and MCP server](https://github.com/martinhammer/tickllme)
 * Ping webhooks for automation integrations
 * Setting and tracking of targets / goals
