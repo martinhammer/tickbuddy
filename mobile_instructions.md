@@ -113,14 +113,15 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "booleanSet": true,
     "stats": true,
     "notes": true,
-    "statsPeriod": true
+    "statsPeriod": true,
+    "notesAppend": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -167,7 +168,7 @@ Two hard rules that your sync layer must respect:
 ```
 trackId  int       foreign key to Track
 date     string    "YYYY-MM-DD"
-text     string    plain text, 1..200 characters
+text     string    plain text, 1..500 characters
 ```
 
 - **One note per track per day**, keyed by `(trackId, date)`; there is no note id.
@@ -284,7 +285,9 @@ Toggle a boolean tick. Only for `type=boolean` tracks — returns `400` for coun
 Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
-- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the stored note after the call (`""` if none). The note is written whichever way the tick flips.
+- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the whole stored note after the call (`""` if none).
+- `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
+- `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it. The note is written whichever way the tick flips.
 
 Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed. A `date` that isn't a real `YYYY-MM-DD` date answers `400` `Date must be a date as YYYY-MM-DD` and changes nothing.
 
@@ -301,7 +304,9 @@ Form params:
 - `value`:
   - **Counter**: int. `<= 0` deletes the tick; `> 0` creates or updates it. Missing counts as `0`.
   - **Yes/no** (requires `features.booleanSet`): `true` or `false`; also `1`/`0`, `on`/`off`, `yes`/`no`, in any letter case, and in a JSON body a JSON boolean or the numbers 1 and 0. Anything else, or no value, answers `400` `Yes/no tracks take a value of true or false`.
-- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the stored note after the call (`""` if none).
+- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the whole stored note after the call (`""` if none).
+- `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
+- `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it.
 
 Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no `{"value": true}` or `{"value": false}`. Setting the state a day already has changes nothing and gives the same answer, so a retried request is always safe. You know which shape you get from the track's type.
 
@@ -318,20 +323,22 @@ Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
 - `delta` (int, required, not 0; negative to take away)
-- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the stored note after the call (`""` if none).
+- `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the whole stored note after the call (`""` if none).
+- `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
+- `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it.
 
 Response: `{"value": n}`, the value right after this request's write (under concurrency it may already include another device's delta). The value never goes below 0: a result of 0 or less deletes the tick and answers `{"value": 0}`. So a decrement that hits 0 isn't undone by a later increment of the same size (−3 on 2 gives 0, then +3 gives 3).
 
 Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`.
 
-With `note`, every check of the tick call and the note's own checks (§ Notes) run before anything is written, so a `400` writes neither the tick nor the note. Then the tick is written, then the note. On an archived track neither changes and the response carries the stored state and, if `note` was sent, the stored note.
+With `note` or `appendNote`, every check of the tick call and the note's own checks (§ Notes, for `appendNote` including the length of the result) run before anything is written, so a `400` writes neither the tick nor the note. Then the tick is written, then the note. On an archived track neither changes and the response carries the stored state and, if `note` or `appendNote` was sent, the stored note. A `409` from `appendNote` (another writer kept changing the note) comes **after** the tick was written: don't replay a `toggle`, append the text with `POST /api/notes/append` instead.
 
 ### Notes
 
 > Requires `features.notes` (§1). On servers without it these routes return `404`.
 
 Checks on a note's text, wherever it is written (here, `note` on tick calls, and imports), each a `400` with nothing saved:
-- longer than 200 characters after trimming: `Notes can be at most 200 characters`
+- longer than 500 characters after trimming: `Notes can be at most 500 characters`
 - not valid UTF-8: `Notes must be UTF-8 text`
 - control characters other than `\n` and `\t` (U+0000–U+001F, U+007F, U+0080–U+009F): `Notes can't contain control characters`
 
@@ -350,6 +357,19 @@ Both dates are required; a missing one or one that isn't a real date answers `40
 Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string; empty deletes the note).
 
 Response: `{"text": "…"}`, the stored text after trimming (`""` when deleted). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above. On an archived track nothing changes and the stored note comes back (`""` if none), with `200`.
+
+#### `POST /api/notes/append`
+> Requires `features.notesAppend` (§1). On servers without it this route returns `404`.
+
+Add text to the day's note without overwriting what another device or script wrote meanwhile — for example an agent logging each new activity's link on the day it ticks Exercise. Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string), `allowDuplicate` (bool, optional, default `false`).
+
+- **No note yet:** the text is stored.
+- **A note exists:** the result is the note, a line break (`\n`), and the text.
+- **Already there:** if every line of the text already appears in the note, in order and as whole consecutive lines (case-sensitive, after the server's trimming), nothing changes and the call still answers `200`. So a script that runs every hour, or a retry after a network error, never adds the same line twice. A text that is only part of a line is appended. `allowDuplicate=true` appends it anyway.
+- **Empty text** (after trimming) changes nothing; unlike `set`, it never deletes.
+- **Too long:** if the result would be over 500 characters, `400` `The note would be longer than 500 characters`, nothing written.
+
+Response: `{"text": "…"}`, the whole stored note afterwards (`""` if none). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above; `400` too long; `409` `The note changed while appending; try again` if other writers changed the note three times in a row while the server was appending (nothing written; retrying is safe). On an archived track nothing changes and the stored note comes back, with `200`.
 
 #### `DELETE /api/notes?trackId=n&date=YYYY-MM-DD`
 Deletes the day's note. `204`, also when there was none. `404` unknown track, `400` bad date. On an archived track nothing is deleted, still `204`.
@@ -513,6 +533,7 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show; you can't send archived tracks to the front by accident, since you never see them unless you ask.
 - **An older server ignores `note` on tick calls without an error.** It drops the unknown parameter and answers `200`, so the note is lost. Check `features.notes` before sending one.
 - **Missing `note` and empty `note` differ.** Leave the parameter out to keep the day's note; send it empty to delete it.
+- **An older notes server ignores `appendNote` the same way.** Check `features.notesAppend` before sending one, and say "needs a newer Tickbuddy" rather than lose the text.
 - **Ticks on archived tracks are quietly dropped.** `toggle` and `set` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one. Reconcile from the response or the next pull.
 - **`value` on boolean ticks is always 1** in `GET /api/ticks`. Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
 - **`set` answers a number for counters and a boolean for yes/no tracks.** `{"value": 3}` vs `{"value": true}`; pick the parser from the track's type.
@@ -592,7 +613,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
 - [ ] Archive/restore only when `features.archivedTracks` is set; send the device's today as `archivedAt`
-- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
+- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `notesAppend` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

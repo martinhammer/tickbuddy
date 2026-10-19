@@ -8,6 +8,7 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
+use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
@@ -83,23 +84,28 @@ class TickController extends OCSController {
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
-	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
+	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
+	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
 	 *
-	 * 200: Tick toggled; `note` is the day's stored note, only when one was sent
-	 * 400: Track is not a boolean track, or the date or the note is invalid
+	 * 200: Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 400: Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
+	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
 	 */
 	// $note is a union for the framework: typed string, Nextcloud would answer a
-	// bare 400 to a JSON number. NoteService::normalise reads it.
+	// bare 400 to a JSON number. NoteService::normalise reads it, as $appendNote.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/toggle')]
-	public function toggle(int $trackId = 0, string $date = '', string|int|float|bool|null $note = null): DataResponse {
+	public function toggle(int $trackId = 0, string $date = '', string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): DataResponse {
 		try {
-			return new DataResponse($this->tickService->toggle($this->userId, $trackId, $date, $note));
+			return new DataResponse($this->tickService->toggle($this->userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		} catch (NoteConflictException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
 		}
 	}
 
@@ -110,23 +116,28 @@ class TickController extends OCSController {
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param int|bool|string|null $value Counter: the new value (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
-	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
+	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
 	 *
-	 * 200: Value set; `note` is the day's stored note, only when one was sent
-	 * 400: Value not valid for a yes/no track, or the date or the note is invalid
+	 * 200: Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 400: Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
+	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
 	 */
 	// $value is untyped for the framework: typed int, Nextcloud would turn
 	// "true" or "on" into 0 before the service sees it.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/set')]
-	public function set(int $trackId = 0, string $date = '', int|bool|string|null $value = null, string|int|float|bool|null $note = null): DataResponse {
+	public function set(int $trackId = 0, string $date = '', int|bool|string|null $value = null, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): DataResponse {
 		try {
-			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value, $note));
+			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		} catch (NoteConflictException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
 		}
 	}
 
@@ -140,21 +151,26 @@ class TickController extends OCSController {
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param int $delta Amount to add, not 0; negative to take away
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
-	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
+	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
+	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
 	 *
-	 * 200: Value changed; `note` is the day's stored note, only when one was sent
-	 * 400: Not a counter track, or delta, date or note invalid
+	 * 200: Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 400: Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
+	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/increment')]
-	public function increment(int $trackId = 0, string $date = '', int $delta = 0, string|int|float|bool|null $note = null): DataResponse {
+	public function increment(int $trackId = 0, string $date = '', int $delta = 0, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): DataResponse {
 		try {
-			return new DataResponse($this->tickService->increment($this->userId, $trackId, $date, $delta, $note));
+			return new DataResponse($this->tickService->increment($this->userId, $trackId, $date, $delta, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
 		} catch (InvalidTrackTypeException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+		} catch (NoteConflictException $e) {
+			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
 		}
 	}
 }

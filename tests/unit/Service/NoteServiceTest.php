@@ -9,6 +9,7 @@ use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidValueException;
+use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
@@ -66,7 +67,7 @@ final class NoteServiceTest extends TestCase {
 			'NUL' => ["a\x00b", "Notes can't contain control characters"],
 			'DEL' => ["a\x7fb", "Notes can't contain control characters"],
 			'C1 next line' => ["a\u{0085}b", "Notes can't contain control characters"],
-			'201 characters' => [str_repeat('a', 201), 'Notes can be at most 200 characters'],
+			'501 characters' => [str_repeat('a', 501), 'Notes can be at most 500 characters'],
 			'array' => [['a'], 'Notes must be UTF-8 text'],
 			'JSON true' => [true, 'Notes must be UTF-8 text'],
 			'JSON false' => [false, 'Notes must be UTF-8 text'],
@@ -93,8 +94,8 @@ final class NoteServiceTest extends TestCase {
 			'number' => [42, '42'],
 			'null' => [null, ''],
 			'whitespace only' => [" \n\t ", ''],
-			'200 characters' => [str_repeat('a', 200), str_repeat('a', 200)],
-			'200 code points' => [str_repeat('é', 200), str_repeat('é', 200)],
+			'500 characters' => [str_repeat('a', 500), str_repeat('a', 500)],
+			'500 code points' => [str_repeat('é', 500), str_repeat('é', 500)],
 			'emoji' => ['☕️ 2', '☕️ 2'],
 		];
 	}
@@ -166,7 +167,7 @@ final class NoteServiceTest extends TestCase {
 		$this->expectNoNoteWrites();
 
 		$this->expectException(InvalidValueException::class);
-		$this->service->set($this->userId, 1, '2026-10-18', str_repeat('a', 201));
+		$this->service->set($this->userId, 1, '2026-10-18', str_repeat('a', 501));
 	}
 
 	public function testSetUnknownTrack(): void {
@@ -183,7 +184,7 @@ final class NoteServiceTest extends TestCase {
 			->willThrowException(new DoesNotExistException(''));
 
 		$this->expectException(DoesNotExistException::class);
-		$this->service->set($this->userId, 99, '2026-02-30', str_repeat('a', 201));
+		$this->service->set($this->userId, 99, '2026-02-30', str_repeat('a', 501));
 	}
 
 	public function testSetOnArchivedTrackAnswersStoredNote(): void {
@@ -198,7 +199,7 @@ final class NoteServiceTest extends TestCase {
 		$this->track('2026-10-01');
 
 		$this->expectException(InvalidValueException::class);
-		$this->service->set($this->userId, 1, '2026-10-18', str_repeat('a', 201));
+		$this->service->set($this->userId, 1, '2026-10-18', str_repeat('a', 501));
 	}
 
 	public function testSetRacingInsertUpdatesTheWinner(): void {
@@ -215,6 +216,264 @@ final class NoteServiceTest extends TestCase {
 			->with($this->callback(fn (Note $n) => $n === $winner && $n->getText() === 'mine'));
 
 		$this->assertSame('mine', $this->service->set($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	// --- append ---
+
+	private function uniqueViolation(): DbException {
+		$e = $this->createMock(DbException::class);
+		$e->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+		return $e;
+	}
+
+	public function testAppendToNoNoteStoresTheText(): void {
+		$this->track();
+		$this->noNote();
+		$this->noteMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Note $n) => $n->getUserId() === $this->userId
+				&& $n->getTrackId() === 1
+				&& $n->getDate() === '2026-10-18'
+				&& $n->getText() === 'https://strava.com/a/1'));
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->assertSame('https://strava.com/a/1', $this->service->append($this->userId, 1, '2026-10-18', ' https://strava.com/a/1 '));
+	}
+
+	public function testAppendJoinsWithALineBreak(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note('https://strava.com/a/1'));
+		$this->noteMapper->expects($this->never())->method('insert');
+		$this->noteMapper->expects($this->once())->method('replaceText')
+			->with(7, 'https://strava.com/a/1', "https://strava.com/a/1\nhttps://strava.com/a/2")
+			->willReturn(1);
+
+		$this->assertSame(
+			"https://strava.com/a/1\nhttps://strava.com/a/2",
+			$this->service->append($this->userId, 1, '2026-10-18', 'https://strava.com/a/2'),
+		);
+	}
+
+	public static function textsAlreadyThere(): array {
+		return [
+			'the same line' => ["a\nb\nc", 'b'],
+			'the only line' => ['b', 'b'],
+			'after trimming' => ["a\nb", " b\n"],
+			'several lines in order' => ["a\nb\nc", "b\nc"],
+			'the whole note' => ["a\nb", "a\nb"],
+		];
+	}
+
+	/**
+	 * @dataProvider textsAlreadyThere
+	 */
+	public function testAppendSkipsTextAlreadyThere(string $stored, string $text): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note($stored));
+		$this->expectNoNoteWrites();
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->assertSame($stored, $this->service->append($this->userId, 1, '2026-10-18', $text));
+	}
+
+	public static function textsNotThere(): array {
+		return [
+			'part of a line' => ["https://strava.com/a/12\nx", 'https://strava.com/a/1', "https://strava.com/a/12\nx\nhttps://strava.com/a/1"],
+			'lines in another order' => ["a\nb", "b\na", "a\nb\nb\na"],
+			'lines not next to each other' => ["a\nx\nb", "a\nb", "a\nx\nb\na\nb"],
+			'another case' => ['Run', 'run', "Run\nrun"],
+		];
+	}
+
+	/**
+	 * @dataProvider textsNotThere
+	 */
+	public function testAppendAddsTextNotThereAsWholeLines(string $stored, string $text, string $expected): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note($stored));
+		$this->noteMapper->expects($this->once())->method('replaceText')
+			->with(7, $stored, $expected)
+			->willReturn(1);
+
+		$this->assertSame($expected, $this->service->append($this->userId, 1, '2026-10-18', $text));
+	}
+
+	public function testAppendAllowDuplicateAppendsAgain(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note('a'));
+		$this->noteMapper->expects($this->once())->method('replaceText')
+			->with(7, 'a', "a\na")
+			->willReturn(1);
+
+		$this->assertSame("a\na", $this->service->append($this->userId, 1, '2026-10-18', 'a', true));
+	}
+
+	/**
+	 * @dataProvider emptyTexts
+	 */
+	public function testAppendEmptyChangesNothing(string $text): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note('kept'));
+		$this->expectNoNoteWrites();
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->assertSame('kept', $this->service->append($this->userId, 1, '2026-10-18', $text));
+	}
+
+	public function testAppendEmptyToNoNoteAnswersEmpty(): void {
+		$this->track();
+		$this->noNote();
+		$this->expectNoNoteWrites();
+
+		$this->assertSame('', $this->service->append($this->userId, 1, '2026-10-18', ''));
+	}
+
+	public function testAppendUpToTheLimit(): void {
+		$this->track();
+		$stored = str_repeat('a', 250);
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note($stored));
+		$this->noteMapper->expects($this->once())->method('replaceText')->willReturn(1);
+
+		// 250 + the line break + 249 = 500
+		$this->assertSame(500, mb_strlen($this->service->append($this->userId, 1, '2026-10-18', str_repeat('é', 249))));
+	}
+
+	public function testAppendOverTheLimitWritesNothing(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note(str_repeat('a', 250)));
+		$this->expectNoNoteWrites();
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('The note would be longer than 500 characters');
+		$this->service->append($this->userId, 1, '2026-10-18', str_repeat('b', 250));
+	}
+
+	public function testAppendTextOverTheLimitOnItsOwn(): void {
+		$this->track();
+		$this->expectNoNoteWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Notes can be at most 500 characters');
+		$this->service->append($this->userId, 1, '2026-10-18', str_repeat('a', 501));
+	}
+
+	public function testAppendOnArchivedTrackChangesNothing(): void {
+		$this->track('2026-10-01');
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note('kept'));
+		$this->expectNoNoteWrites();
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->assertSame('kept', $this->service->append($this->userId, 1, '2026-10-18', 'new'));
+	}
+
+	public function testAppendUnknownTrack(): void {
+		$this->trackMapper->method('findByIdAndUser')
+			->willThrowException(new DoesNotExistException(''));
+		$this->expectNoNoteWrites();
+
+		$this->expectException(DoesNotExistException::class);
+		$this->service->append($this->userId, 99, '2026-10-18', 'note');
+	}
+
+	public function testAppendRefusesInvalidDate(): void {
+		$this->track();
+		$this->expectNoNoteWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
+		$this->service->append($this->userId, 1, '2026-02-30', 'note');
+	}
+
+	public static function refusedAppendTexts(): array {
+		return [
+			'invalid UTF-8' => ["\xff", 'Notes must be UTF-8 text'],
+			'control characters' => ["\x1b[2J", "Notes can't contain control characters"],
+		];
+	}
+
+	/**
+	 * @dataProvider refusedAppendTexts
+	 */
+	public function testAppendRefusesTextAsSetDoes(string $text, string $message): void {
+		$this->track();
+		$this->expectNoNoteWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->append($this->userId, 1, '2026-10-18', $text);
+	}
+
+	public function testAppendRetriesAfterLosingTheRace(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls(
+			$this->note('a'),
+			$this->note("a\ntheirs"),
+		);
+		$this->noteMapper->expects($this->exactly(2))->method('replaceText')
+			->willReturnCallback(fn (int $id, string $old, string $new) => $old === 'a' ? 0 : 1);
+
+		$this->assertSame("a\ntheirs\nmine", $this->service->append($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	public function testAppendRetrySkipsTextTheWinnerAdded(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls(
+			$this->note('a'),
+			$this->note("a\nmine"),
+		);
+		$this->noteMapper->expects($this->once())->method('replaceText')->willReturn(0);
+
+		$this->assertSame("a\nmine", $this->service->append($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	public function testAppendAfterLosingTheInsertAppendsToTheWinner(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls(
+			$this->throwException(new DoesNotExistException('')),
+			$this->note('theirs'),
+		);
+		$this->noteMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+		$this->noteMapper->expects($this->once())->method('replaceText')
+			->with(7, 'theirs', "theirs\nmine")
+			->willReturn(1);
+
+		$this->assertSame("theirs\nmine", $this->service->append($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	public function testAppendGivesUpAfterThreeLostRaces(): void {
+		$this->track();
+		$this->noteMapper->method('findByUserTrackDate')->willReturnCallback(fn () => $this->note('a'));
+		$this->noteMapper->expects($this->exactly(3))->method('replaceText')->willReturn(0);
+
+		$this->expectException(NoteConflictException::class);
+		$this->expectExceptionMessage('The note changed while appending; try again');
+		$this->service->append($this->userId, 1, '2026-10-18', 'mine');
+	}
+
+	public function testAppendOtherDatabaseErrorsAreNotRetried(): void {
+		$this->track();
+		$this->noNote();
+		$e = $this->createMock(DbException::class);
+		$e->method('getReason')->willReturn(DbException::REASON_DRIVER);
+		$this->noteMapper->expects($this->once())->method('insert')->willThrowException($e);
+
+		$this->expectException(DbException::class);
+		$this->service->append($this->userId, 1, '2026-10-18', 'mine');
+	}
+
+	public function testCheckAppendRefusesWhatWouldNotFit(): void {
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note(str_repeat('a', 400)));
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('The note would be longer than 500 characters');
+		$this->service->checkAppend($this->userId, 1, '2026-10-18', str_repeat('b', 100), false);
+	}
+
+	public function testCheckAppendPassesTextAlreadyThere(): void {
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note(str_repeat('a', 500)));
+
+		$this->service->checkAppend($this->userId, 1, '2026-10-18', str_repeat('a', 500), false);
+		$this->addToAssertionCount(1);
 	}
 
 	// --- delete ---

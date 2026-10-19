@@ -56,6 +56,25 @@ class NoteMapper extends QBMapper {
 		return $this->findEntity($qb);
 	}
 
+	/**
+	 * Replace a note's text only if it still reads `$oldText`, so a writer that
+	 * read the note can't overwrite another's change made since.
+	 *
+	 * The text column is compared as a string (PARAM_STR), which Nextcloud
+	 * turns into `to_char(text)` on Oracle, where a CLOB can't be compared
+	 * directly; notes are far below to_char's 4000-byte cap.
+	 *
+	 * @return int Rows changed: 0 when someone else wrote first
+	 */
+	public function replaceText(int $id, string $oldText, string $newText): int {
+		$qb = $this->db->getQueryBuilder();
+		$qb->update($this->getTableName())
+			->set('text', $qb->createNamedParameter($newText))
+			->where($qb->expr()->eq('id', $qb->createNamedParameter($id, IQueryBuilder::PARAM_INT)))
+			->andWhere($qb->expr()->eq('text', $qb->createNamedParameter($oldText), IQueryBuilder::PARAM_STR));
+		return $qb->executeStatement();
+	}
+
 	public function deleteByUserTrackDate(string $userId, int $trackId, string $date): void {
 		$qb = $this->db->getQueryBuilder();
 		$qb->delete($this->getTableName())

@@ -56,6 +56,7 @@ class Capabilities implements ICapability {
 	 *             stats: bool,
 	 *             notes: bool,
 	 *             statsPeriod: bool,
+	 *             notesAppend: bool,
 	 *         },
 	 *     },
 	 * }
@@ -96,6 +97,10 @@ class Capabilities implements ICapability {
 					// GET /api/stats takes a period (`from`, `to`). Older servers
 					// ignore both and answer all-time stats, so check this first.
 					'statsPeriod' => true,
+					// POST /api/notes/append and `appendNote` on toggle, set and increment;
+					// notes hold up to 500 characters. Older notes builds 404 the route and
+					// silently ignore `appendNote`, so check this before appending.
+					'notesAppend' => true,
 				],
 			],
 		];

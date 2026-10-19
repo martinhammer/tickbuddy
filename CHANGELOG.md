@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API: set a yes/no tick to a state with `POST /api/ticks/set`
 - API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
 - API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track, with an optional period (`from`, `to`)
-- API: notes on a track's day (`/api/notes`), also settable with toggle, set and increment; exported and imported with backups
+- API: notes on a track's day (`/api/notes`, up to 500 characters), also settable with toggle, set and increment; appending a line (`POST /api/notes/append`, or `appendNote` on toggle, set and increment) skips a line that's already there and never overwrites another device's change; exported and imported with backups
 
 ### Changed
 - API: toggle and set reject a date that isn't YYYY-MM-DD

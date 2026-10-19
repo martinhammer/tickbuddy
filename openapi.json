@@ -55,7 +55,8 @@
                                     "booleanSet",
                                     "stats",
                                     "notes",
-                                    "statsPeriod"
+                                    "statsPeriod",
+                                    "notesAppend"
                                 ],
                                 "properties": {
                                     "import": {
@@ -92,6 +93,9 @@
                                         "type": "boolean"
                                     },
                                     "statsPeriod": {
+                                        "type": "boolean"
+                                    },
+                                    "notesAppend": {
                                         "type": "boolean"
                                     }
                                 }
@@ -1151,7 +1155,7 @@
                                     "text": {
                                         "nullable": true,
                                         "default": "",
-                                        "description": "Plain text, at most 200 characters; empty deletes the note",
+                                        "description": "Plain text, at most 500 characters; empty deletes the note",
                                         "anyOf": [
                                             {
                                                 "type": "string"
@@ -1265,6 +1269,267 @@
                     },
                     "404": {
                         "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/notes/append": {
+            "post": {
+                "operationId": "note-append",
+                "summary": "Append to the note on a track's day",
+                "description": "Adds the text on a new line, or stores it if the day has no note. Text whose lines are already in the note, in order and as whole lines, is skipped (unless `allowDuplicate`), so a retry never adds it twice. Empty text changes nothing; on an archived track nothing changes either. Safe against other writers: it never overwrites a change made meanwhile.",
+                "tags": [
+                    "note"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "trackId": {
+                                        "type": "integer",
+                                        "format": "int64",
+                                        "default": 0,
+                                        "description": "Track ID"
+                                    },
+                                    "date": {
+                                        "type": "string",
+                                        "default": "",
+                                        "description": "Date (YYYY-MM-DD)"
+                                    },
+                                    "text": {
+                                        "nullable": true,
+                                        "default": "",
+                                        "description": "Plain text to add",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowDuplicate": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Append the text even if the note already holds it"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Text appended, or already there; `text` is the whole stored note, empty if none",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "text"
+                                                    ],
+                                                    "properties": {
+                                                        "text": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Date or text invalid, or the note would be longer than 500 characters",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The note kept changing while appending; nothing was written, try again",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2005,6 +2270,32 @@
                                                 "type": "boolean"
                                             }
                                         ]
+                                    },
+                                    "appendNote": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowDuplicateNote": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Append `appendNote` even if the note already holds it"
                                     }
                                 }
                             }
@@ -2025,7 +2316,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick toggled; `note` is the day's stored note, only when one was sent",
+                        "description": "Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2066,7 +2357,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a boolean track, or the date or the note is invalid",
+                        "description": "Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2105,6 +2396,44 @@
                     },
                     "404": {
                         "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2242,6 +2571,32 @@
                                                 "type": "boolean"
                                             }
                                         ]
+                                    },
+                                    "appendNote": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowDuplicateNote": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Append `appendNote` even if the note already holds it"
                                     }
                                 }
                             }
@@ -2262,7 +2617,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value set; `note` is the day's stored note, only when one was sent",
+                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2311,7 +2666,7 @@
                         }
                     },
                     "400": {
-                        "description": "Value not valid for a yes/no track, or the date or the note is invalid",
+                        "description": "Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2350,6 +2705,44 @@
                     },
                     "404": {
                         "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2477,6 +2870,32 @@
                                                 "type": "boolean"
                                             }
                                         ]
+                                    },
+                                    "appendNote": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowDuplicateNote": {
+                                        "type": "boolean",
+                                        "default": false,
+                                        "description": "Append `appendNote` even if the note already holds it"
                                     }
                                 }
                             }
@@ -2497,7 +2916,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value changed; `note` is the day's stored note, only when one was sent",
+                        "description": "Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2539,7 +2958,7 @@
                         }
                     },
                     "400": {
-                        "description": "Not a counter track, or delta, date or note invalid",
+                        "description": "Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2578,6 +2997,44 @@
                     },
                     "404": {
                         "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "message"
+                                                    ],
+                                                    "properties": {
+                                                        "message": {
+                                                            "type": "string"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
                         "content": {
                             "application/json": {
                                 "schema": {

@@ -10,6 +10,7 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
+use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
@@ -556,8 +557,8 @@ final class TickServiceTest extends TestCase {
 		$this->expectNothingWritten();
 
 		$this->expectException(InvalidValueException::class);
-		$this->expectExceptionMessage('Notes can be at most 200 characters');
-		$this->service->toggle($this->userId, 1, '2026-10-18', str_repeat('a', 201));
+		$this->expectExceptionMessage('Notes can be at most 500 characters');
+		$this->service->toggle($this->userId, 1, '2026-10-18', str_repeat('a', 501));
 	}
 
 	public function testTooLongNoteWritesNothingOnYesNoSet(): void {
@@ -566,7 +567,7 @@ final class TickServiceTest extends TestCase {
 		$this->expectNothingWritten();
 
 		$this->expectException(InvalidValueException::class);
-		$this->service->set($this->userId, 1, '2026-10-18', true, str_repeat('a', 201));
+		$this->service->set($this->userId, 1, '2026-10-18', true, str_repeat('a', 501));
 	}
 
 	public function testTooLongNoteWritesNothingOnCounterSet(): void {
@@ -575,7 +576,7 @@ final class TickServiceTest extends TestCase {
 		$this->expectNothingWritten();
 
 		$this->expectException(InvalidValueException::class);
-		$this->service->set($this->userId, 2, '2026-10-18', 3, str_repeat('a', 201));
+		$this->service->set($this->userId, 2, '2026-10-18', 3, str_repeat('a', 501));
 	}
 
 	public function testTooLongNoteWritesNothingOnIncrement(): void {
@@ -583,7 +584,7 @@ final class TickServiceTest extends TestCase {
 		$this->expectNothingWritten();
 
 		$this->expectException(InvalidValueException::class);
-		$this->service->increment($this->userId, 2, '2026-10-18', 1, str_repeat('a', 201));
+		$this->service->increment($this->userId, 2, '2026-10-18', 1, str_repeat('a', 501));
 	}
 
 	public function testControlCharactersInNoteWriteNothing(): void {
@@ -600,7 +601,7 @@ final class TickServiceTest extends TestCase {
 
 		$this->expectException(InvalidValueException::class);
 		$this->expectExceptionMessage('Date must be a date as YYYY-MM-DD');
-		$this->service->toggle($this->userId, 1, '2026-02-30', str_repeat('a', 201));
+		$this->service->toggle($this->userId, 1, '2026-02-30', str_repeat('a', 501));
 	}
 
 	public function testArchivedTrackWithNoteAnswersStoredNote(): void {
@@ -615,5 +616,174 @@ final class TickServiceTest extends TestCase {
 		$this->assertSame(['value' => true, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->set($this->userId, 2, '2026-10-18', 5, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->increment($this->userId, 2, '2026-10-18', 1, 'new'));
+	}
+
+	// --- appendNote on tick calls ---
+
+	public function testToggleAppendsAfterTheTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$order = [];
+		$this->noteService->expects($this->once())->method('checkAppend')
+			->with($this->userId, 1, '2026-10-18', 'https://strava.com/a/2', false)
+			->willReturnCallback(function () use (&$order) {
+				$order[] = 'check';
+			});
+		$this->tickMapper->expects($this->once())->method('insert')
+			->willReturnCallback(function (Tick $t) use (&$order) {
+				$order[] = 'tick';
+				return $t;
+			});
+		$this->noteService->expects($this->once())->method('appendForTick')
+			->with($this->userId, 1, '2026-10-18', 'https://strava.com/a/2', false)
+			->willReturnCallback(function () use (&$order) {
+				$order[] = 'append';
+				return "https://strava.com/a/1\nhttps://strava.com/a/2";
+			});
+		$this->noteService->expects($this->never())->method('writeForTick');
+
+		$this->assertSame(
+			['ticked' => true, 'note' => "https://strava.com/a/1\nhttps://strava.com/a/2"],
+			$this->service->toggle($this->userId, 1, '2026-10-18', null, ' https://strava.com/a/2 '),
+		);
+		$this->assertSame(['check', 'tick', 'append'], $order);
+	}
+
+	public function testSetYesNoAppendsNote(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert');
+		$this->noteService->expects($this->once())->method('appendForTick')
+			->with($this->userId, 1, '2026-10-18', 'link', true)
+			->willReturn("link\nlink");
+
+		$this->assertSame(
+			['value' => true, 'note' => "link\nlink"],
+			$this->service->set($this->userId, 1, '2026-10-18', true, null, 'link', true),
+		);
+	}
+
+	public function testSetCounterAppendsNote(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert');
+		$this->noteService->expects($this->once())->method('appendForTick')
+			->with($this->userId, 2, '2026-10-18', 'link', false)
+			->willReturn('link');
+
+		$this->assertSame(
+			['value' => 4, 'note' => 'link'],
+			$this->service->set($this->userId, 2, '2026-10-18', 4, null, 'link'),
+		);
+	}
+
+	public function testIncrementAppendsNote(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->method('addToValue')->willReturn(1);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(3));
+		$this->noteService->expects($this->once())->method('appendForTick')
+			->with($this->userId, 2, '2026-10-18', 'link', false)
+			->willReturn("first\nlink");
+
+		$this->assertSame(
+			['value' => 3, 'note' => "first\nlink"],
+			$this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'link'),
+		);
+	}
+
+	public function testNoteAndAppendNoteTogetherWriteNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturnCallback(
+			fn (int $id) => $id === 1 ? $this->makeBooleanTrack() : $this->makeCounterTrack()
+		);
+		$this->noTick();
+		$this->expectNothingWritten();
+		$this->noteService->expects($this->never())->method('appendForTick');
+
+		$calls = [
+			fn () => $this->service->toggle($this->userId, 1, '2026-10-18', 'a', 'b'),
+			fn () => $this->service->set($this->userId, 1, '2026-10-18', true, 'a', 'b'),
+			fn () => $this->service->set($this->userId, 2, '2026-10-18', 3, 'a', 'b'),
+			fn () => $this->service->increment($this->userId, 2, '2026-10-18', 1, 'a', 'b'),
+		];
+		foreach ($calls as $call) {
+			try {
+				$call();
+				$this->fail('Both note and appendNote were accepted');
+			} catch (InvalidValueException $e) {
+				$this->assertSame('Send note or appendNote, not both', $e->getMessage());
+			}
+		}
+	}
+
+	public function testAppendNoteOverTheLimitWritesNoTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturnCallback(
+			fn (int $id) => $id === 1 ? $this->makeBooleanTrack() : $this->makeCounterTrack()
+		);
+		$this->noTick();
+		$this->expectNothingWritten();
+		$this->noteService->expects($this->never())->method('appendForTick');
+		$this->noteService->method('checkAppend')
+			->willThrowException(new InvalidValueException('The note would be longer than 500 characters'));
+
+		$calls = [
+			fn () => $this->service->toggle($this->userId, 1, '2026-10-18', null, 'link'),
+			fn () => $this->service->set($this->userId, 1, '2026-10-18', true, null, 'link'),
+			fn () => $this->service->set($this->userId, 2, '2026-10-18', 3, null, 'link'),
+			fn () => $this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'link'),
+		];
+		foreach ($calls as $call) {
+			try {
+				$call();
+				$this->fail('A note over the limit was accepted');
+			} catch (InvalidValueException $e) {
+				$this->assertSame('The note would be longer than 500 characters', $e->getMessage());
+			}
+		}
+	}
+
+	public function testAppendNoteTextOverTheLimitWritesNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->expectNothingWritten();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Notes can be at most 500 characters');
+		$this->service->toggle($this->userId, 1, '2026-10-18', null, str_repeat('a', 501));
+	}
+
+	public function testAppendNoteAtTheLimitIsAccepted(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->noteService->expects($this->once())->method('appendForTick')
+			->with($this->userId, 1, '2026-10-18', str_repeat('a', 500), false)
+			->willReturn(str_repeat('a', 500));
+
+		$this->assertSame(str_repeat('a', 500), $this->service->toggle($this->userId, 1, '2026-10-18', null, str_repeat('a', 500))['note']);
+	}
+
+	public function testArchivedTrackWithAppendNoteAnswersStoredNote(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturnCallback(
+			fn (int $id) => $this->archive($id === 1 ? $this->makeBooleanTrack() : $this->makeCounterTrack())
+		);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(2));
+		$this->expectNothingWritten();
+		$this->noteService->expects($this->never())->method('appendForTick');
+		$this->noteService->expects($this->never())->method('checkAppend');
+		$this->noteService->method('stored')->willReturn('kept');
+
+		$this->assertSame(['ticked' => true, 'note' => 'kept'], $this->service->toggle($this->userId, 1, '2026-10-18', null, 'new'));
+		$this->assertSame(['value' => true, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, null, 'new'));
+		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->set($this->userId, 2, '2026-10-18', 5, null, 'new'));
+		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'new'));
+	}
+
+	public function testAppendConflictAfterTheTickIsPassedOn(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->method('addToValue')->willReturn(1);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(3));
+		$this->noteService->method('appendForTick')
+			->willThrowException(new NoteConflictException('The note changed while appending; try again'));
+
+		$this->expectException(NoteConflictException::class);
+		$this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'link');
 	}
 }

@@ -317,6 +317,16 @@ final class ImportServiceTest extends TestCase {
 		], $this->insertedNotes);
 	}
 
+	public function testNoteAtTheLimitIsImported(): void {
+		$this->captureNotes();
+
+		$this->import($this->notesBackup([
+			['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => str_repeat('a', 500)],
+		]));
+
+		$this->assertSame([[101, '2026-10-13', str_repeat('a', 500)]], $this->insertedNotes);
+	}
+
 	public function testMergeImportsNotesOnTheNewTracks(): void {
 		$this->captureNotes();
 		$existing = new Track();
@@ -376,9 +386,9 @@ final class ImportServiceTest extends TestCase {
 				['track' => 'Cups of coffee', 'text' => 'a'],
 				'Note has an invalid date ""',
 			],
-			'201 characters' => [
-				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => str_repeat('a', 201)],
-				'Note on 2026-10-13: Notes can be at most 200 characters',
+			'501 characters' => [
+				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => str_repeat('a', 501)],
+				'Note on 2026-10-13: Notes can be at most 500 characters',
 			],
 			'control characters' => [
 				['track' => 'Cups of coffee', 'date' => '2026-10-13', 'text' => "\x1b[2J"],
