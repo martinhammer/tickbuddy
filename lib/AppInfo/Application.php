@@ -6,6 +6,7 @@ namespace OCA\Tickbuddy\AppInfo;
 
 use OCA\Tickbuddy\Capabilities;
 use OCA\Tickbuddy\Dashboard\WeekWidget;
+use OCA\Tickbuddy\Middleware\PreferenceAppliedMiddleware;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -22,6 +23,7 @@ class Application extends App implements IBootstrap {
 	public function register(IRegistrationContext $context): void {
 		$context->registerCapability(Capabilities::class);
 		$context->registerDashboardWidget(WeekWidget::class);
+		$context->registerMiddleware(PreferenceAppliedMiddleware::class);
 	}
 
 	public function boot(IBootContext $context): void {

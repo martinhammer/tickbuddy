@@ -16,6 +16,7 @@ class TickService {
 		private TickMapper $tickMapper,
 		private TrackMapper $trackMapper,
 		private NoteService $noteService,
+		private StrictHandling $strictHandling,
 	) {
 	}
 
@@ -42,7 +43,8 @@ class TickService {
 	/**
 	 * Toggle a boolean track tick. Returns true if the tick now exists, false if removed.
 	 *
-	 * On an archived track nothing changes and the answer is whether a tick exists.
+	 * On an archived track nothing changes: a client that asked for strict handling
+	 * is refused, any other gets whether a tick exists.
 	 *
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it;
 	 *                                         written whichever way the tick flips
@@ -53,6 +55,7 @@ class TickService {
 	 * @throws InvalidTrackTypeException if track is not boolean
 	 * @throws InvalidValueException if the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function toggle(string $userId, int $trackId, string $date, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
@@ -62,8 +65,9 @@ class TickService {
 		self::checkDate($date);
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		if ($track->getArchivedAt() !== null) {
-			// Archived history can't change. Answer with the stored state so an offline
-			// client's late upload doesn't stall its queue; its next pull drops the tick.
+			$this->strictHandling->refuseArchived($track);
+			// Archived history can't change. Not asked to refuse: answer with the stored state
+			// so an offline client's late upload doesn't stall its queue; its next pull drops the tick.
 			return ['ticked' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
@@ -86,7 +90,8 @@ class TickService {
 	 * Unlike toggle(), setting a yes/no day is idempotent, so a retried request
 	 * can never undo itself.
 	 *
-	 * On an archived track nothing changes and the answer is the stored state.
+	 * On an archived track nothing changes: a client that asked for strict handling
+	 * is refused, any other gets the stored state.
 	 *
 	 * @param mixed $value Counter: a number. Yes/no: true/false, 1/0, on/off or yes/no.
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
@@ -96,6 +101,7 @@ class TickService {
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidValueException if a yes/no value, the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function set(string $userId, int $trackId, string $date, mixed $value, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
@@ -108,6 +114,7 @@ class TickService {
 		self::checkDate($date);
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			// As in toggle(): ignore the write, answer with what's stored
 			return ['value' => $this->currentValue($userId, $trackId, $date)] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
@@ -136,6 +143,7 @@ class TickService {
 	 * @return array{value: bool, note?: string}
 	 * @throws InvalidValueException
 	 * @throws NoteConflictException
+	 * @throws ReadOnlyTrackException
 	 */
 	private function setYesNo(Track $track, string $userId, string $date, mixed $value, string|int|float|bool|null $note, string|int|float|bool|null $appendNote, bool $allowDuplicateNote): array {
 		$ticked = self::parseYesNo($value);
@@ -146,6 +154,7 @@ class TickService {
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		$trackId = $track->getId();
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			return ['value' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
@@ -219,7 +228,8 @@ class TickService {
 	 * PostgreSQL a unique violation aborts the whole transaction, which would
 	 * make that retry impossible.
 	 *
-	 * On an archived track nothing changes and the answer is the stored value.
+	 * On an archived track nothing changes: a client that asked for strict handling
+	 * is refused, any other gets the stored value.
 	 *
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
@@ -229,6 +239,7 @@ class TickService {
 	 * @throws InvalidTrackTypeException if track is not counter
 	 * @throws InvalidValueException if delta is 0, or the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function increment(string $userId, int $trackId, string $date, int $delta, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
@@ -241,6 +252,7 @@ class TickService {
 		self::checkDate($date);
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			return ['value' => $this->currentValue($userId, $trackId, $date)] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\ResponseDefinitions;
+use OCA\Tickbuddy\Service\ErrorReason;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\StatsService;
 use OCP\AppFramework\Db\DoesNotExistException;
@@ -16,6 +17,7 @@ use OCP\AppFramework\OCSController;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyError from ResponseDefinitions
  * @psalm-import-type TickbuddyStats from ResponseDefinitions
  *
  * @psalm-suppress UnusedClass
@@ -47,7 +49,7 @@ class StatsController extends OCSController {
 	 * @param int $trackId One track only (also an archived one); 0 for all tracks
 	 * @param bool $includeRuns Add every streak and break to each entry
 	 * @param bool $includeArchived With all tracks, include archived ones
-	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyStats>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyStats>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
 	 * 200: Stats returned
 	 * 400: Today, from or to is not a valid date, or from is after to
@@ -60,9 +62,9 @@ class StatsController extends OCSController {
 			$stats = $this->statsService->forUser($this->userId, $today, $trackId !== 0 ? $trackId : null, $includeRuns, $includeArchived, $from, $to);
 			return new DataResponse($stats);
 		} catch (InvalidValueException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (DoesNotExistException) {
-			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
 		}
 	}
 }

@@ -1,11 +1,32 @@
 import axios from '@nextcloud/axios'
 import { generateOcsUrl } from '@nextcloud/router'
+import { isTickbuddyApiUrl, PREFER_STRICT } from './strictHandling.ts'
 import type { Tick, Track, TrackStats } from './types.ts'
 
 // "Everything": the range Analytics fetches to get a track's whole history
 // for its charts.
 export const ALL_TICKS_FROM = '2000-01-01'
 export const ALL_TICKS_TO = '2099-12-31'
+
+let strictRegistered = false
+
+/**
+ * Send `Prefer: handling=strict` on every request to Tickbuddy's API, so the server
+ * answers 423 instead of a quiet 200 when a write hits an archived track. Only
+ * Tickbuddy's URLs: other Nextcloud endpoints (WebDAV reads Prefer) must not get it.
+ * `@nextcloud/axios` is one instance per bundle, so this covers this app's requests,
+ * those its `@nextcloud/vue` components make included (hence the URL check).
+ */
+export function preferStrictHandling(): void {
+	if (strictRegistered) return
+	strictRegistered = true
+	axios.interceptors.request.use((config) => {
+		if (isTickbuddyApiUrl(config.url)) {
+			config.headers.set('Prefer', PREFER_STRICT)
+		}
+		return config
+	})
+}
 
 export async function fetchTracks(): Promise<Track[]> {
 	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/tracks'))

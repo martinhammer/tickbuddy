@@ -11,6 +11,8 @@ use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
+use OCA\Tickbuddy\Service\ReadOnlyTrackException;
+use OCA\Tickbuddy\Service\StrictHandling;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -21,6 +23,7 @@ final class TrackServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
 	private ITimeFactory $timeFactory;
+	private StrictHandling $strictHandling;
 	private TrackService $service;
 	private string $userId = 'testuser';
 
@@ -30,7 +33,16 @@ final class TrackServiceTest extends TestCase {
 		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->timeFactory = $this->createMock(ITimeFactory::class);
 		$this->timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-15 01:30:00'));
-		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory);
+		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
+		$this->strictHandling = $this->createMock(StrictHandling::class);
+		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory, $this->strictHandling);
+	}
+
+	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
+	private function strict(): void {
+		$this->strictHandling->method('refuseArchived')->willReturnCallback(function (Track $track): void {
+			throw new ReadOnlyTrackException($track->getName() . ' is archived, so nothing was changed', 'archived');
+		});
 	}
 
 	private function makeTrack(int $id, ?string $archivedAt = null, int $sortOrder = 3): Track {
@@ -149,21 +161,23 @@ final class TrackServiceTest extends TestCase {
 		$this->assertNull($track->getArchivedAt());
 	}
 
-	public function testReArchiveTakesTheNewDate(): void {
+	public function testReArchiveKeepsTheFirstDate(): void {
 		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->expects($this->never())->method('update');
 
 		$updated = $this->service->update(7, $this->userId, archived: true, archivedAt: '2026-10-20');
 
-		$this->assertSame('2026-10-20', $updated->getArchivedAt());
+		$this->assertSame('2026-08-14', $updated->getArchivedAt());
 		$this->assertSame(3, $updated->getSortOrder());
 	}
 
-	public function testReArchiveWithoutDateUsesTheServerDate(): void {
+	public function testReArchiveWithoutDateKeepsTheFirstDate(): void {
 		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->expects($this->never())->method('update');
 
 		$updated = $this->service->update(7, $this->userId, archived: true);
 
-		$this->assertSame('2026-10-15', $updated->getArchivedAt());
+		$this->assertSame('2026-08-14', $updated->getArchivedAt());
 	}
 
 	public static function isValidDateProvider(): array {
@@ -345,5 +359,168 @@ final class TrackServiceTest extends TestCase {
 		$this->expectException(InvalidTrackNameException::class);
 		$this->expectExceptionMessage('Track name cannot be empty');
 		$this->service->update(5, $this->userId, '   ');
+	}
+
+	// --- archived tracks: only restore and delete ---
+
+	public static function changesToAnArchivedTrack(): array {
+		return [
+			'rename' => [['name' => 'Running']],
+			'rename to the same name' => [['name' => 'Exercise']],
+			'private' => [['private' => true]],
+			'sort order' => [['sortOrder' => 1]],
+			're-archive' => [['archived' => true, 'archivedAt' => '2026-10-20']],
+			're-archive without a date' => [['archived' => true]],
+			're-archive with a rename' => [['name' => 'Running', 'archived' => true]],
+		];
+	}
+
+	/**
+	 * Without Prefer: handling=strict, the change is quietly ignored.
+	 *
+	 * @dataProvider changesToAnArchivedTrack
+	 */
+	public function testArchivedTrackIgnoresChanges(array $fields): void {
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->expects($this->never())->method('update');
+
+		$updated = $this->service->update(7, $this->userId, ...$fields);
+
+		$this->assertSame('Exercise', $updated->getName());
+		$this->assertSame(3, $updated->getSortOrder());
+		$this->assertSame(0, $updated->getPrivate());
+		$this->assertSame('2026-08-14', $updated->getArchivedAt());
+	}
+
+	/**
+	 * @dataProvider changesToAnArchivedTrack
+	 */
+	public function testStrictRefusesChangesToAnArchivedTrack(array $fields): void {
+		$this->strict();
+		$track = $this->makeTrack(7, '2026-08-14');
+		$this->givenTrack($track);
+		$this->trackMapper->expects($this->never())->method('update');
+
+		try {
+			$this->service->update(7, $this->userId, ...$fields);
+			$this->fail('Expected ReadOnlyTrackException');
+		} catch (ReadOnlyTrackException $e) {
+			$this->assertSame('Exercise is archived, so nothing was changed', $e->getMessage());
+			$this->assertSame('archived', $e->getReason());
+		}
+		$this->assertSame('Exercise', $track->getName());
+		$this->assertSame('2026-08-14', $track->getArchivedAt());
+	}
+
+	public function testStrictAllowsAnUpdateWithNoFields(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+
+		$updated = $this->service->update(7, $this->userId);
+		$this->assertSame('2026-08-14', $updated->getArchivedAt());
+
+		$updated = $this->service->update(7, $this->userId, archivedAt: '2026-10-20');
+		$this->assertSame('2026-08-14', $updated->getArchivedAt());
+	}
+
+	public function testStrictAllowsARestore(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(9);
+
+		$updated = $this->service->update(7, $this->userId, archived: false);
+
+		$this->assertNull($updated->getArchivedAt());
+		$this->assertSame(10, $updated->getSortOrder());
+	}
+
+	public function testStrictAppliesNameAndPrivateWithARestore(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(9);
+
+		$updated = $this->service->update(7, $this->userId, name: 'Running', private: true, archived: false);
+
+		$this->assertNull($updated->getArchivedAt());
+		$this->assertSame('Running', $updated->getName());
+		$this->assertSame(1, $updated->getPrivate());
+	}
+
+	public function testStrictRestorePositionWinsOverSortOrder(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(9);
+
+		$updated = $this->service->update(7, $this->userId, sortOrder: 1, archived: false);
+
+		$this->assertSame(10, $updated->getSortOrder());
+	}
+
+	public function testStrictStillReportsABlankNameFirst(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+
+		$this->expectException(InvalidTrackNameException::class);
+		$this->service->update(7, $this->userId, '   ');
+	}
+
+	public function testStrictStillReportsABadArchiveDateFirst(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+
+		$this->expectException(InvalidArchiveDateException::class);
+		$this->service->update(7, $this->userId, archived: true, archivedAt: '20.10.2026');
+	}
+
+	public function testStrictRenamesAndArchivesAnActiveTrackInOneCall(): void {
+		$this->strict();
+		$this->givenTrack($this->makeTrack(7));
+
+		$updated = $this->service->update(7, $this->userId, name: ' Running ', archived: true, archivedAt: '2026-10-14');
+
+		$this->assertSame('Running', $updated->getName());
+		$this->assertSame('2026-10-14', $updated->getArchivedAt());
+	}
+
+	private function givenTracksWithOneArchived(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([
+			$this->makeTrack(1, null, 1),
+			$this->makeTrack(2, '2026-08-14', 2),
+			$this->makeTrack(3, null, 3),
+		]);
+	}
+
+	public function testReorderListingAnArchivedTrackChangesNothing(): void {
+		$this->givenTracksWithOneArchived();
+		$active = [$this->makeTrack(1, null, 1), $this->makeTrack(3, null, 3)];
+		$this->trackMapper->method('findActiveByUser')->willReturn($active);
+		$this->trackMapper->expects($this->never())->method('reorder');
+
+		$this->assertSame($active, $this->service->reorder([3, 2, 1], $this->userId));
+	}
+
+	public function testStrictRefusesAReorderListingAnArchivedTrack(): void {
+		$this->strict();
+		$this->givenTracksWithOneArchived();
+		$this->trackMapper->expects($this->never())->method('reorder');
+
+		$this->expectException(ReadOnlyTrackException::class);
+		$this->service->reorder([3, 1, 2], $this->userId);
+	}
+
+	public function testStrictReordersActiveTracksAndKeepsUnlistedArchivedOnes(): void {
+		$this->strict();
+		$this->givenTracksWithOneArchived();
+		$this->trackMapper->expects($this->once())->method('reorder')->with($this->userId, [3, 1, 2]);
+
+		$this->service->reorder([3, 1], $this->userId);
+	}
+
+	public function testStrictIgnoresIdsThatAreNotTheUsers(): void {
+		$this->strict();
+		$this->givenTracksWithOneArchived();
+		$this->trackMapper->expects($this->once())->method('reorder')->with($this->userId, [3, 1, 2]);
+
+		$this->service->reorder([99, 3, 1], $this->userId);
 	}
 }

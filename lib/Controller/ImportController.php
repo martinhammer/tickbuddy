@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\ResponseDefinitions;
+use OCA\Tickbuddy\Service\ErrorReason;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
 use OCP\AppFramework\Http;
@@ -15,6 +16,7 @@ use OCP\AppFramework\OCSController;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyError from ResponseDefinitions
  * @psalm-import-type TickbuddyImportResult from ResponseDefinitions
  *
  * @psalm-suppress UnusedClass
@@ -32,7 +34,7 @@ class ImportController extends OCSController {
 	}
 
 	/**
-	 * @return array{file: array{tmp_name: string, size: int, error: int}, mode: string}|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
+	 * @return array{file: array{tmp_name: string, size: int, error: int}, mode: string}|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
 	 * @psalm-suppress MixedReturnTypeCoercion
 	 */
 	private function validateUpload(string $mode): array|DataResponse {
@@ -40,15 +42,15 @@ class ImportController extends OCSController {
 		$file = $this->request->getUploadedFile('file');
 
 		if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
-			return new DataResponse(['message' => 'No file uploaded or upload error'], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'No file uploaded or upload error', 'reason' => ErrorReason::INVALID_UPLOAD], Http::STATUS_BAD_REQUEST);
 		}
 
 		if (($file['size'] ?? 0) > self::MAX_UPLOAD_BYTES) {
-			return new DataResponse(['message' => 'File too large (max 20 MB).'], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'File too large (max 20 MB).', 'reason' => ErrorReason::INVALID_UPLOAD], Http::STATUS_BAD_REQUEST);
 		}
 
 		if (!in_array($mode, [ImportService::MODE_REPLACE, ImportService::MODE_MERGE], true)) {
-			return new DataResponse(['message' => 'Invalid mode. Use "replace" or "merge".'], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'Invalid mode. Use "replace" or "merge".', 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		}
 
 		return ['file' => $file, 'mode' => $mode];
@@ -58,7 +60,7 @@ class ImportController extends OCSController {
 	 * Import data from a Tickmate .db file
 	 *
 	 * @param string $mode Import mode, either "replace" or "merge"
-	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
 	 *
 	 * 200: Import succeeded
 	 * 400: Upload missing, too large, invalid mode, or import failed
@@ -75,7 +77,7 @@ class ImportController extends OCSController {
 			$result = $this->importService->importTickmate($validated['file']['tmp_name'], $validated['mode'], $this->userId);
 			return new DataResponse($result);
 		} catch (ImportException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::IMPORT_FAILED], Http::STATUS_BAD_REQUEST);
 		}
 	}
 
@@ -83,7 +85,7 @@ class ImportController extends OCSController {
 	 * Import data from a Tickbuddy JSON export
 	 *
 	 * @param string $mode Import mode, either "replace" or "merge"
-	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
 	 *
 	 * 200: Import succeeded
 	 * 400: Upload missing, too large, invalid mode, or import failed
@@ -100,7 +102,7 @@ class ImportController extends OCSController {
 			$result = $this->importService->importJson($validated['file']['tmp_name'], $validated['mode'], $this->userId);
 			return new DataResponse($result);
 		} catch (ImportException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::IMPORT_FAILED], Http::STATUS_BAD_REQUEST);
 		}
 	}
 }

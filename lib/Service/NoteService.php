@@ -24,6 +24,7 @@ class NoteService {
 	public function __construct(
 		private NoteMapper $noteMapper,
 		private TrackMapper $trackMapper,
+		private StrictHandling $strictHandling,
 	) {
 	}
 
@@ -77,17 +78,20 @@ class NoteService {
 
 	/**
 	 * Set a day's note; empty text deletes it. On an archived track nothing
-	 * changes and the answer is the stored note.
+	 * changes: a client that asked for strict handling is refused, any other
+	 * gets the stored note.
 	 *
 	 * @return string The stored text, '' if none
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidValueException if the date or the text is not valid
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function set(string $userId, int $trackId, string $date, mixed $text): string {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		self::checkDate($date);
 		$text = self::normalise($text);
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			return $this->stored($userId, $trackId, $date);
 		}
 		return $this->writeForTick($userId, $trackId, $date, $text);
@@ -97,19 +101,23 @@ class NoteService {
 	 * Add text to a day's note on a new line, or store it if the day has none.
 	 * Text whose lines already appear in the note, in order and as whole
 	 * lines, is skipped unless `$allowDuplicate`, so a retry or a repeated run
-	 * never adds it twice. Empty text, and any text on an archived track,
-	 * changes nothing. Either way the answer is the stored note.
+	 * never adds it twice. Empty text changes nothing, and the answer is the
+	 * stored note. On an archived track nothing changes either: a client that
+	 * asked for strict handling is refused (empty text too), any other gets the
+	 * stored note.
 	 *
 	 * @return string The stored text afterwards, '' if none
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidValueException if the date or the text is not valid, or the result would be too long
 	 * @throws NoteConflictException if other writers kept changing the note
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function append(string $userId, int $trackId, string $date, mixed $text, bool $allowDuplicate = false): string {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		self::checkDate($date);
 		$text = self::normalise($text);
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			return $this->stored($userId, $trackId, $date);
 		}
 		return $this->appendForTick($userId, $trackId, $date, $text, $allowDuplicate);
@@ -219,15 +227,18 @@ class NoteService {
 	}
 
 	/**
-	 * Delete a day's note, if it has one. On an archived track nothing is deleted.
+	 * Delete a day's note, if it has one. On an archived track nothing is
+	 * deleted, and a client that asked for strict handling is refused.
 	 *
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidValueException if the date is not valid
+	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
 	public function delete(string $userId, int $trackId, string $date): void {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		self::checkDate($date);
 		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
 			return;
 		}
 		$this->noteMapper->deleteByUserTrackDate($userId, $trackId, $date);

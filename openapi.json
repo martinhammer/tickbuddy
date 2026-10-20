@@ -104,6 +104,21 @@
                     }
                 }
             },
+            "Error": {
+                "type": "object",
+                "required": [
+                    "message",
+                    "reason"
+                ],
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
             "Export": {
                 "type": "object",
                 "required": [
@@ -621,15 +636,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -765,15 +772,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -914,15 +913,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -964,7 +955,7 @@
             "delete": {
                 "operationId": "note-destroy",
                 "summary": "Delete the note on a track's day",
-                "description": "Answers 204 also when the day had no note. On an archived track nothing is deleted.",
+                "description": "Answers 204 also when the day had no note. On an archived track nothing is deleted: requests sent with Prefer: handling=strict get 423, others 204.",
                 "tags": [
                     "note"
                 ],
@@ -1009,7 +1000,7 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Note deleted"
+                        "description": "Note deleted. On an archived track, without Prefer: handling=strict: nothing deleted"
                     },
                     "400": {
                         "description": "Date invalid",
@@ -1032,15 +1023,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1070,15 +1053,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing deleted. Only for requests sent with Prefer: handling=strict, which otherwise get the 204 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1122,7 +1127,7 @@
             "post": {
                 "operationId": "note-set",
                 "summary": "Set the note on a track's day",
-                "description": "On an archived track nothing changes and the answer is the stored note.",
+                "description": "On an archived track nothing changes: requests sent with Prefer: handling=strict get 423, others the stored note.",
                 "tags": [
                     "note"
                 ],
@@ -1192,7 +1197,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Note set; `text` is the stored text, empty if none",
+                        "description": "Note set; `text` is the stored text, empty if none. On an archived track, without Prefer: handling=strict: nothing written, the stored note",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1250,15 +1255,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1288,15 +1285,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1340,7 +1359,7 @@
             "post": {
                 "operationId": "note-append",
                 "summary": "Append to the note on a track's day",
-                "description": "Adds the text on a new line, or stores it if the day has no note. Text whose lines are already in the note, in order and as whole lines, is skipped (unless `allowDuplicate`), so a retry never adds it twice. Empty text changes nothing; on an archived track nothing changes either. Safe against other writers: it never overwrites a change made meanwhile.",
+                "description": "Adds the text on a new line, or stores it if the day has no note. Text whose lines are already in the note, in order and as whole lines, is skipped (unless `allowDuplicate`), so a retry never adds it twice. Empty text changes nothing. On an archived track nothing changes either: requests sent with Prefer: handling=strict get 423 (empty text too), others the stored note. Safe against other writers: it never overwrites a change made meanwhile.",
                 "tags": [
                     "note"
                 ],
@@ -1415,7 +1434,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Text appended, or already there; `text` is the whole stored note, empty if none",
+                        "description": "Text appended, or already there; `text` is the whole stored note, empty if none. On an archived track, without Prefer: handling=strict: nothing written, the stored note",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1473,15 +1492,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1511,15 +1522,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1549,15 +1552,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1928,15 +1953,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -1966,15 +1983,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2316,7 +2325,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
+                        "description": "Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2377,15 +2386,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2415,15 +2416,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2453,15 +2446,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2617,7 +2632,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
+                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2686,15 +2701,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2724,15 +2731,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2762,15 +2761,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2916,7 +2937,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent",
+                        "description": "Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored value",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2978,15 +2999,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3016,15 +3029,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3054,15 +3059,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3302,15 +3329,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3340,15 +3359,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3392,7 +3403,7 @@
             "put": {
                 "operationId": "track-reorder",
                 "summary": "Reorder tracks",
-                "description": "The listed tracks come first, in the order sent; every other track of the user (archived ones included) follows in its previous order.",
+                "description": "The listed tracks come first, in the order sent; every other track of the user (archived ones included) follows in its previous order. Ids that aren't the user's are ignored. A list naming an archived track changes nothing: requests sent with Prefer: handling=strict get 423, others the active tracks in their current order.",
                 "tags": [
                     "track"
                 ],
@@ -3439,7 +3450,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tracks reordered, active tracks returned in the new order",
+                        "description": "Tracks reordered, active tracks returned in the new order. When an archived track is listed, without Prefer: handling=strict: nothing changed, active tracks in their current order",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3492,15 +3503,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "An archived track is listed; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3544,6 +3577,7 @@
             "put": {
                 "operationId": "track-update",
                 "summary": "Update a track",
+                "description": "Change one thing per call. Several fields in one call are applied together, but this is strongly discouraged: an archived track refuses every change except a restore (`archived=false`) for clients that send `Prefer: handling=strict`, and a restore sent with a new name or private restores first and then applies them. Other clients get the unchanged track instead of the refusal.",
                 "tags": [
                     "track"
                 ],
@@ -3585,7 +3619,7 @@
                                         "type": "boolean",
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Archive (true) or restore (false) the track. A restored track goes to the end of the list."
+                                        "description": "Archive (true) or restore (false) the track. A restored track goes to the end of the list. Archiving an archived track is refused (423) for clients that send Prefer: handling=strict"
                                     },
                                     "archivedAt": {
                                         "type": "string",
@@ -3622,7 +3656,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Track updated",
+                        "description": "Track updated. On an archived track, anything but a restore without Prefer: handling=strict: nothing changed, the unchanged track",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3672,15 +3706,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3710,15 +3736,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3748,15 +3766,37 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived and this isn't a restore; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3856,15 +3896,7 @@
                                                     "$ref": "#/components/schemas/OCSMeta"
                                                 },
                                                 "data": {
-                                                    "type": "object",
-                                                    "required": [
-                                                        "message"
-                                                    ],
-                                                    "properties": {
-                                                        "message": {
-                                                            "type": "string"
-                                                        }
-                                                    }
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }

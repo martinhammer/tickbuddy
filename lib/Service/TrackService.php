@@ -22,6 +22,7 @@ class TrackService {
 		private TickMapper $tickMapper,
 		private NoteMapper $noteMapper,
 		private ITimeFactory $timeFactory,
+		private StrictHandling $strictHandling,
 	) {
 	}
 
@@ -98,12 +99,19 @@ class TrackService {
 	 * archive or restore, so a restore's end-of-list position wins over a
 	 * sort order sent with it.
 	 *
-	 * @param ?bool $archived True archives (again, if already archived), false restores
+	 * An archived track only takes a restore (with or without other fields).
+	 * Any other change, re-archiving included, is refused for clients that
+	 * asked for strict handling and quietly ignored for the rest.
+	 *
+	 * @param ?bool $archived True archives (on an archived track: refused for strict
+	 *                        clients, ignored for the rest), false restores
 	 * @param ?string $archivedAt Archive date as YYYY-MM-DD, the client's today; the
 	 *                            server's date if null. Only read when archiving.
 	 * @throws DoesNotExistException
 	 * @throws InvalidTrackNameException
 	 * @throws InvalidArchiveDateException
+	 * @throws ReadOnlyTrackException if the track is archived, this isn't a restore, and
+	 *                                the client asked for strict handling
 	 */
 	public function update(
 		int $id,
@@ -119,9 +127,18 @@ class TrackService {
 		if ($archived === true && $archivedAt !== null && !self::isValidDate($archivedAt)) {
 			throw new InvalidArchiveDateException('Archive date must be a date as YYYY-MM-DD');
 		}
-		// Checked before anything is changed on the entity
+		// Checked before anything is changed on the entity, and before the archived
+		// check, so a blank name is a 400 on an archived track too
+		$name = $name === null ? null : self::cleanName($name);
+		// An archived track can only be restored or deleted. Anything else (re-archiving
+		// included) is refused for clients that asked, and quietly ignored for the rest.
+		if ($track->getArchivedAt() !== null && $archived !== false
+			&& ($name !== null || $sortOrder !== null || $private !== null || $archived === true)) {
+			$this->strictHandling->refuseArchived($track);
+			return $track;
+		}
 		if ($name !== null) {
-			$track->setName(self::cleanName($name));
+			$track->setName($name);
 		}
 		if ($sortOrder !== null) {
 			$track->setSortOrder($sortOrder);
@@ -130,7 +147,6 @@ class TrackService {
 			$track->setPrivate($private ? 1 : 0);
 		}
 		if ($archived === true) {
-			// Re-archiving an archived track takes the new date too
 			$track->setArchivedAt($archivedAt ?? $this->timeFactory->getDateTime()->format('Y-m-d'));
 		} elseif ($archived === false && $track->getArchivedAt() !== null) {
 			// A restored track goes to the end of the list. The max includes this
@@ -145,13 +161,29 @@ class TrackService {
 	/**
 	 * Put the given tracks first, in the order given, and every other track of
 	 * the user (archived ones, or ones the client didn't know about) after them
-	 * in their previous order.
+	 * in their previous order. Ids that aren't the user's are dropped.
+	 *
+	 * A list naming an archived track changes nothing: refused for clients that
+	 * asked for strict handling, quietly ignored for the rest.
 	 *
 	 * @param int[] $trackIds Ordered list of track IDs
 	 * @return Track[] The active tracks, in the new order
+	 * @throws ReadOnlyTrackException if an archived track is listed and the client asked for strict handling
 	 */
 	public function reorder(array $trackIds, string $userId): array {
 		$all = $this->trackMapper->findAllByUser($userId);
+		// A reorder that lists an archived track is refused whole for strict clients,
+		// and ignored whole for the rest. Ids not in $byId aren't the user's.
+		$byId = [];
+		foreach ($all as $track) {
+			$byId[$track->getId()] = $track;
+		}
+		foreach ($trackIds as $id) {
+			if (isset($byId[$id]) && $byId[$id]->getArchivedAt() !== null) {
+				$this->strictHandling->refuseArchived($byId[$id]);
+				return $this->trackMapper->findActiveByUser($userId);
+			}
+		}
 		$order = self::fullOrder($trackIds, array_map(fn (Track $t) => $t->getId(), $all));
 		$this->trackMapper->reorder($userId, $order);
 		return $this->trackMapper->findActiveByUser($userId);

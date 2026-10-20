@@ -12,6 +12,8 @@ use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
+use OCA\Tickbuddy\Service\ReadOnlyTrackException;
+use OCA\Tickbuddy\Service\StrictHandling;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
@@ -21,6 +23,7 @@ final class TickServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private TrackMapper $trackMapper;
 	private NoteService $noteService;
+	private StrictHandling $strictHandling;
 	private TickService $service;
 	private string $userId = 'testuser';
 
@@ -28,7 +31,16 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper = $this->createMock(TickMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->noteService = $this->createMock(NoteService::class);
-		$this->service = new TickService($this->tickMapper, $this->trackMapper, $this->noteService);
+		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
+		$this->strictHandling = $this->createMock(StrictHandling::class);
+		$this->service = new TickService($this->tickMapper, $this->trackMapper, $this->noteService, $this->strictHandling);
+	}
+
+	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
+	private function strict(): void {
+		$this->strictHandling->method('refuseArchived')->willReturnCallback(function (Track $track): void {
+			throw new ReadOnlyTrackException($track->getName() . ' is archived, so nothing was changed', 'archived');
+		});
 	}
 
 	private function makeBooleanTrack(): Track {
@@ -785,5 +797,108 @@ final class TickServiceTest extends TestCase {
 
 		$this->expectException(NoteConflictException::class);
 		$this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'link');
+	}
+
+	// --- strict handling (Prefer: handling=strict) ---
+
+	/** Every write to an archived track is refused, with nothing written. */
+	private function expectRefused(callable $call): void {
+		try {
+			$call();
+			$this->fail('Expected ReadOnlyTrackException');
+		} catch (ReadOnlyTrackException $e) {
+			$this->assertSame('archived', $e->getReason());
+		}
+	}
+
+	private function givenArchivedTracks(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturnCallback(
+			fn (int $id) => $this->archive($id === 1 ? $this->makeBooleanTrack() : $this->makeCounterTrack())
+		);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(2));
+	}
+
+	private function expectNoNoteWrites(): void {
+		$this->noteService->expects($this->never())->method('writeForTick');
+		$this->noteService->expects($this->never())->method('appendForTick');
+		$this->noteService->expects($this->never())->method('checkAppend');
+	}
+
+	public function testStrictRefusesEveryTickWriteOnAnArchivedTrack(): void {
+		$this->strict();
+		$this->givenArchivedTracks();
+		$this->expectNothingWritten();
+		$this->expectNoNoteWrites();
+
+		$this->expectRefused(fn () => $this->service->toggle($this->userId, 1, '2026-10-18'));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 1, '2026-10-18', true));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 2, '2026-10-18', 5));
+		$this->expectRefused(fn () => $this->service->increment($this->userId, 2, '2026-10-18', 1));
+	}
+
+	public function testStrictRefusesAWriteThatWouldChangeNothing(): void {
+		$this->strict();
+		$this->givenArchivedTracks();
+		$this->expectNothingWritten();
+
+		// The stored value is already 2
+		$this->expectRefused(fn () => $this->service->set($this->userId, 2, '2026-10-18', 2));
+	}
+
+	public function testStrictRefusesTickWritesWithANote(): void {
+		$this->strict();
+		$this->givenArchivedTracks();
+		$this->expectNothingWritten();
+		$this->expectNoNoteWrites();
+
+		$this->expectRefused(fn () => $this->service->toggle($this->userId, 1, '2026-10-18', 'new'));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 1, '2026-10-18', false, 'new'));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 2, '2026-10-18', 5, 'new'));
+		$this->expectRefused(fn () => $this->service->increment($this->userId, 2, '2026-10-18', 1, 'new'));
+	}
+
+	public function testStrictRefusesTickWritesWithAnAppendNote(): void {
+		$this->strict();
+		$this->givenArchivedTracks();
+		$this->expectNothingWritten();
+		$this->expectNoNoteWrites();
+
+		$this->expectRefused(fn () => $this->service->toggle($this->userId, 1, '2026-10-18', null, 'new'));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 1, '2026-10-18', false, null, 'new'));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 2, '2026-10-18', 5, null, 'new'));
+		$this->expectRefused(fn () => $this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'new'));
+	}
+
+	public static function checksBeforeTheRefusal(): array {
+		return [
+			'toggle on a counter' => [fn (TickService $s) => $s->toggle('testuser', 2, '2026-10-18'), InvalidTrackTypeException::class],
+			'increment on a yes/no track' => [fn (TickService $s) => $s->increment('testuser', 1, '2026-10-18', 1), InvalidTrackTypeException::class],
+			'yes/no set to maybe' => [fn (TickService $s) => $s->set('testuser', 1, '2026-10-18', 'maybe'), InvalidValueException::class],
+			'delta 0' => [fn (TickService $s) => $s->increment('testuser', 2, '2026-10-18', 0), InvalidValueException::class],
+			'bad date' => [fn (TickService $s) => $s->toggle('testuser', 1, '17 Oct'), InvalidValueException::class],
+			'invalid note' => [fn (TickService $s) => $s->toggle('testuser', 1, '2026-10-18', "a\x00b"), InvalidValueException::class],
+			'note and appendNote' => [fn (TickService $s) => $s->set('testuser', 2, '2026-10-18', 1, 'a', 'b'), InvalidValueException::class],
+		];
+	}
+
+	/**
+	 * @dataProvider checksBeforeTheRefusal
+	 */
+	public function testStrictStillReportsBadRequestsFirst(callable $call, string $exception): void {
+		$this->strict();
+		$this->givenArchivedTracks();
+		$this->expectNothingWritten();
+
+		$this->expectException($exception);
+		$call($this->service);
+	}
+
+	public function testStrictLeavesActiveTracksAlone(): void {
+		$this->strict();
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert');
+
+		$this->assertTrue($this->service->toggle($this->userId, 1, '2026-10-18')['ticked']);
 	}
 }

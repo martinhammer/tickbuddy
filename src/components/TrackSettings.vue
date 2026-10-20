@@ -16,6 +16,7 @@ import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
 import '@nextcloud/dialogs/style.css'
 import { fmtDay, todayStr, userLocale } from '../dates.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
+import { errorReason, httpStatus } from '../strictHandling.ts'
 import type { Track } from '../types.ts'
 
 // The server's limit (TrackService::MAX_NAME_LENGTH), so a longer paste is cut
@@ -86,6 +87,35 @@ async function fetchTracks() {
 	}
 }
 
+// True when the server refused because the track is read-only (423): the lists are
+// reloaded and the toast shown, so the caller shows nothing more. The name may be a
+// function, looked up after the reload (a reorder names the track now archived).
+async function refusedAsReadOnly(e: unknown, name: string | (() => string | undefined)): Promise<boolean> {
+	if (httpStatus(e) !== 423) return false
+	try {
+		await fetchTracks()
+	} catch {
+		// Still say why the change wasn't saved
+	}
+	const trackName = typeof name === 'function' ? name() : name
+	if (errorReason(e) === 'archived' && trackName !== undefined) {
+		showError(`${trackName} is archived, so the change wasn't saved.`)
+	} else {
+		// Another read-only reason, or no name to give: the server's message names the track
+		showError(ocsErrorMessage(e, 'Could not save the change'))
+	}
+	return true
+}
+
+// The name of the first of `ids` that is now archived
+function firstNowArchived(ids: number[]): string | undefined {
+	for (const id of ids) {
+		const track = archivedTracks.value.find(t => t.id === id)
+		if (track) return track.name
+	}
+	return undefined
+}
+
 async function addTrack() {
 	const name = newTrackName.value.trim()
 	if (!name) return
@@ -129,15 +159,26 @@ async function setArchived(track: Track, archived: boolean) {
 		// The browser's date, as for ticks
 		params.append('archivedAt', todayStr())
 	}
+	let done = true
 	try {
 		await axios.put(`${apiUrl}/${track.id}`, params)
+	} catch (e) {
+		// Archived first by another tab or device: what the user asked for has happened
+		// (the date stored first stands), so this is a success, not an error. Settled for
+		// every client; don't turn it back into an error toast.
+		const alreadyArchived = archived && httpStatus(e) === 423 && errorReason(e) === 'archived'
+		if (!alreadyArchived) {
+			if (await refusedAsReadOnly(e, track.name)) return
+			showError(ocsErrorMessage(e, archived ? `Could not archive track "${track.name}"` : `Could not restore track "${track.name}"`))
+			done = false
+		}
+	}
+	if (done) {
 		showSuccess(archived ? `Archived track "${track.name}".` : `Restored track "${track.name}".`)
 		if (archived) {
 			// Open the list so the track is seen arriving
 			showArchived.value = true
 		}
-	} catch (e) {
-		showError(ocsErrorMessage(e, archived ? `Could not archive track "${track.name}"` : `Could not restore track "${track.name}"`))
 	}
 	await fetchTracks()
 }
@@ -173,6 +214,7 @@ async function saveName(track: Track) {
 		track.name = trimmed
 	} catch (e) {
 		// The row already fell back to showing the old name, so there is nothing to revert.
+		if (await refusedAsReadOnly(e, track.name)) return
 		showError(ocsErrorMessage(e, `Could not rename track "${track.name}"`))
 	}
 }
@@ -192,6 +234,7 @@ async function togglePrivate(track: Track, event: Event) {
 		if (input) {
 			input.checked = track.private
 		}
+		if (await refusedAsReadOnly(e, track.name)) return
 		showError(ocsErrorMessage(e, `Could not update privacy for track "${track.name}"`))
 	}
 }
@@ -231,6 +274,8 @@ async function onDrop(toIndex: number) {
 		const response = await axios.put(`${apiUrl}/reorder`, params)
 		tracks.value = response.data.ocs.data
 	} catch (e) {
+		// A track in the list was archived elsewhere: the reload replaces the optimistic order
+		if (await refusedAsReadOnly(e, () => firstNowArchived(trackIds))) return
 		// The move above was applied optimistically; undo it so the list cannot show an
 		// order the server rejected.
 		tracks.value.splice(toIndex, 1)

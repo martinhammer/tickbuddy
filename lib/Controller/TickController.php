@@ -6,9 +6,11 @@ namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\ResponseDefinitions;
+use OCA\Tickbuddy\Service\ErrorReason;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
+use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\TickService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
@@ -19,6 +21,7 @@ use OCP\AppFramework\OCSController;
 use OCP\IRequest;
 
 /**
+ * @psalm-import-type TickbuddyError from ResponseDefinitions
  * @psalm-import-type TickbuddyTick from ResponseDefinitions
  * @psalm-import-type TickbuddyTickBounds from ResponseDefinitions
  *
@@ -86,12 +89,13 @@ class TickController extends OCSController {
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
 	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
 	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
-	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, array{ticked: bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
-	 * 200: Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 200: Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state
 	 * 400: Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
 	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
+	 * 423: The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
 	// $note is a union for the framework: typed string, Nextcloud would answer a
 	// bare 400 to a JSON number. NoteService::normalise reads it, as $appendNote.
@@ -101,11 +105,15 @@ class TickController extends OCSController {
 		try {
 			return new DataResponse($this->tickService->toggle($this->userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
-			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
-		} catch (InvalidTrackTypeException|InvalidValueException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
+		} catch (InvalidTrackTypeException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::WRONG_TRACK_TYPE], Http::STATUS_BAD_REQUEST);
+		} catch (InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (NoteConflictException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::NOTE_CONFLICT], Http::STATUS_CONFLICT);
+		} catch (ReadOnlyTrackException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}
 	}
 
@@ -118,12 +126,13 @@ class TickController extends OCSController {
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
 	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
 	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
-	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|bool, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
-	 * 200: Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 200: Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state
 	 * 400: Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
 	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
+	 * 423: The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
 	// $value is untyped for the framework: typed int, Nextcloud would turn
 	// "true" or "on" into 0 before the service sees it.
@@ -133,11 +142,15 @@ class TickController extends OCSController {
 		try {
 			return new DataResponse($this->tickService->set($this->userId, $trackId, $date, $value, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
-			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
-		} catch (InvalidTrackTypeException|InvalidValueException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
+		} catch (InvalidTrackTypeException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::WRONG_TRACK_TYPE], Http::STATUS_BAD_REQUEST);
+		} catch (InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (NoteConflictException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::NOTE_CONFLICT], Http::STATUS_CONFLICT);
+		} catch (ReadOnlyTrackException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}
 	}
 
@@ -153,12 +166,13 @@ class TickController extends OCSController {
 	 * @param string|int|float|bool|null $note Optional note for the day: replaces the day's note, empty deletes it, missing leaves it
 	 * @param string|int|float|bool|null $appendNote Optional text to add to the day's note on a new line, as POST /api/notes/append; not with `note`
 	 * @param bool $allowDuplicateNote Append `appendNote` even if the note already holds it
-	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT, array{message: string}, array{}>
+	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
-	 * 200: Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent
+	 * 200: Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored value
 	 * 400: Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written
 	 * 404: Track not found
 	 * 409: The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append
+	 * 423: The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/ticks/increment')]
@@ -166,11 +180,15 @@ class TickController extends OCSController {
 		try {
 			return new DataResponse($this->tickService->increment($this->userId, $trackId, $date, $delta, $note, $appendNote, $allowDuplicateNote));
 		} catch (DoesNotExistException) {
-			return new DataResponse(['message' => 'Track not found'], Http::STATUS_NOT_FOUND);
-		} catch (InvalidTrackTypeException|InvalidValueException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_BAD_REQUEST);
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
+		} catch (InvalidTrackTypeException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::WRONG_TRACK_TYPE], Http::STATUS_BAD_REQUEST);
+		} catch (InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (NoteConflictException $e) {
-			return new DataResponse(['message' => $e->getMessage()], Http::STATUS_CONFLICT);
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::NOTE_CONFLICT], Http::STATUS_CONFLICT);
+		} catch (ReadOnlyTrackException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}
 	}
 }

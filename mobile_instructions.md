@@ -47,6 +47,12 @@ Every request MUST include:
 | `Accept` | `application/json` | Forces JSON response envelope. |
 | `Authorization` | `Basic …` | See above. |
 
+Recommended on every request to `/ocs/v2.php/apps/tickbuddy/api/…`, reads included:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Prefer` | `handling=strict` | RFC 7240. A write to an archived track is refused with `423` instead of a quiet `200` that changes nothing (see Read-only tracks below). A server that honours it answers with `Preference-Applied: handling=strict` on every response; an older server, or a proxy that strips the header, doesn't, and then the old answers apply. |
+
 For `POST`/`PUT` requests sending form data, also set `Content-Type: application/x-www-form-urlencoded`. The backend reads params via `$this->request->getParam(...)`, which works with form-encoded bodies AND JSON bodies (Nextcloud merges both into the same param bag). Prefer form-encoded — it's what the existing web frontend uses and is well tested.
 
 ### OCS response envelope
@@ -68,6 +74,27 @@ Every OCS response is wrapped. A successful `GET /api/tracks` returns:
 
 Your HTTP client should unwrap `response.ocs.data` before handing it to the rest of the app. Error responses have the same envelope with `status: "failure"` and `statuscode` matching the HTTP status.
 
+Every error answer of Tickbuddy's own carries `{message, reason}` in `ocs.data`: `message` is text for people (show it, never parse it), `reason` is for code:
+
+```json
+{"message": "Track not found", "reason": "trackNotFound"}
+```
+
+| Status | `reason` | When |
+|---|---|---|
+| 404 | `trackNotFound` | the track doesn't exist or isn't yours |
+| 400 | `invalidValue` | a parameter is missing or wrong (value, delta, date, note, name, archive date, track type on create, empty `trackIds`, import mode); `message` says which |
+| 400 | `wrongTrackType` | the endpoint doesn't take this track's type (`toggle` on a counter, `increment` on a yes/no track) |
+| 400 | `invalidUpload` | an import with no file, an upload error, or a file over 20 MB |
+| 400 | `importFailed` | the import file was read and refused; nothing imported |
+| 403 | `trackLimitReached` | 99 tracks already |
+| 409 | `noteConflict` | other writers kept changing the note while appending |
+| 409 | `databaseConflict` | the database refused a track change (in practice a `sortOrder` another track holds) |
+| 423 | `archived` | the track is archived (only with `Prefer: handling=strict`) |
+
+- **Accept unknown values.** Treat a `reason` you don't know like a `message`-only error; values are added without a capability flag. Values are never renamed.
+- **No `reason` means it isn't Tickbuddy's verdict.** Nextcloud answers some errors itself: a disabled app's `404` (during an upgrade, for example), `503` in maintenance mode, `401`, the bare `400` for a parameter it can't convert, a `500`. Treat those as temporary: don't drop a queued write on a `404` or `400` without a `reason`. To tell, check that `reason` is a non-empty string, not its value. An older server sends no `reason` at all.
+
 HTTP status codes used by the backend:
 
 | Code | Meaning |
@@ -79,7 +106,22 @@ HTTP status codes used by the backend:
 | 401 | Unauthenticated |
 | 403 | Track limit reached |
 | 404 | Track not found |
-| 409 | DB constraint conflict (e.g. duplicate on reorder) |
+| 409 | DB constraint conflict (e.g. duplicate on reorder), or a note append that kept losing to other writers |
+| 423 | The track is archived (only with `Prefer: handling=strict`, see below) |
+
+### Read-only tracks (423)
+
+With `Prefer: handling=strict`, every change to an archived track **except deleting and restoring it** answers `423 Locked` and changes nothing: `toggle`, `set`, `increment` (also with `note`/`appendNote`), `notes/set`, `notes/append`, `DELETE /api/notes`, `PUT /api/tracks/{id}` with `name`, `private`, `sortOrder` or `archived=true`, and a `reorder` listing the track. The body:
+
+```json
+{"message": "Exercise is archived, so nothing was changed", "reason": "archived"}
+```
+
+- A write that wouldn't change anything (the same name, `set` to the stored value, an empty append, deleting a note that isn't there) is refused all the same.
+- `404` and every `400` check come first, so a malformed request still says so on an archived track.
+- `reason` is `archived` today; a later kind of read-only track will bring another value (see above: accept unknown ones). Drop the write, show the message, and pull the tracks again.
+- `423` means read-only only on `/ocs/v2.php/apps/tickbuddy/api/…`. On `/ocs/v1.php` it arrives as HTTP 200 with `statuscode: 423`, like every other error there; use v2.
+- Without the header, ticks and notes on an archived track keep their quiet `200`/`204` with the stored state, and the track changes above are quietly ignored (`200` with the unchanged track). That will end after a deprecation period, when every client gets `423`.
 
 ### CSRF
 
@@ -145,7 +187,7 @@ archivedAt  string?    "YYYY-MM-DD" the track was archived on; null while active
 - **Max 99 tracks per user.** Creating the 100th returns `403` with `{message: "Maximum of 99 tracks reached"}`.
 - **Track `type` is immutable.** `PUT /api/tracks/{id}` silently ignores any `type` field. If a user wants a different type, they must delete and recreate.
 - **Deleting a track cascades**: all its ticks and notes are deleted server-side.
-- **Archived tracks** (`archivedAt` set) are hidden from `GET /api/tracks` unless asked for, keep their ticks, and can't be ticked (writes are quietly ignored, see `toggle`/`set`). They still count towards the 99-track limit, so creating a track can fail with fewer than 99 visible.
+- **Archived tracks** (`archivedAt` set) are hidden from `GET /api/tracks` unless asked for, keep their ticks, and can't change: ticks, notes, rename, private, sort order and re-archiving are quietly ignored, or refused with `423` when you send `Prefer: handling=strict` (see §1, Read-only tracks). Only restore and delete work. They still count towards the 99-track limit, so creating a track can fail with fewer than 99 visible.
 
 ### Tick
 
@@ -225,12 +267,14 @@ Form params (any subset):
 - `name` (string, trimmed, non-empty if provided, at most 255 characters)
 - `sortOrder` (int) — usually set via `/reorder` instead
 - `private` (boolean; accepts `true`/`false`/`1`/`0`/`yes`/`no` via PHP `FILTER_VALIDATE_BOOLEAN`)
-- `archived` (boolean) — requires `features.archivedTracks`. `true` archives the track (archiving an archived track again sets the new date); `false` restores it, moving it to the **end of the list** (restoring an active track does nothing).
+- `archived` (boolean) — requires `features.archivedTracks`. `true` archives the track; `false` restores it, moving it to the **end of the list** (restoring an active track does nothing). Archiving an archived track changes nothing: the first date stands (`423` with `Prefer: handling=strict`; then treat it as done, since the track is archived as asked).
 - `archivedAt` (string, `YYYY-MM-DD`) — only read with `archived=true`. **Send the device's local today**, as for ticks. If omitted the server uses its own date (its default time zone, usually UTC), which can be a day off for the user.
 
-`type` is silently ignored if sent. Name, sortOrder and private are applied before `archived`, so a restore's end-of-list position wins over a `sortOrder` sent with it.
+`type` is silently ignored if sent. **Change one thing per call**: several fields in one call are applied together, but this is strongly discouraged. Name, sortOrder and private are applied before `archived`, so a restore's end-of-list position wins over a `sortOrder` sent with it.
 
-Responses: `200` + updated track, `400` (nothing is saved) with `Track name cannot be empty`, `Track names can be at most 255 characters` or `Archive date must be a date as YYYY-MM-DD`, `404`, or `409`.
+An **archived** track only takes a restore (`archived=false`, with a new `name` or `private` if you must). Anything else (`name`, `private`, `sortOrder`, `archived=true`) changes nothing: `423` with `Prefer: handling=strict`, otherwise `200` with the unchanged track. A request with none of those fields is a `200` either way.
+
+Responses: `200` + updated track, `400` (nothing is saved) with `Track name cannot be empty`, `Track names can be at most 255 characters` or `Archive date must be a date as YYYY-MM-DD` (checked before the `423`), `404`, `409`, or `423`.
 
 #### `PUT /api/tracks/reorder`
 Bulk reorder. Send the desired order of track IDs. The listed tracks come first, in the order sent (ids that aren't yours are dropped, a repeated id counts once at its first place); **every other track follows in its previous relative order** — archived tracks, and any track created elsewhere since your last read. `sortOrder` is then renumbered `1..N` over all of the user's tracks.
@@ -239,6 +283,8 @@ Form params:
 - `trackIds[]` (array of ints, required, non-empty). In form-encoded bodies this is `trackIds[]=1&trackIds[]=5&trackIds[]=3`.
 
 Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`).
+
+If `trackIds` lists **any** archived track, nothing changes: `423` with `Prefer: handling=strict` (the message names the first archived track listed; pull and try again), otherwise `200` with the active tracks in their current order. Unlisted archived tracks are fine.
 
 #### `DELETE /api/tracks/{id}`
 Delete a track and all its ticks. `204` on success, `404` if not found.
@@ -291,7 +337,7 @@ Form params:
 
 Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed. A `date` that isn't a real `YYYY-MM-DD` date answers `400` `Date must be a date as YYYY-MM-DD` and changes nothing.
 
-On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). Unknown track is still `404` and a counter track still `400`.
+On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. Unknown track is still `404` and a counter track still `400`.
 
 Prefer `set` (with `features.booleanSet`) over `toggle` for anything that may be retried: a replayed toggle undoes itself, a replayed `set` doesn't.
 
@@ -312,7 +358,7 @@ Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no 
 
 Errors, in this order: `404` unknown track; `400` bad yes/no value; `400` `Date must be a date as YYYY-MM-DD`. On a server without `booleanSet`, a yes/no track answers `400` `Set is only available for counter tracks`.
 
-On an **archived** track nothing changes and the response carries the state already stored (`0`/`false` if none), with `200`, as for `toggle`. A bad value or date still answers `400`.
+On an **archived** track nothing changes and the response carries the state already stored (`0`/`false` if none), with `200`, as for `toggle`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. A bad value or date still answers `400`.
 
 #### `POST /api/ticks/increment`
 > Requires `features.counterIncrement` (§1). On servers without it this route returns `404`.
@@ -329,9 +375,9 @@ Form params:
 
 Response: `{"value": n}`, the value right after this request's write (under concurrency it may already include another device's delta). The value never goes below 0: a result of 0 or less deletes the tick and answers `{"value": 0}`. So a decrement that hits 0 isn't undone by a later increment of the same size (−3 on 2 gives 0, then +3 gives 3).
 
-Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`.
+Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
 
-With `note` or `appendNote`, every check of the tick call and the note's own checks (§ Notes, for `appendNote` including the length of the result) run before anything is written, so a `400` writes neither the tick nor the note. Then the tick is written, then the note. On an archived track neither changes and the response carries the stored state and, if `note` or `appendNote` was sent, the stored note. A `409` from `appendNote` (another writer kept changing the note) comes **after** the tick was written: don't replay a `toggle`, append the text with `POST /api/notes/append` instead.
+With `note` or `appendNote`, every check of the tick call and the note's own checks (§ Notes, for `appendNote` including the length of the result) run before anything is written, so a `400` writes neither the tick nor the note. Then the tick is written, then the note. On an archived track neither changes and the response carries the stored state and, if `note` or `appendNote` was sent, the stored note (with `Prefer: handling=strict`: `423` for the whole call, after the note's own `400` checks). A `409` from `appendNote` (another writer kept changing the note) comes **after** the tick was written: don't replay a `toggle`, append the text with `POST /api/notes/append` instead.
 
 ### Notes
 
@@ -356,7 +402,7 @@ Both dates are required; a missing one or one that isn't a real date answers `40
 #### `POST /api/notes/set`
 Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string; empty deletes the note).
 
-Response: `{"text": "…"}`, the stored text after trimming (`""` when deleted). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above. On an archived track nothing changes and the stored note comes back (`""` if none), with `200`.
+Response: `{"text": "…"}`, the stored text after trimming (`""` when deleted). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above. On an archived track nothing changes and the stored note comes back (`""` if none), with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
 
 #### `POST /api/notes/append`
 > Requires `features.notesAppend` (§1). On servers without it this route returns `404`.
@@ -369,10 +415,10 @@ Add text to the day's note without overwriting what another device or script wro
 - **Empty text** (after trimming) changes nothing; unlike `set`, it never deletes.
 - **Too long:** if the result would be over 500 characters, `400` `The note would be longer than 500 characters`, nothing written.
 
-Response: `{"text": "…"}`, the whole stored note afterwards (`""` if none). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above; `400` too long; `409` `The note changed while appending; try again` if other writers changed the note three times in a row while the server was appending (nothing written; retrying is safe). On an archived track nothing changes and the stored note comes back, with `200`.
+Response: `{"text": "…"}`, the whole stored note afterwards (`""` if none). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above; `400` too long; `409` `The note changed while appending; try again` if other writers changed the note three times in a row while the server was appending (nothing written; retrying is safe). On an archived track nothing changes and the stored note comes back, with `200`. With `Prefer: handling=strict`: `423`, empty text included, and the length check doesn't run.
 
 #### `DELETE /api/notes?trackId=n&date=YYYY-MM-DD`
-Deletes the day's note. `204`, also when there was none. `404` unknown track, `400` bad date. On an archived track nothing is deleted, still `204`.
+Deletes the day's note. `204`, also when there was none. `404` unknown track, `400` bad date. On an archived track nothing is deleted, still `204`; with `Prefer: handling=strict`, `423`.
 
 ### Stats
 
@@ -530,11 +576,11 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 
 - **`OCS-APIRequest: true` is not optional.** Without it, Nextcloud's router may return HTML login pages or 404s instead of JSON, and the error will be cryptic. Hardcode this in your HTTP client.
 - **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
-- **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show; you can't send archived tracks to the front by accident, since you never see them unless you ask.
+- **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show, which should be active ones only: a list naming an archived track changes nothing (`423` with `Prefer: handling=strict`).
 - **An older server ignores `note` on tick calls without an error.** It drops the unknown parameter and answers `200`, so the note is lost. Check `features.notes` before sending one.
 - **Missing `note` and empty `note` differ.** Leave the parameter out to keep the day's note; send it empty to delete it.
 - **An older notes server ignores `appendNote` the same way.** Check `features.notesAppend` before sending one, and say "needs a newer Tickbuddy" rather than lose the text.
-- **Ticks on archived tracks are quietly dropped.** `toggle` and `set` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one. Reconcile from the response or the next pull.
+- **Ticks on archived tracks are quietly dropped, unless you ask to be told.** Without `Prefer: handling=strict`, `toggle`, `set` and `increment` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one; reconcile from the response or the next pull. With it they answer `423` (`reason: "archived"`): drop that one queued write. Check `Preference-Applied` to know which you got.
 - **`value` on boolean ticks is always 1** in `GET /api/ticks`. Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
 - **`set` answers a number for counters and a boolean for yes/no tracks.** `{"value": 3}` vs `{"value": true}`; pick the parser from the track's type.
 - **`toggle`, `set` and `increment` reject a date that isn't `YYYY-MM-DD` with `400`.** `2026-2-3` and `2026-02-30` included; nothing is stored. Send `LocalDate.toString()`.

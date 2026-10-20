@@ -2,8 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), 
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -12,12 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
 - API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track, with an optional period (`from`, `to`)
 - API: notes on a track's day (`/api/notes`, up to 500 characters), also settable with toggle, set and increment; appending a line (`POST /api/notes/append`, or `appendNote` on toggle, set and increment) skips a line that's already there and never overwrites another device's change; exported and imported with backups
+- API: clients that send `Prefer: handling=strict` get http 423 Locked instead of a silent 200 when trying to change an archived track
+- API: every error answer carries a machine-readable `reason` next to its message
 - Import: Tickmate backup import now creates disabled tracks as archived (previously those tracks were not imported)
 
 ### Changed
 - API: toggle and set reject a date that isn't YYYY-MM-DD
+- API: rename, toggle private, re-archive, or change order with an archived track no longer changes it
 - Dashboard widget no longer loads the whole tick history
 - Analytics ignores future-dated ticks in the total and weekly mean, and the weekly mean runs to today instead of the last tick
+- Journal: a tick on a track archived or deleted elsewhere shows a message and refreshes the journal; other failed ticks show an error instead of nothing
 
 ### Fixed
 - Analytics weekly mean was incorrect in some scenarios

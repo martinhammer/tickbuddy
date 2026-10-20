@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from '@nextcloud/axios'
+import { showError } from '@nextcloud/dialogs'
 import { getLocale } from '@nextcloud/l10n'
 import { generateOcsUrl, generateUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDateTimePickerNative from '@nextcloud/vue/components/NcDateTimePickerNative'
+// Toasts are a Vue component with hashed CSS-module class names since @nextcloud/dialogs 7,
+// so the server's own stylesheets cannot style them — the app must ship this itself.
+import '@nextcloud/dialogs/style.css'
+import { ocsErrorMessage } from '../ocsError.ts'
+import { errorReason, httpStatus } from '../strictHandling.ts'
 
 interface Track {
 	id: number
@@ -175,11 +181,24 @@ function isTicked(trackId: number, date: string): boolean {
 	return getTickValue(trackId, date) > 0
 }
 
-async function toggleBoolean(trackId: number, date: string) {
+async function toggleBoolean(trackId: number, date: string, event: Event) {
 	const params = new URLSearchParams()
 	params.append('trackId', String(trackId))
 	params.append('date', date)
-	const response = await axios.post(`${ticksUrl}/toggle`, params)
+	let response
+	try {
+		response = await axios.post(`${ticksUrl}/toggle`, params)
+	} catch (e) {
+		// The native checkbox flipped itself on click. The ticks are unchanged, so the
+		// rendered `:checked` prop is unchanged too and Vue patches nothing — the box would
+		// stay visually flipped against the stored value. Put it back by hand.
+		const input = event.target as HTMLInputElement | null
+		if (input) {
+			input.checked = isTicked(trackId, date)
+		}
+		await writeFailed(e, trackId)
+		return
+	}
 	const ticked = response.data.ocs.data.ticked
 	if (ticked) {
 		ticks.value.push({ id: 0, trackId, date, value: 1 })
@@ -195,12 +214,39 @@ async function setCounter(trackId: number, date: string, delta: number) {
 	params.append('trackId', String(trackId))
 	params.append('date', date)
 	params.append('value', String(newValue))
-	const response = await axios.post(`${ticksUrl}/set`, params)
+	let response
+	try {
+		response = await axios.post(`${ticksUrl}/set`, params)
+	} catch (e) {
+		await writeFailed(e, trackId)
+		return
+	}
 	const value = response.data.ocs.data.value
 
 	ticks.value = ticks.value.filter(t => !(t.trackId === trackId && t.date === date))
 	if (value > 0) {
 		ticks.value.push({ id: 0, trackId, date, value })
+	}
+}
+
+// A write the server refused or that failed. A track archived (423) or deleted
+// (Tickbuddy's own 404) elsewhere leaves the grid on the reload; anything else,
+// Nextcloud's 404 for a disabled app included, keeps the grid as it is.
+async function writeFailed(e: unknown, trackId: number) {
+	const readOnly = httpStatus(e) === 423
+	const reason = errorReason(e)
+	const name = tracks.value.find(t => t.id === trackId)?.name ?? ''
+	if (readOnly && reason === 'archived') {
+		showError(`${name} is archived, so the change wasn't saved.`)
+	} else {
+		showError(ocsErrorMessage(e, 'Could not save the change'))
+	}
+	if (readOnly || reason === 'trackNotFound') {
+		try {
+			await fetchData()
+		} catch {
+			// The app went away in between (an upgrade disables it): keep the grid
+		}
 	}
 }
 
@@ -375,7 +421,7 @@ onMounted(() => {
 									type="checkbox"
 									class="checkbox"
 									:checked="isTicked(track.id, date)"
-									@change="toggleBoolean(track.id, date)">
+									@change="toggleBoolean(track.id, date, $event)">
 								<label :for="`tick-${track.id}-${date}`" />
 							</template>
 						</template>

@@ -11,6 +11,8 @@ use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
+use OCA\Tickbuddy\Service\ReadOnlyTrackException;
+use OCA\Tickbuddy\Service\StrictHandling;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
 use PHPUnit\Framework\TestCase;
@@ -18,13 +20,23 @@ use PHPUnit\Framework\TestCase;
 final class NoteServiceTest extends TestCase {
 	private NoteMapper $noteMapper;
 	private TrackMapper $trackMapper;
+	private StrictHandling $strictHandling;
 	private NoteService $service;
 	private string $userId = 'testuser';
 
 	protected function setUp(): void {
 		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
-		$this->service = new NoteService($this->noteMapper, $this->trackMapper);
+		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
+		$this->strictHandling = $this->createMock(StrictHandling::class);
+		$this->service = new NoteService($this->noteMapper, $this->trackMapper, $this->strictHandling);
+	}
+
+	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
+	private function strict(): void {
+		$this->strictHandling->method('refuseArchived')->willReturnCallback(function (Track $track): void {
+			throw new ReadOnlyTrackException($track->getName() . ' is archived, so nothing was changed', 'archived');
+		});
 	}
 
 	private function track(?string $archivedAt = null): Track {
@@ -529,5 +541,57 @@ final class NoteServiceTest extends TestCase {
 			->willReturn($notes);
 
 		$this->assertSame($notes, $this->service->findByDateRange($this->userId, '2026-10-01', '2026-10-18'));
+	}
+
+	// --- strict handling (Prefer: handling=strict) ---
+
+	private function expectRefused(callable $call): void {
+		try {
+			$call();
+			$this->fail('Expected ReadOnlyTrackException');
+		} catch (ReadOnlyTrackException $e) {
+			$this->assertSame('archived', $e->getReason());
+		}
+	}
+
+	public function testStrictRefusesEveryNoteWriteOnAnArchivedTrack(): void {
+		$this->strict();
+		$this->track('2026-10-01');
+		$this->noteMapper->method('findByUserTrackDate')->willReturn($this->note('kept'));
+		$this->expectNoNoteWrites();
+		$this->noteMapper->expects($this->never())->method('replaceText');
+
+		$this->expectRefused(fn () => $this->service->set($this->userId, 1, '2026-10-18', 'new'));
+		$this->expectRefused(fn () => $this->service->append($this->userId, 1, '2026-10-18', 'new'));
+		$this->expectRefused(fn () => $this->service->delete($this->userId, 1, '2026-10-18'));
+	}
+
+	public function testStrictRefusesWritesThatWouldChangeNothing(): void {
+		$this->strict();
+		$this->track('2026-10-01');
+		$this->noNote();
+		$this->expectNoNoteWrites();
+
+		$this->expectRefused(fn () => $this->service->append($this->userId, 1, '2026-10-18', ''));
+		$this->expectRefused(fn () => $this->service->set($this->userId, 1, '2026-10-18', ''));
+		$this->expectRefused(fn () => $this->service->delete($this->userId, 1, '2026-10-18'));
+	}
+
+	public function testStrictStillReportsInvalidTextFirst(): void {
+		$this->strict();
+		$this->track('2026-10-01');
+		$this->expectNoNoteWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->service->set($this->userId, 1, '2026-10-18', str_repeat('a', 501));
+	}
+
+	public function testStrictStillReportsAnInvalidDateFirstOnDelete(): void {
+		$this->strict();
+		$this->track('2026-10-01');
+		$this->expectNoNoteWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->service->delete($this->userId, 1, '18.10.2026');
 	}
 }

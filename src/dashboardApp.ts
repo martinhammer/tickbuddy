@@ -1,5 +1,9 @@
 import { createApp } from 'vue'
 import DashboardWidget from './components/DashboardWidget.vue'
+import { preferStrictHandling } from './api.ts'
+
+// The widget writes nothing; it opts in so every request of the app does
+preferStrictHandling()
 
 /**
  * Mount the widget into the element the dashboard hands us.

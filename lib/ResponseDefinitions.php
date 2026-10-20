@@ -5,6 +5,14 @@ declare(strict_types=1);
 namespace OCA\Tickbuddy;
 
 /**
+ * Every error answer of the app's controllers. `reason` is one of the values in
+ * OCA\Tickbuddy\Service\ErrorReason; a plain string, so a new value stays additive.
+ *
+ * @psalm-type TickbuddyError = array{
+ *     message: string,
+ *     reason: string,
+ * }
+ *
  * @psalm-type TickbuddyTrack = array{
  *     id: int,
  *     name: string,
