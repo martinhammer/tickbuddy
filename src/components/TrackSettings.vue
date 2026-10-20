@@ -203,6 +203,8 @@ function startEditing(track: Track) {
 }
 
 async function saveName(track: Track) {
+	// Enter closes the field, and the field's blur then calls this again: save once
+	if (editingTrackId.value !== track.id) return
 	const trimmed = editingName.value.trim()
 	editingTrackId.value = null
 	if (!trimmed || trimmed === track.name) return

@@ -238,8 +238,12 @@ async function writeFailed(e: unknown, trackId: number) {
 	const name = tracks.value.find(t => t.id === trackId)?.name ?? ''
 	if (readOnly && reason === 'archived') {
 		showError(`${name} is archived, so the change wasn't saved.`)
-	} else {
+	} else if (reason !== null) {
 		showError(ocsErrorMessage(e, 'Could not save the change'))
+	} else {
+		// Not Tickbuddy's answer (Nextcloud's own, or none): its meta message
+		// ("Invalid query…" while the app is disabled) isn't meant for people
+		showError('Could not save the change')
 	}
 	if (readOnly || reason === 'trackNotFound') {
 		try {
