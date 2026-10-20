@@ -58,8 +58,7 @@ class ImportService {
 			throw new ImportException('No enabled tracks found in the backup file');
 		}
 
-		// Determine track type from ticks: if any date has multiple rows for a track, it's a counter
-		$counterTracks = $this->detectCounterTracks($tmTicks);
+		$counterTracks = $this->detectCounterTracks($tmTracks, $tmTicks);
 
 		$this->db->beginTransaction();
 		try {
@@ -504,21 +503,19 @@ class ImportService {
 	/**
 	 * Read enabled tracks from Tickmate DB, ordered by `order` column (or `_id` fallback).
 	 *
-	 * @return array<int, array{id: int, name: string, order: int}>
+	 * @return array<int, array{id: int, name: string, order: int, counter: bool}>
 	 */
 	private function readTickmateTracks(\SQLite3 $sqlite): array {
-		// Check if 'order' column exists
-		$hasOrder = false;
+		// Older Tickmate databases lack `order` and `multiple_entries_per_day`
+		$columns = [];
 		$pragma = $sqlite->query('PRAGMA table_info(tracks)');
 		while ($col = $pragma->fetchArray(SQLITE3_ASSOC)) {
-			if ($col['name'] === 'order') {
-				$hasOrder = true;
-				break;
-			}
+			$columns[(string)$col['name']] = true;
 		}
 
-		$orderCol = $hasOrder ? '"order"' : '_id';
-		$result = $sqlite->query("SELECT _id, name, enabled, {$orderCol} AS sort_col FROM tracks WHERE enabled = 1 ORDER BY sort_col ASC, _id ASC");
+		$orderCol = isset($columns['order']) ? '"order"' : '_id';
+		$counterCol = isset($columns['multiple_entries_per_day']) ? 'multiple_entries_per_day' : '0';
+		$result = $sqlite->query("SELECT _id, name, enabled, {$orderCol} AS sort_col, {$counterCol} AS counter FROM tracks WHERE enabled = 1 ORDER BY sort_col ASC, _id ASC");
 
 		$tracks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
@@ -529,6 +526,7 @@ class ImportService {
 				'id' => $id,
 				'name' => $name,
 				'order' => (int)$row['sort_col'],
+				'counter' => (int)$row['counter'] === 1,
 			];
 		}
 		return $tracks;
@@ -537,7 +535,7 @@ class ImportService {
 	/**
 	 * Read ticks from Tickmate DB, only for enabled tracks.
 	 *
-	 * @param array<int, array{id: int, name: string, order: int}> $tmTracks
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
 	 * @return array<int, list<array{date: string, trackId: int}>> Grouped by Tickmate track ID
 	 */
 	private function readTickmateTicks(\SQLite3 $sqlite, array $tmTracks): array {
@@ -571,13 +569,21 @@ class ImportService {
 	}
 
 	/**
-	 * Detect which Tickmate tracks are counters (multiple rows per track+date).
+	 * Detect which Tickmate tracks are counters: those with "multiple entries per day"
+	 * switched on, and those with several rows on one date (older backups lack the
+	 * setting, and a track switched off after counting still holds its counts).
 	 *
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
 	 * @param array<int, list<array{date: string, trackId: int}>> $tmTicks
 	 * @return array<int, true> Set of Tickmate track IDs that are counters
 	 */
-	private function detectCounterTracks(array $tmTicks): array {
+	private function detectCounterTracks(array $tmTracks, array $tmTicks): array {
 		$counters = [];
+		foreach ($tmTracks as $trackId => $tmTrack) {
+			if ($tmTrack['counter']) {
+				$counters[$trackId] = true;
+			}
+		}
 		foreach ($tmTicks as $trackId => $ticks) {
 			$dateCounts = [];
 			foreach ($ticks as $tick) {
@@ -596,7 +602,7 @@ class ImportService {
 	/**
 	 * Import tracks into Tickbuddy, handling Replace/Merge and name collisions.
 	 *
-	 * @param array<int, array{id: int, name: string, order: int}> $tmTracks
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
 	 * @param array<int, true> $counterTracks
 	 * @return array<int, int> Map of Tickmate track ID → Tickbuddy track ID
 	 * @throws ImportException

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renaming a track to a blank name gives a clear error instead of a server error
 - Import: a backup with an invalid date, an unknown track, an invalid value, a repeated day or a malformed entry now fails with a message instead of being partly imported
 - Import: merging a track with a very long name no longer fails with a database error
+- Import: Tickbuddy import incorrectly imported counter tracks as yes/no if they only had values of 0 and 1 in all days 
 
 
 ## [2.2.0] - 2026-10-17

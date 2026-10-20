@@ -552,10 +552,14 @@ final class ImportServiceTest extends TestCase {
 		], $this->insertedTicks);
 	}
 
-	private function tickmateFile(string $tracks, string $ticks): void {
+	private function tickmateFile(
+		string $tracks,
+		string $ticks,
+		string $trackColumns = '_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER',
+	): void {
 		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
 		$sqlite = new \SQLite3($this->file);
-		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
+		$sqlite->exec("CREATE TABLE tracks ({$trackColumns})");
 		$sqlite->exec('CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)');
 		$sqlite->exec("INSERT INTO tracks VALUES {$tracks}");
 		$sqlite->exec("INSERT INTO ticks VALUES {$ticks}");
@@ -570,6 +574,52 @@ final class ImportServiceTest extends TestCase {
 		$this->expectException(ImportException::class);
 		$this->expectExceptionMessage('Tickmate tick on track "Exercise" has an invalid date "2026-02-30"');
 		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+	}
+
+	/** Tracks as current Tickmate writes them, with its "multiple entries per day" setting */
+	private const TICKMATE_COUNTER_COLUMNS = '_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, multiple_entries_per_day INTEGER, "order" INTEGER';
+
+	public function testTickmateMultipleEntriesTrackImportsAsCounter(): void {
+		// Never ticked twice on a day, yet a counter in Tickmate
+		$this->tickmateFile(
+			"(1, 'Coffee', 1, 1, 1), (2, 'Exercise', 1, 0, 2)",
+			'(1, 1, 2026, 9, 17), (2, 1, 2026, 9, 18), (3, 2, 2026, 9, 17)',
+			self::TICKMATE_COUNTER_COLUMNS,
+		);
+
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame(['counter', 'boolean'], array_map(fn (Track $t) => $t->getType(), $this->insertedTracks));
+		$this->assertSame([
+			[101, '2026-10-17', 1],
+			[101, '2026-10-18', 1],
+			[102, '2026-10-17', 1],
+		], $this->insertedTicks);
+	}
+
+	public function testTickmateCountsKeptWhenMultipleEntriesSwitchedOff(): void {
+		$this->tickmateFile(
+			"(1, 'Coffee', 1, 0, 1)",
+			'(1, 1, 2026, 9, 17), (2, 1, 2026, 9, 17), (3, 1, 2026, 9, 18)',
+			self::TICKMATE_COUNTER_COLUMNS,
+		);
+
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame('counter', $this->insertedTracks[0]->getType());
+		$this->assertSame([[101, '2026-10-17', 2], [101, '2026-10-18', 1]], $this->insertedTicks);
+	}
+
+	public function testTickmateWithoutMultipleEntriesColumnDetectsCountersFromTicks(): void {
+		$this->tickmateFile(
+			"(1, 'Coffee', 1, 1), (2, 'Exercise', 1, 2)",
+			'(1, 1, 2026, 9, 17), (2, 1, 2026, 9, 17), (3, 2, 2026, 9, 17)',
+		);
+
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame(['counter', 'boolean'], array_map(fn (Track $t) => $t->getType(), $this->insertedTracks));
+		$this->assertSame([[101, '2026-10-17', 2], [102, '2026-10-17', 1]], $this->insertedTicks);
 	}
 
 	private function existingTrack(string $name): void {
