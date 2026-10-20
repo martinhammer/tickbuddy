@@ -10,6 +10,7 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IDBConnection;
 
 class ImportService {
@@ -23,6 +24,7 @@ class ImportService {
 		private TickMapper $tickMapper,
 		private NoteMapper $noteMapper,
 		private IDBConnection $db,
+		private ITimeFactory $timeFactory,
 	) {
 	}
 
@@ -55,14 +57,15 @@ class ImportService {
 		}
 
 		if (empty($tmTracks)) {
-			throw new ImportException('No enabled tracks found in the backup file');
+			throw new ImportException('No tracks found in the backup file');
 		}
 
 		$counterTracks = $this->detectCounterTracks($tmTracks, $tmTicks);
 
 		$this->db->beginTransaction();
 		try {
-			$trackIdMap = $this->importTracks($tmTracks, $counterTracks, $mode, $userId);
+			$today = $this->timeFactory->getDateTime()->format('Y-m-d');
+			$trackIdMap = $this->importTracks($tmTracks, $tmTicks, $counterTracks, $today, $mode, $userId);
 			$tickCount = $this->importTicks($tmTicks, $trackIdMap, $counterTracks, $userId);
 			$this->db->commit();
 		} catch (\Throwable $e) {
@@ -501,9 +504,9 @@ class ImportService {
 	}
 
 	/**
-	 * Read enabled tracks from Tickmate DB, ordered by `order` column (or `_id` fallback).
+	 * Read tracks from Tickmate DB, enabled and disabled, ordered by `order` column (or `_id` fallback).
 	 *
-	 * @return array<int, array{id: int, name: string, order: int, counter: bool}>
+	 * @return array<int, array{id: int, name: string, order: int, counter: bool, enabled: bool}>
 	 */
 	private function readTickmateTracks(\SQLite3 $sqlite): array {
 		// Older Tickmate databases lack `order` and `multiple_entries_per_day`
@@ -515,7 +518,7 @@ class ImportService {
 
 		$orderCol = isset($columns['order']) ? '"order"' : '_id';
 		$counterCol = isset($columns['multiple_entries_per_day']) ? 'multiple_entries_per_day' : '0';
-		$result = $sqlite->query("SELECT _id, name, enabled, {$orderCol} AS sort_col, {$counterCol} AS counter FROM tracks WHERE enabled = 1 ORDER BY sort_col ASC, _id ASC");
+		$result = $sqlite->query("SELECT _id, name, enabled, {$orderCol} AS sort_col, {$counterCol} AS counter FROM tracks ORDER BY sort_col ASC, _id ASC");
 
 		$tracks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
@@ -527,15 +530,16 @@ class ImportService {
 				'name' => $name,
 				'order' => (int)$row['sort_col'],
 				'counter' => (int)$row['counter'] === 1,
+				'enabled' => (int)$row['enabled'] === 1,
 			];
 		}
 		return $tracks;
 	}
 
 	/**
-	 * Read ticks from Tickmate DB, only for enabled tracks.
+	 * Read ticks from Tickmate DB for the tracks read.
 	 *
-	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool, enabled: bool}> $tmTracks
 	 * @return array<int, list<array{date: string, trackId: int}>> Grouped by Tickmate track ID
 	 */
 	private function readTickmateTicks(\SQLite3 $sqlite, array $tmTracks): array {
@@ -573,7 +577,7 @@ class ImportService {
 	 * switched on, and those with several rows on one date (older backups lack the
 	 * setting, and a track switched off after counting still holds its counts).
 	 *
-	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool, enabled: bool}> $tmTracks
 	 * @param array<int, list<array{date: string, trackId: int}>> $tmTicks
 	 * @return array<int, true> Set of Tickmate track IDs that are counters
 	 */
@@ -601,13 +605,16 @@ class ImportService {
 
 	/**
 	 * Import tracks into Tickbuddy, handling Replace/Merge and name collisions.
+	 * Disabled Tickmate tracks come in archived.
 	 *
-	 * @param array<int, array{id: int, name: string, order: int, counter: bool}> $tmTracks
+	 * @param array<int, array{id: int, name: string, order: int, counter: bool, enabled: bool}> $tmTracks
+	 * @param array<int, list<array{date: string, trackId: int}>> $tmTicks
 	 * @param array<int, true> $counterTracks
+	 * @param string $today Import date as YYYY-MM-DD
 	 * @return array<int, int> Map of Tickmate track ID → Tickbuddy track ID
 	 * @throws ImportException
 	 */
-	private function importTracks(array $tmTracks, array $counterTracks, string $mode, string $userId): array {
+	private function importTracks(array $tmTracks, array $tmTicks, array $counterTracks, string $today, string $mode, string $userId): array {
 		$existingNames = [];
 
 		if ($mode === self::MODE_REPLACE) {
@@ -660,6 +667,9 @@ class ImportService {
 			$track->setName($name);
 			$track->setType($type);
 			$track->setSortOrder($sortOrder);
+			if (!$tmTrack['enabled']) {
+				$track->setArchivedAt(self::tickmateArchiveDate($tmTicks[$tmId] ?? [], $today));
+			}
 			$this->trackMapper->insert($track);
 
 			$trackIdMap[$tmId] = $track->getId();
@@ -667,6 +677,19 @@ class ImportService {
 		}
 
 		return $trackIdMap;
+	}
+
+	/**
+	 * Tickmate doesn't record when a track was disabled: take its last tick as the
+	 * closest guess, or the import date when that is earlier or there are no ticks.
+	 *
+	 * @param list<array{date: string, trackId: int}> $ticks
+	 */
+	private static function tickmateArchiveDate(array $ticks, string $today): string {
+		if ($ticks === []) {
+			return $today;
+		}
+		return min(max(array_column($ticks, 'date')), $today);
 	}
 
 	/**

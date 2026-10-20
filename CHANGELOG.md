@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - API: `POST /api/ticks/increment` adds to a counter without losing concurrent changes
 - API: `GET /api/stats` with totals, weekly mean, trend inputs, streaks and highest/lowest value per track, with an optional period (`from`, `to`)
 - API: notes on a track's day (`/api/notes`, up to 500 characters), also settable with toggle, set and increment; appending a line (`POST /api/notes/append`, or `appendNote` on toggle, set and increment) skips a line that's already there and never overwrites another device's change; exported and imported with backups
+- Import: Tickmate backup import now creates disabled tracks as archived (previously those tracks were not imported)
 
 ### Changed
 - API: toggle and set reject a date that isn't YYYY-MM-DD
@@ -24,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renaming a track to a blank name gives a clear error instead of a server error
 - Import: a backup with an invalid date, an unknown track, an invalid value, a repeated day or a malformed entry now fails with a message instead of being partly imported
 - Import: merging a track with a very long name no longer fails with a database error
-- Import: Tickbuddy import incorrectly imported counter tracks as yes/no if they only had values of 0 and 1 in all days 
+- Import: Tickmate backup import incorrectly created counter tracks as yes/no if they only had values of 0 and 1 in all days 
 
 
 ## [2.2.0] - 2026-10-17

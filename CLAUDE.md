@@ -124,7 +124,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `PUT /api/preferences` — update `{defaultView}`
 
 **Import/Export** (`ImportController`, `ExportController`):
-- `POST /api/import` — import Tickmate `.db` file `{file, mode}`
+- `POST /api/import` — import Tickmate `.db` file `{file, mode}`. Disabled Tickmate tracks import archived, with their ticks. Tickmate doesn't record when a track was disabled, so the archive date is its last tick, or the import date (server's) when that is earlier or there are no ticks; disabled tracks count towards the Merge track limit
 - `POST /api/import/json` — import Tickbuddy `.json` file `{file, mode}`
 - `GET /api/export?includePrivate=bool` — export all data as JSON. Archived tracks are always included and carry `archivedAt` (only they do, so files with nothing archived keep the original format); the JSON import reads it back and fails on a malformed date. A `notes` list (`{track, trackIndex?, date, text}`, matched to tracks like ticks) is written only when there is at least one note, so files without notes keep the original format; a private track's notes go with it. The JSON import checks everything before its transaction opens and fails, changing nothing, on: a track, tick or note that isn't an object, `ticks`/`notes` present but not a list, a tick or note for a track not in the file, a date that isn't real (Tickmate dates too), a tick value its track can't take (yes/no: what `parseYesNo` accepts; counter: a JSON integer ≥ 0), note text the API would refuse, or the same track and day twice. Ticks meaning "nothing" (counter 0, yes/no false) and empty notes are skipped. Its result gains `notes` (0 for Tickmate). Merge's ` (imported)` suffix cuts the name to fit 255 characters.
 

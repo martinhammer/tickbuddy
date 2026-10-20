@@ -12,6 +12,7 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IDBConnection;
 use PHPUnit\Framework\TestCase;
 
@@ -34,7 +35,9 @@ final class ImportServiceTest extends TestCase {
 		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->db = $this->createMock(IDBConnection::class);
-		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db);
+		$timeFactory = $this->createMock(ITimeFactory::class);
+		$timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-20 09:00:00'));
+		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db, $timeFactory);
 
 		$this->trackMapper->method('insert')->willReturnCallback(function (Track $track): Track {
 			$track->setId(101 + count($this->insertedTracks));
@@ -620,6 +623,67 @@ final class ImportServiceTest extends TestCase {
 
 		$this->assertSame(['counter', 'boolean'], array_map(fn (Track $t) => $t->getType(), $this->insertedTracks));
 		$this->assertSame([[101, '2026-10-17', 2], [102, '2026-10-17', 1]], $this->insertedTicks);
+	}
+
+	public function testTickmateDisabledTrackImportsArchivedOnItsLastTick(): void {
+		$this->tickmateFile(
+			"(1, 'Exercise', 1, 1), (2, 'Smoking', 0, 2), (3, 'Reading', 1, 3)",
+			'(1, 1, 2026, 9, 17), (2, 2, 2021, 2, 5), (3, 2, 2021, 4, 30), (4, 2, 2021, 3, 1)',
+		);
+
+		$result = $this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame(['tracks' => 3, 'ticks' => 4, 'notes' => 0], $result);
+		$this->assertSame(
+			[['Exercise', 1, null], ['Smoking', 2, '2021-05-30'], ['Reading', 3, null]],
+			array_map(fn (Track $t) => [$t->getName(), $t->getSortOrder(), $t->getArchivedAt()], $this->insertedTracks),
+		);
+		$this->assertContains([102, '2021-03-05', 1], $this->insertedTicks);
+	}
+
+	public static function tickmateArchiveDateProvider(): array {
+		return [
+			'no ticks' => ['', '2026-10-20'],
+			'last tick after the import date' => ['(1, 1, 2026, 9, 17), (2, 1, 2026, 10, 3)', '2026-10-20'],
+			'last tick on the import date' => ['(1, 1, 2026, 9, 20)', '2026-10-20'],
+		];
+	}
+
+	/**
+	 * @dataProvider tickmateArchiveDateProvider
+	 */
+	public function testTickmateDisabledTrackArchiveDateIsNeverAfterTheImport(string $ticks, string $archivedAt): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		$sqlite = new \SQLite3($this->file);
+		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
+		$sqlite->exec('CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)');
+		$sqlite->exec("INSERT INTO tracks VALUES (1, 'Smoking', 0, 1)");
+		if ($ticks !== '') {
+			$sqlite->exec("INSERT INTO ticks VALUES {$ticks}");
+		}
+		$sqlite->close();
+
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+
+		$this->assertSame($archivedAt, $this->insertedTracks[0]->getArchivedAt());
+	}
+
+	public function testTickmateMergeLimitCountsDisabledTracks(): void {
+		$existing = [];
+		for ($i = 1; $i <= 98; $i++) {
+			$track = new Track();
+			$track->setId($i);
+			$track->setName("Track {$i}");
+			$existing[] = $track;
+		}
+		$this->trackMapper->method('findAllByUser')->willReturn($existing);
+		$this->tickmateFile("(1, 'Exercise', 1, 1), (2, 'Smoking', 0, 2)", '(1, 1, 2026, 9, 17)');
+		$this->trackMapper->expects($this->never())->method('insert');
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Import would exceed the 99 track limit. You have 98 tracks and the backup contains 2.');
+		$this->service->importTickmate($this->file, ImportService::MODE_MERGE, $this->userId);
 	}
 
 	private function existingTrack(string $name): void {
