@@ -1,10 +1,13 @@
 # Tickbuddy
 
-Tickbuddy is a Nextcloud application for daily habit or occurrence logging and tracking.
+Tickbuddy is a daily habit and event tracker for Nextcloud.
 
-The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+Keep track of what happens each day: your meditation and exercise, how many cups of coffee you had. Your scripts and AI agents can also log automatically, so you can track your nightly backups. Tickbuddy is flexible: use it for habits, chores, keeping an eye on automations, or anything else you want to keep track of. Over time, analyse patterns and statistics with Tickbuddy's built-in analytics.
 
-Tickbuddy has been published on the [Nextcloud app store](https://apps.nextcloud.com/apps/tickbuddy), and its mobile companion app [Tickdroid](https://github.com/martinhammer/tickdroid) can be found on [F-Droid](https://f-droid.org/packages/com.martinhammer.tickdroid/).
+Tickbuddy has been published on the [Nextcloud app store](https://apps.nextcloud.com/apps/tickbuddy) and comes with a rich set of companion apps: 
+- [Tickdroid](https://github.com/martinhammer/tickdroid), the Android app, available on [F-Droid](https://f-droid.org/packages/com.martinhammer.tickdroid/)
+- [Tickcli](https://github.com/martinhammer/tickcli), a command-line client for your scripts and automations
+- [TickLLMe](https://github.com/martinhammer/tickllme), an MCP server that lets your AI agents log and read your entries
 
 ### Features
 
@@ -16,23 +19,24 @@ Some of the key features which already exist:
 * Nextcloud dashboard widget
 * Import/export data in JSON format
 * Import data from Tickmate backup file
-* Tickdroid: [companion mobile app](https://github.com/martinhammer/tickdroid)
-* Tickcli: [command line client](https://github.com/martinhammer/tickcli)
+* A rich set of APIs leveraged by companion apps: [Tickdroid](https://github.com/martinhammer/tickdroid), [Tickcli](https://github.com/martinhammer/tickcli), [TickLLMe](https://github.com/martinhammer/tickllme)
 
 Planned features:
-* [Claude Desktop plugin and MCP server](https://github.com/martinhammer/tickllme)
-* Ping webhooks for automation integrations
-* Setting and tracking of targets / goals
-* Further enhancements to track management and analytics
+* Ping webhooks for further automation integrations
+* Attaching short freetext notes to ticks
+* Additional track types
+* Setting and tracking of targets, goals and expectations 
+* UI enhancements to track management, logging, and analytics
 * Migration options from other tools
 * Support for translations
 * Maybe even a smartwatch app
 
 ### Motivation
+Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, it has been evolving towards a more flexible "microjournal" which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
 
-This is a personal hobby project which I am using to learn about Nextcloud app development and AI-assisted development. Significant portion of the code has been written by Claude Code.
+The original inspiration for Tickbuddy and Tickdroid was the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
 
-Secondly, at the time of starting this project there is no equivalent app in the Nextcloud ecosystem, so I am hoping others will find this useful. Tickbuddy and Tickdroid were inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
+This is a personal hobby project. Significant portion of the code has been written by Claude Code.
 
 ### Found a bug? Do you have some suggestions or a feature request?
 
