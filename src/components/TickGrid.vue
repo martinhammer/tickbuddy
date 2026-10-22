@@ -199,7 +199,7 @@ async function toggleBoolean(trackId: number, date: string, event: Event) {
 		await writeFailed(e, trackId)
 		return
 	}
-	const ticked = response.data.ocs.data.ticked
+	const ticked = response.data.ocs.data.value > 0
 	if (ticked) {
 		ticks.value.push({ id: 0, trackId, date, value: 1 })
 	} else {

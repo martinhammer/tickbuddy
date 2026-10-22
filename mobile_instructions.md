@@ -335,7 +335,7 @@ Form params:
 - `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
 - `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it. The note is written whichever way the tick flips.
 
-Response: `{"ticked": true}` if the tick now exists, `{"ticked": false}` if it was removed. A `date` that isn't a real `YYYY-MM-DD` date answers `400` `Date must be a date as YYYY-MM-DD` and changes nothing.
+Response: `{"ticked": true, "value": 1}` if the tick now exists, `{"ticked": false, "value": 0}` if it was removed. Read `value`, which is 1 or 0 as in the tick list; `ticked` says the same and is kept for older clients. A server before 2.3.0 sends only `ticked`. A `date` that isn't a real `YYYY-MM-DD` date answers `400` `Date must be a date as YYYY-MM-DD` and changes nothing.
 
 On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. Unknown track is still `404` and a counter track still `400`.
 

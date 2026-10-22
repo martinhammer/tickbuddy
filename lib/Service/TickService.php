@@ -50,7 +50,8 @@ class TickService {
 	 *                                         written whichever way the tick flips
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
 	 * @param bool $allowDuplicateNote Append `$appendNote` even if the note already holds it
-	 * @return array{ticked: bool, note?: string} `note` only when one was sent
+	 * @return array{ticked: bool, value: int, note?: string} `value` is 1 or 0, as the tick list
+	 *                                                        writes it; `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidTrackTypeException if track is not boolean
 	 * @throws InvalidValueException if the date or the note is not valid, or both notes were sent
@@ -68,7 +69,8 @@ class TickService {
 			$this->strictHandling->refuseArchived($track);
 			// Archived history can't change. Not asked to refuse: answer with the stored state
 			// so an offline client's late upload doesn't stall its queue; its next pull drops the tick.
-			return ['ticked' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
+			$ticked = $this->currentValue($userId, $trackId, $date) > 0;
+			return ['ticked' => $ticked, 'value' => $ticked ? 1 : 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
 
@@ -80,7 +82,7 @@ class TickService {
 			$this->insertTick($userId, $trackId, $date, 1);
 			$ticked = true;
 		}
-		return ['ticked' => $ticked] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
+		return ['ticked' => $ticked, 'value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
 	/**

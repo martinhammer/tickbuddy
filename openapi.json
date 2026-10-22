@@ -2325,7 +2325,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick toggled; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
+                        "description": "Tick toggled; `value` is 1 if the day is now ticked, else 0, as the tick list writes it; `ticked` says the same and is kept for older clients; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2347,11 +2347,16 @@
                                                 "data": {
                                                     "type": "object",
                                                     "required": [
-                                                        "ticked"
+                                                        "ticked",
+                                                        "value"
                                                     ],
                                                     "properties": {
                                                         "ticked": {
                                                             "type": "boolean"
+                                                        },
+                                                        "value": {
+                                                            "type": "integer",
+                                                            "format": "int64"
                                                         },
                                                         "note": {
                                                             "type": "string"
