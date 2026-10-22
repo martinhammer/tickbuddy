@@ -2,9 +2,9 @@
 
 Tickbuddy is a daily habit and event tracker for Nextcloud.
 
-Keep track of what happens each day: your meditation and exercise, how many cups of coffee you had. Your scripts and AI agents can also log automatically, so you can track your nightly backups. Tickbuddy is flexible: use it for habits, chores, keeping an eye on automations, or anything else you want to keep track of. Over time, analyse patterns and statistics with Tickbuddy's built-in analytics.
+Tickbuddy lets you keep track of what happens each day, such as your meditation, exercise, or how many cups of coffee you had. Your scripts and AI agents can also log automatically, for example to record nightly backups. Tickbuddy is flexible: use it for habits, chores, keeping an eye on automations, or anything else that matters to you. Over time, analyse patterns and statistics with the built-in analytics.
 
-Tickbuddy has been published on the [Nextcloud app store](https://apps.nextcloud.com/apps/tickbuddy) and comes with a rich set of companion apps: 
+Tickbuddy is published on the [Nextcloud app store](https://apps.nextcloud.com/apps/tickbuddy) and comes with a rich set of companion apps: 
 - [Tickdroid](https://github.com/martinhammer/tickdroid), the Android app, available on [F-Droid](https://f-droid.org/packages/com.martinhammer.tickdroid/)
 - [Tickcli](https://github.com/martinhammer/tickcli), a command-line client for your scripts and automations
 - [TickLLMe](https://github.com/martinhammer/tickllme), an MCP server that lets your AI agents log and read your entries
@@ -32,7 +32,7 @@ Planned features:
 * Maybe even a smartwatch app
 
 ### Motivation
-Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, it has been evolving towards a more flexible "microjournal" which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
+Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, it has been evolving towards a more flexible "daily everything-tracker" concept which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
 
 The original inspiration for Tickbuddy and Tickdroid was the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
 

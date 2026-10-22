@@ -7,7 +7,7 @@
 	<description><![CDATA[
 Tickbuddy is a daily habit and event tracker. 
 
-Keep track of what happens each day: your meditation and exercise, how many cups of coffee you had. Your scripts and AI agents can also log automatically, so you can track your nightly backups. Tickbuddy is flexible: use it for habits, chores, keeping an eye on automations, or anything else you want to keep track of. Over time, analyse patterns and statistics with Tickbuddy's built-in analytics.
+Tickbuddy lets you keep track of what happens each day, such as your meditation, exercise, or how many cups of coffee you had. Your scripts and AI agents can also log automatically, for example to record nightly backups. Tickbuddy is flexible: use it for habits, chores, keeping an eye on automations, or anything else that matters to you. Over time, analyse patterns and statistics with the built-in analytics.
 
 Your data is stored in Tickbuddy on your Nextcloud server. These companion apps can all read and write the same data:
 - Tickdroid, the Android app, available on F-Droid
