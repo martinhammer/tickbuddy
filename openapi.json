@@ -3,7 +3,7 @@
     "info": {
         "title": "tickbuddy",
         "version": "0.0.1",
-        "description": "Daily habit tracker",
+        "description": "Daily habit and event tracker",
         "license": {
             "name": "AGPL-3.0-or-later"
         }
@@ -2658,15 +2658,8 @@
                                                     ],
                                                     "properties": {
                                                         "value": {
-                                                            "oneOf": [
-                                                                {
-                                                                    "type": "integer",
-                                                                    "format": "int64"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                }
-                                                            ]
+                                                            "type": "integer",
+                                                            "format": "int64"
                                                         },
                                                         "note": {
                                                             "type": "string"
