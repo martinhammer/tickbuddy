@@ -97,7 +97,7 @@ class TickService {
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
 	 * @param bool $allowDuplicateNote Append `$appendNote` even if the note already holds it
-	 * @return array{value: int|bool, note?: string} `note` only when one was sent
+	 * @return array{value: int, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidValueException if a yes/no value, the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
@@ -140,7 +140,7 @@ class TickService {
 	}
 
 	/**
-	 * @return array{value: bool, note?: string}
+	 * @return array{value: int, note?: string}
 	 * @throws InvalidValueException
 	 * @throws NoteConflictException
 	 * @throws ReadOnlyTrackException
@@ -155,12 +155,12 @@ class TickService {
 		$trackId = $track->getId();
 		if ($track->getArchivedAt() !== null) {
 			$this->strictHandling->refuseArchived($track);
-			return ['value' => $this->currentValue($userId, $trackId, $date) > 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
+			return ['value' => $this->currentValue($userId, $trackId, $date) > 0 ? 1 : 0] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
 
 		$this->writeYesNo($userId, $trackId, $date, $ticked);
-		return ['value' => $ticked] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
+		return ['value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
 	private function writeYesNo(string $userId, int $trackId, string $date, bool $ticked): void {

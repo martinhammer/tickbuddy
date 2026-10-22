@@ -354,7 +354,7 @@ Form params:
 - `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
 - `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it.
 
-Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no `{"value": true}` or `{"value": false}`. Setting the state a day already has changes nothing and gives the same answer, so a retried request is always safe. You know which shape you get from the track's type.
+Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no `{"value": 1}` or `{"value": 0}`. Setting the state a day already has changes nothing and gives the same answer, so a retried request is always safe. Both answers are a number, as in `GET /api/ticks`: a counter's count, or 1/0 for a yes/no day, so one parser reads either; the track's type says what the number means.
 
 Errors, in this order: `404` unknown track; `400` bad yes/no value; `400` `Date must be a date as YYYY-MM-DD`. On a server without `booleanSet`, a yes/no track answers `400` `Set is only available for counter tracks`.
 
@@ -582,7 +582,7 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **An older notes server ignores `appendNote` the same way.** Check `features.notesAppend` before sending one, and say "needs a newer Tickbuddy" rather than lose the text.
 - **Ticks on archived tracks are quietly dropped, unless you ask to be told.** Without `Prefer: handling=strict`, `toggle`, `set` and `increment` answer `200` with the unchanged state rather than an error, so an upload queue never stalls on one; reconcile from the response or the next pull. With it they answer `423` (`reason: "archived"`): drop that one queued write. Check `Preference-Applied` to know which you got.
 - **`value` on boolean ticks is always 1** in `GET /api/ticks`. Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
-- **`set` answers a number for counters and a boolean for yes/no tracks.** `{"value": 3}` vs `{"value": true}`; pick the parser from the track's type.
+- **Every answer writes a yes/no day as 1 or 0**, as `GET /api/ticks` does. Read a yes/no value as 'above 0'.
 - **`toggle`, `set` and `increment` reject a date that isn't `YYYY-MM-DD` with `400`.** `2026-2-3` and `2026-02-30` included; nothing is stored. Send `LocalDate.toString()`.
 - **Stats needs the client's today.** Send `today` on every `GET /api/stats`: where a streak ends depends on whether today is still open, and the server's date (usually UTC) can be a day off for the user.
 - **Date range query is inclusive on both ends.** `from=2026-04-01&to=2026-04-30` includes both the 1st and the 30th.

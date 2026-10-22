@@ -195,7 +195,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->expects($this->once())->method('insert')
 			->with($this->callback(fn (Tick $t) => $t->getValue() === 1 && $t->getDate() === '2026-10-17'));
 
-		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', $value));
+		$this->assertSame(['value' => 1], $this->service->set($this->userId, 1, '2026-10-17', $value));
 	}
 
 	/**
@@ -206,7 +206,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(1));
 		$this->expectNoTickWrites();
 
-		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', $value));
+		$this->assertSame(['value' => 1], $this->service->set($this->userId, 1, '2026-10-17', $value));
 	}
 
 	/**
@@ -218,7 +218,7 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
 		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
 
-		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-17', $value));
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 1, '2026-10-17', $value));
 	}
 
 	/**
@@ -229,7 +229,7 @@ final class TickServiceTest extends TestCase {
 		$this->noTick();
 		$this->expectNoTickWrites();
 
-		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-17', $value));
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 1, '2026-10-17', $value));
 	}
 
 	/**
@@ -249,7 +249,7 @@ final class TickServiceTest extends TestCase {
 		$this->noTick();
 		$this->tickMapper->method('insert')->willThrowException($this->uniqueViolation());
 
-		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-17', true));
+		$this->assertSame(['value' => 1], $this->service->set($this->userId, 1, '2026-10-17', true));
 	}
 
 	public function testSetCounterReadsAStringValue(): void {
@@ -275,7 +275,7 @@ final class TickServiceTest extends TestCase {
 		$this->noTick();
 		$this->expectNoTickWrites();
 
-		$this->assertSame(['value' => false], $this->service->set($this->userId, 1, '2026-10-14', true));
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 1, '2026-10-14', true));
 	}
 
 	public function testSetOnArchivedYesNoTrackStillRejectsAnInvalidValue(): void {
@@ -470,7 +470,7 @@ final class TickServiceTest extends TestCase {
 		$this->noteService->expects($this->never())->method($this->anything());
 
 		$this->assertSame(['ticked' => true], $this->service->toggle($this->userId, 1, '2026-10-18'));
-		$this->assertSame(['value' => true], $this->service->set($this->userId, 1, '2026-10-18', true));
+		$this->assertSame(['value' => 1], $this->service->set($this->userId, 1, '2026-10-18', true));
 		$this->assertSame(['value' => 3], $this->service->set($this->userId, 2, '2026-10-18', 3));
 		$this->assertArrayNotHasKey('note', $this->service->increment($this->userId, 2, '2026-10-18', 1));
 	}
@@ -517,7 +517,7 @@ final class TickServiceTest extends TestCase {
 		$this->expectNoteWritten('2026-10-18', 'backup 03:14', 'backup 03:14');
 
 		$this->assertSame(
-			['value' => true, 'note' => 'backup 03:14'],
+			['value' => 1, 'note' => 'backup 03:14'],
 			$this->service->set($this->userId, 1, '2026-10-18', 'true', 'backup 03:14'),
 		);
 	}
@@ -625,7 +625,7 @@ final class TickServiceTest extends TestCase {
 		$this->noteService->method('stored')->willReturn('kept');
 
 		$this->assertSame(['ticked' => true, 'note' => 'kept'], $this->service->toggle($this->userId, 1, '2026-10-18', 'new'));
-		$this->assertSame(['value' => true, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, 'new'));
+		$this->assertSame(['value' => 1, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->set($this->userId, 2, '2026-10-18', 5, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->increment($this->userId, 2, '2026-10-18', 1, 'new'));
 	}
@@ -670,7 +670,7 @@ final class TickServiceTest extends TestCase {
 			->willReturn("link\nlink");
 
 		$this->assertSame(
-			['value' => true, 'note' => "link\nlink"],
+			['value' => 1, 'note' => "link\nlink"],
 			$this->service->set($this->userId, 1, '2026-10-18', true, null, 'link', true),
 		);
 	}
@@ -783,7 +783,7 @@ final class TickServiceTest extends TestCase {
 		$this->noteService->method('stored')->willReturn('kept');
 
 		$this->assertSame(['ticked' => true, 'note' => 'kept'], $this->service->toggle($this->userId, 1, '2026-10-18', null, 'new'));
-		$this->assertSame(['value' => true, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, null, 'new'));
+		$this->assertSame(['value' => 1, 'note' => 'kept'], $this->service->set($this->userId, 1, '2026-10-18', false, null, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->set($this->userId, 2, '2026-10-18', 5, null, 'new'));
 		$this->assertSame(['value' => 2, 'note' => 'kept'], $this->service->increment($this->userId, 2, '2026-10-18', 1, null, 'new'));
 	}
