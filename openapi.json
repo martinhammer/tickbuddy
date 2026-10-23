@@ -56,7 +56,8 @@
                                     "stats",
                                     "notes",
                                     "statsPeriod",
-                                    "notesAppend"
+                                    "notesAppend",
+                                    "idempotencyKey"
                                 ],
                                 "properties": {
                                     "import": {
@@ -96,6 +97,9 @@
                                         "type": "boolean"
                                     },
                                     "notesAppend": {
+                                        "type": "boolean"
+                                    },
+                                    "idempotencyKey": {
                                         "type": "boolean"
                                     }
                                 }
@@ -1359,7 +1363,7 @@
             "post": {
                 "operationId": "note-append",
                 "summary": "Append to the note on a track's day",
-                "description": "Adds the text on a new line, or stores it if the day has no note. Text whose lines are already in the note, in order and as whole lines, is skipped (unless `allowDuplicate`), so a retry never adds it twice. Empty text changes nothing. On an archived track nothing changes either: requests sent with Prefer: handling=strict get 423 (empty text too), others the stored note. Safe against other writers: it never overwrites a change made meanwhile.",
+                "description": "Adds the text on a new line, or stores it if the day has no note. Text whose lines are already in the note, in order and as whole lines, is skipped (unless `allowDuplicate`), so a retry never adds it twice. Empty text changes nothing. On an archived track nothing changes either: requests sent with Prefer: handling=strict get 423 (empty text too), others the stored note. Safe against other writers: it never overwrites a change made meanwhile.\nWith an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "note"
                 ],
@@ -1434,7 +1438,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Text appended, or already there; `text` is the whole stored note, empty if none. On an archived track, without Prefer: handling=strict: nothing written, the stored note",
+                        "description": "Text appended, or already there; `text` is the whole stored note, empty if none. On an archived track, without Prefer: handling=strict: nothing written, the stored note. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1472,7 +1476,7 @@
                         }
                     },
                     "400": {
-                        "description": "Date or text invalid, or the note would be longer than 500 characters",
+                        "description": "Date or text invalid, the note would be longer than 500 characters, or `Idempotency-Key` is not a UUID",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1532,7 +1536,37 @@
                         }
                     },
                     "409": {
-                        "description": "The note kept changing while appending; nothing was written, try again",
+                        "description": "The note kept changing while appending; nothing was written, try again, or a request with the same `Idempotency-Key` is still being handled; try again shortly",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "This `Idempotency-Key` was used for another request; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2230,6 +2264,7 @@
             "post": {
                 "operationId": "tick-toggle",
                 "summary": "Toggle a boolean tick on or off",
+                "description": "With an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "tick"
                 ],
@@ -2325,7 +2360,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick toggled; `value` is 1 if the day is now ticked, else 0, as the tick list writes it; `ticked` says the same and is kept for older clients; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
+                        "description": "Tick toggled; `value` is 1 if the day is now ticked, else 0, as the tick list writes it; `ticked` says the same and is kept for older clients; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2371,7 +2406,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
+                        "description": "Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2431,7 +2466,37 @@
                         }
                     },
                     "409": {
-                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append, or a request with the same `Idempotency-Key` is still being handled; try again shortly",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "This `Idempotency-Key` was used for another request; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2525,6 +2590,7 @@
             "post": {
                 "operationId": "tick-set",
                 "summary": "Set a tick (counter: its absolute value; yes/no: ticked or not)",
+                "description": "With an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "tick"
                 ],
@@ -2637,7 +2703,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state",
+                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2679,7 +2745,7 @@
                         }
                     },
                     "400": {
-                        "description": "Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
+                        "description": "Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2739,7 +2805,37 @@
                         }
                     },
                     "409": {
-                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append, or a request with the same `Idempotency-Key` is still being handled; try again shortly",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "This `Idempotency-Key` was used for another request; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2833,7 +2929,7 @@
             "post": {
                 "operationId": "tick-increment",
                 "summary": "Add to a counter tick",
-                "description": "Concurrent increments of the same day, from any mix of clients, all count. The value never goes below 0; reaching 0 deletes the tick.",
+                "description": "Concurrent increments of the same day, from any mix of clients, all count. The value never goes below 0; reaching 0 deletes the tick.\nWith an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "tick"
                 ],
@@ -2935,7 +3031,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored value",
+                        "description": "Value changed; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored value. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2977,7 +3073,7 @@
                         }
                     },
                     "400": {
-                        "description": "Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent; nothing written",
+                        "description": "Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3037,7 +3133,37 @@
                         }
                     },
                     "409": {
-                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append",
+                        "description": "The tick was written, but the note kept changing while appending; append the text again with POST /api/notes/append, or a request with the same `Idempotency-Key` is still being handled; try again shortly",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "This `Idempotency-Key` was used for another request; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3230,6 +3356,7 @@
             "post": {
                 "operationId": "track-create",
                 "summary": "Create a new track",
+                "description": "With an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "track"
                 ],
@@ -3277,7 +3404,7 @@
                 ],
                 "responses": {
                     "201": {
-                        "description": "Track created",
+                        "description": "Track created. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3307,7 +3434,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid name or type",
+                        "description": "Invalid name or type, or `Idempotency-Key` is not a UUID",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3338,6 +3465,66 @@
                     },
                     "403": {
                         "description": "Track limit reached",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "A request with the same `Idempotency-Key` is still being handled; try again shortly",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "This `Idempotency-Key` was used for another request; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {

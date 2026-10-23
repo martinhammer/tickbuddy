@@ -30,6 +30,9 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 	<dependencies>
 		<nextcloud min-version="33" max-version="36"/>
 	</dependencies>
+	<background-jobs>
+		<job>OCA\Tickbuddy\BackgroundJob\PurgeIdempotencyKeys</job>
+	</background-jobs>
 	<settings>
 		<personal>OCA\Tickbuddy\Settings\PersonalSettings</personal>
 		<personal-section>OCA\Tickbuddy\Settings\PersonalSection</personal-section>

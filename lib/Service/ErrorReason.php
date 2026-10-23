@@ -27,6 +27,10 @@ final class ErrorReason {
 	public const NOTE_CONFLICT = 'noteConflict';
 	/** 409: the database refused a track change */
 	public const DATABASE_CONFLICT = 'databaseConflict';
+	/** 409: a request with the same Idempotency-Key is still being handled; try again shortly */
+	public const REQUEST_IN_PROGRESS = 'requestInProgress';
+	/** 422: the Idempotency-Key was already used for another request; nothing written */
+	public const IDEMPOTENCY_KEY_REUSED = 'idempotencyKeyReused';
 	/** 423: the track is archived (strict clients only) */
 	public const ARCHIVED = 'archived';
 }

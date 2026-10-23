@@ -57,6 +57,7 @@ class Capabilities implements ICapability {
 	 *             notes: bool,
 	 *             statsPeriod: bool,
 	 *             notesAppend: bool,
+	 *             idempotencyKey: bool,
 	 *         },
 	 *     },
 	 * }
@@ -101,6 +102,10 @@ class Capabilities implements ICapability {
 					// notes hold up to 500 characters. Older notes builds 404 the route and
 					// silently ignore `appendNote`, so check this before appending.
 					'notesAppend' => true,
+					// The five writes that aren't safe to repeat (POST /api/tracks, toggle,
+					// set, increment, POST /api/notes/append) honour `Idempotency-Key`;
+					// see mobile_instructions.md. Older servers ignore the header.
+					'idempotencyKey' => true,
 				],
 			],
 		];

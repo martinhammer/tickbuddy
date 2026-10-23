@@ -9,6 +9,9 @@ use OCA\Tickbuddy\Controller\NoteController;
 use OCA\Tickbuddy\Controller\StatsController;
 use OCA\Tickbuddy\Controller\TickController;
 use OCA\Tickbuddy\Controller\TrackController;
+use OCA\Tickbuddy\Db\IdempotencyKey;
+use OCA\Tickbuddy\Db\IdempotencyKeyMapper;
+use OCA\Tickbuddy\Service\IdempotencyService;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
@@ -24,18 +27,29 @@ use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\DB\Exception as DbException;
 use OCP\IRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 /**
  * Every error answer carries its `reason` next to the unchanged message and status.
  */
 final class ErrorReasonTest extends TestCase {
 	private IRequest $request;
+	private IdempotencyKeyMapper $idempotencyMapper;
 
 	protected function setUp(): void {
 		$this->request = $this->createMock(IRequest::class);
+		$this->idempotencyMapper = $this->createMock(IdempotencyKeyMapper::class);
+	}
+
+	/** Without an Idempotency-Key header (the request mock's default), every write runs as before */
+	private function idempotency(): IdempotencyService {
+		$time = $this->createMock(ITimeFactory::class);
+		$time->method('getTime')->willReturn(1_792_000_000);
+		return new IdempotencyService($this->request, $this->idempotencyMapper, $time, $this->createMock(LoggerInterface::class));
 	}
 
 	private function assertError(DataResponse $response, int $status, string $message, string $reason): void {
@@ -54,7 +68,7 @@ final class ErrorReasonTest extends TestCase {
 		$service->method('toggle')->willThrowException($e);
 		$service->method('set')->willThrowException($e);
 		$service->method('increment')->willThrowException($e);
-		return new TickController('tickbuddy', $this->request, $service, 'testuser');
+		return new TickController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser');
 	}
 
 	public static function tickErrors(): array {
@@ -85,7 +99,7 @@ final class ErrorReasonTest extends TestCase {
 		$service->method('set')->willThrowException($e);
 		$service->method('append')->willThrowException($e);
 		$service->method('delete')->willThrowException($e);
-		return new NoteController('tickbuddy', $this->request, $service, 'testuser');
+		return new NoteController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser');
 	}
 
 	public function testNoteErrors(): void {
@@ -117,7 +131,7 @@ final class ErrorReasonTest extends TestCase {
 		$service->method('update')->willThrowException($e);
 		$service->method('reorder')->willThrowException($e);
 		$service->method('delete')->willThrowException($e);
-		return new TrackController('tickbuddy', $this->request, $service, 'testuser');
+		return new TrackController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser');
 	}
 
 	public function testCreateErrors(): void {
@@ -148,6 +162,80 @@ final class ErrorReasonTest extends TestCase {
 
 	public function testDestroyErrors(): void {
 		$this->assertError($this->tracks(new DoesNotExistException(''))->destroy(1), 404, 'Track not found', 'trackNotFound');
+	}
+
+	// --- Idempotency-Key ---
+
+	/**
+	 * The five writes that honour Idempotency-Key, each sent a key already
+	 * claimed by `$row` (or none at all with a null row)
+	 *
+	 * @return list<DataResponse>
+	 */
+	private function idempotentWrites(string $header, ?IdempotencyKey $row = null): array {
+		$this->request->method('getHeader')->willReturnCallback(fn (string $name) => $name === 'Idempotency-Key' ? $header : '');
+		if ($row !== null) {
+			$unique = $this->createMock(DbException::class);
+			$unique->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+			$this->idempotencyMapper->method('claim')->willThrowException($unique);
+			$this->idempotencyMapper->method('find')->willReturn($row);
+		}
+		$e = new \LogicException('The write must not run');
+		$ticks = $this->ticks($e);
+		return [
+			$this->tracks($e)->create('A', 'boolean'),
+			$ticks->toggle(1, '2026-10-20'),
+			$ticks->set(1, '2026-10-20', 1),
+			$ticks->increment(1, '2026-10-20', 1),
+			$this->notes($e)->append(1, '2026-10-20', 'a'),
+		];
+	}
+
+	private function claimedRow(?int $status = null): IdempotencyKey {
+		$row = new IdempotencyKey();
+		$row->setId(1);
+		$row->setFingerprint(str_repeat('0', 64));
+		$row->setStatus($status);
+		$row->setCreatedAt(1_792_000_000);
+		return $row;
+	}
+
+	public function testIdempotencyKeyNotAUuid(): void {
+		foreach ($this->idempotentWrites('abc') as $response) {
+			$this->assertError($response, 400, 'Idempotency-Key must be a UUID', 'invalidValue');
+		}
+	}
+
+	public function testIdempotencyKeyReused(): void {
+		foreach ($this->idempotentWrites('"8e03978e-40d5-43e8-bc93-6894a57f9324"', $this->claimedRow(200)) as $response) {
+			$this->assertError($response, 422, 'This Idempotency-Key was already used for another request', 'idempotencyKeyReused');
+		}
+	}
+
+	public function testRequestInProgress(): void {
+		// The row's fingerprint can't match, so give each write a row with its own
+		$this->request->method('getHeader')->willReturnCallback(fn (string $name) => $name === 'Idempotency-Key' ? '8e03978e-40d5-43e8-bc93-6894a57f9324' : '');
+		$unique = $this->createMock(DbException::class);
+		$unique->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+		$this->idempotencyMapper->method('claim')->willThrowException($unique);
+		$fingerprint = '';
+		$this->idempotencyMapper->method('find')->willReturnCallback(function () use (&$fingerprint) {
+			$row = $this->claimedRow();
+			$row->setFingerprint($fingerprint);
+			return $row;
+		});
+		$e = new \LogicException('The write must not run');
+		$writes = [
+			['tracks.create', ['A', 'boolean'], fn () => $this->tracks($e)->create('A', 'boolean')],
+			['ticks.toggle', [1, '2026-10-20', null, null, false], fn () => $this->ticks($e)->toggle(1, '2026-10-20')],
+			['ticks.set', [1, '2026-10-20', 1, null, null, false], fn () => $this->ticks($e)->set(1, '2026-10-20', 1)],
+			['ticks.increment', [1, '2026-10-20', 1, null, null, false], fn () => $this->ticks($e)->increment(1, '2026-10-20', 1)],
+			['notes.append', [1, '2026-10-20', 'a', false], fn () => $this->notes($e)->append(1, '2026-10-20', 'a')],
+		];
+		foreach ($writes as [$endpoint, $params, $write]) {
+			$fingerprint = IdempotencyService::fingerprint($endpoint, $params);
+			$this->assertError($write(), 409, 'This request is still being handled; try again shortly', 'requestInProgress');
+		}
 	}
 
 	// --- stats ---

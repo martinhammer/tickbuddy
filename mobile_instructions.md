@@ -53,6 +53,12 @@ Recommended on every request to `/ocs/v2.php/apps/tickbuddy/api/…`, reads incl
 |---|---|---|
 | `Prefer` | `handling=strict` | RFC 7240. A write to an archived track is refused with `423` instead of a quiet `200` that changes nothing (see Read-only tracks below). A server that honours it answers with `Preference-Applied: handling=strict` on every response; an older server, or a proxy that strips the header, doesn't, and then the old answers apply. |
 
+On the five writes that aren't safe to repeat, when you may retry them (requires `features.idempotencyKey`):
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Idempotency-Key` | `"<a new UUID>"` | A retry with the same key and the same parameters is answered as the first request was, instead of the write happening twice. See Retrying writes safely below. |
+
 For `POST`/`PUT` requests sending form data, also set `Content-Type: application/x-www-form-urlencoded`. The backend reads params via `$this->request->getParam(...)`, which works with form-encoded bodies AND JSON bodies (Nextcloud merges both into the same param bag). Prefer form-encoded — it's what the existing web frontend uses and is well tested.
 
 ### OCS response envelope
@@ -90,6 +96,8 @@ Every error answer of Tickbuddy's own carries `{message, reason}` in `ocs.data`:
 | 403 | `trackLimitReached` | 99 tracks already |
 | 409 | `noteConflict` | other writers kept changing the note while appending |
 | 409 | `databaseConflict` | the database refused a track change (in practice a `sortOrder` another track holds) |
+| 409 | `requestInProgress` | a request with the same `Idempotency-Key` is still being handled; try again shortly |
+| 422 | `idempotencyKeyReused` | the `Idempotency-Key` was already used for another request; nothing written |
 | 423 | `archived` | the track is archived (only with `Prefer: handling=strict`) |
 
 - **Accept unknown values.** Treat a `reason` you don't know like a `message`-only error; values are added without a capability flag. Values are never renamed.
@@ -106,7 +114,8 @@ HTTP status codes used by the backend:
 | 401 | Unauthenticated |
 | 403 | Track limit reached |
 | 404 | Track not found |
-| 409 | DB constraint conflict (e.g. duplicate on reorder), or a note append that kept losing to other writers |
+| 409 | DB constraint conflict (e.g. duplicate on reorder), a note append that kept losing to other writers, or a request with the same `Idempotency-Key` still being handled |
+| 422 | An `Idempotency-Key` reused for another request |
 | 423 | The track is archived (only with `Prefer: handling=strict`, see below) |
 
 ### Read-only tracks (423)
@@ -122,6 +131,30 @@ With `Prefer: handling=strict`, every change to an archived track **except delet
 - `reason` is `archived` today; a later kind of read-only track will bring another value (see above: accept unknown ones). Drop the write, show the message, and pull the tracks again.
 - `423` means read-only only on `/ocs/v2.php/apps/tickbuddy/api/…`. On `/ocs/v1.php` it arrives as HTTP 200 with `statuscode: 423`, like every other error there; use v2.
 - Without the header, ticks and notes on an archived track keep their quiet `200`/`204` with the stored state, and the track changes above are quietly ignored (`200` with the unchanged track). That will end after a deprecation period, when every client gets `423`.
+
+### Retrying writes safely
+
+> Requires `features.idempotencyKey` (§1). An older server ignores the header, so a retried write may happen twice there.
+
+Five writes aren't safe to repeat: if the server did the write and the answer was lost, a plain retry does it again.
+
+| Write | What a plain retry does |
+|---|---|
+| `POST /api/tracks` | makes a second track |
+| `POST /api/ticks/toggle` | flips the day back |
+| `POST /api/ticks/increment` | counts twice |
+| `POST /api/notes/append` | with `allowDuplicate`, adds the line twice |
+| `POST /api/ticks/set` | safe on its own, but not with `appendNote` and `allowDuplicateNote` |
+
+All five take the `Idempotency-Key` header ([draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header)). Without it they work as before; every other endpoint ignores it.
+
+- **The key** is a new UUID (RFC 9562, any version; v4 is fine) for each write, sent as a Structured Fields string, so in double quotes: `Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"`. The server also accepts it without the quotes, and compares it without case. Anything else answers `400` `invalidValue` `Idempotency-Key must be a UUID`, nothing written.
+- **Keep the key with the queued write** until the server answers, and on every retry send the same key with exactly the same parameters (the same endpoint, and every parameter the same, including ones you send with their default value).
+- **A repeat** gets the first request's answer, status and body, and changes nothing. That holds for an error too: a repeat of a request that got `423` or `409` `noteConflict` gets that answer again. The answer is the one the first request got, even if the day has changed since.
+- **`422` `idempotencyKeyReused`**: the key was used for a request with other parameters, or on another endpoint. Nothing written. A client bug: don't retry with that key.
+- **`409` `requestInProgress`**: the first request with this key is still being handled. Try again shortly with the same key. If the first request died on the server (a crash between doing the write and storing the answer), the key is released after 5 minutes and the next retry is handled as new, so in that one case the write may happen twice.
+- **Keys are kept for 30 days**, then forgotten. A retry after that is handled as a new request: a write whose answer was lost more than 30 days ago may happen twice.
+- Keys are per user: another account's key never collides with yours.
 
 ### CSRF
 
@@ -156,14 +189,15 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "stats": true,
     "notes": true,
     "statsPeriod": true,
-    "notesAppend": true
+    "notesAppend": true,
+    "idempotencyKey": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -260,6 +294,8 @@ Responses:
 - `400` on invalid name or type: `{message: "..."}` (`Track name cannot be empty`, `Track names can be at most 255 characters`)
 - `403` if already at 99 tracks
 
+Takes `Idempotency-Key` (with `features.idempotencyKey`), so a retry can't make a second track: see §1, Retrying writes safely.
+
 #### `PUT /api/tracks/{id}`
 Update an existing track. All fields optional; omitted fields untouched.
 
@@ -339,7 +375,7 @@ Response: `{"ticked": true, "value": 1}` if the tick now exists, `{"ticked": fal
 
 On an **archived** track nothing changes, and the response says whether a tick exists for that day (still `200`, so an offline queue keeps draining; the next pull drops the track). With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. Unknown track is still `404` and a counter track still `400`.
 
-Prefer `set` (with `features.booleanSet`) over `toggle` for anything that may be retried: a replayed toggle undoes itself, a replayed `set` doesn't.
+Prefer `set` (with `features.booleanSet`) over `toggle` for anything that may be retried: a replayed toggle undoes itself, a replayed `set` doesn't. If you must toggle, send an `Idempotency-Key` (with `features.idempotencyKey`): see §1, Retrying writes safely.
 
 #### `POST /api/ticks/set`
 Set a tick to a state: a counter's absolute value, or (with `features.booleanSet`) whether a yes/no day is ticked.
@@ -360,6 +396,8 @@ Errors, in this order: `404` unknown track; `400` bad yes/no value; `400` `Date 
 
 On an **archived** track nothing changes and the response carries the state already stored (`0`/`false` if none), with `200`, as for `toggle`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. A bad value or date still answers `400`.
 
+Takes `Idempotency-Key` (with `features.idempotencyKey`). `set` is safe to repeat on its own; the key matters with `appendNote` and `allowDuplicateNote`, but is honoured on every `set`: see §1, Retrying writes safely.
+
 #### `POST /api/ticks/increment`
 > Requires `features.counterIncrement` (§1). On servers without it this route returns `404`.
 
@@ -376,6 +414,8 @@ Form params:
 Response: `{"value": n}`, the value right after this request's write (under concurrency it may already include another device's delta). The value never goes below 0: a result of 0 or less deletes the tick and answers `{"value": 0}`. So a decrement that hits 0 isn't undone by a later increment of the same size (−3 on 2 gives 0, then +3 gives 3).
 
 Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
+
+**An increment isn't safe to repeat**: if the server counted it and the answer was lost, a retry counts twice. Send an `Idempotency-Key` (with `features.idempotencyKey`) whenever the request may be retried: see §1, Retrying writes safely. Without that flag, don't retry an increment whose answer was lost.
 
 With `note` or `appendNote`, every check of the tick call and the note's own checks (§ Notes, for `appendNote` including the length of the result) run before anything is written, so a `400` writes neither the tick nor the note. Then the tick is written, then the note. On an archived track neither changes and the response carries the stored state and, if `note` or `appendNote` was sent, the stored note (with `Prefer: handling=strict`: `423` for the whole call, after the note's own `400` checks). A `409` from `appendNote` (another writer kept changing the note) comes **after** the tick was written: don't replay a `toggle`, append the text with `POST /api/notes/append` instead.
 
@@ -416,6 +456,8 @@ Add text to the day's note without overwriting what another device or script wro
 - **Too long:** if the result would be over 500 characters, `400` `The note would be longer than 500 characters`, nothing written.
 
 Response: `{"text": "…"}`, the whole stored note afterwards (`""` if none). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above; `400` too long; `409` `The note changed while appending; try again` if other writers changed the note three times in a row while the server was appending (nothing written; retrying is safe). On an archived track nothing changes and the stored note comes back, with `200`. With `Prefer: handling=strict`: `423`, empty text included, and the length check doesn't run.
+
+Without `allowDuplicate` a retry is already safe (the text is found and skipped); with it, send an `Idempotency-Key` (with `features.idempotencyKey`) so a retry can't add the text twice: see §1, Retrying writes safely.
 
 #### `DELETE /api/notes?trackId=n&date=YYYY-MM-DD`
 Deletes the day's note. `204`, also when there was none. `404` unknown track, `400` bad date. On an archived track nothing is deleted, still `204`; with `Prefer: handling=strict`, `423`.
@@ -520,7 +562,7 @@ Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Als
 
 As of the version this doc targets, the backend has no sync protocol of its own (no `modifiedAt`, no delta endpoint, no ETags, no push). So the mobile app must build sync client-side. Suggested approach below.
 
-> **Forward-compat:** two of the sharpest edges here (full-range polling and lost counter increments) are fixed or slated to be fixed server-side, discoverable via capability flags (§1). Guard those code paths on `features.syncDelta`, `features.counterIncrement` and `features.booleanSet` so the app upgrades its own behavior when it detects a newer backend. The full-poll + absolute-set approach below remains the correct fallback whenever the flags are `false`.
+> **Forward-compat:** two of the sharpest edges here (full-range polling and lost counter increments) are fixed or slated to be fixed server-side, discoverable via capability flags (§1). Guard those code paths on `features.syncDelta`, `features.counterIncrement`, `features.idempotencyKey` and `features.booleanSet` so the app upgrades its own behavior when it detects a newer backend. The full-poll + absolute-set approach below remains the correct fallback whenever the flags are `false`.
 
 ### Local schema
 
@@ -551,11 +593,11 @@ On app open, on pull-to-refresh, and periodically (e.g. every 15 min while foreg
 
 Walk dirty rows in order: **track creates → track updates → track deletes → tick changes**. The order matters because ticks reference tracks.
 
-- Track created offline: `POST /api/tracks`, store returned `id` as `server_id`, clear `dirty`.
+- Track created offline: `POST /api/tracks`, store returned `id` as `server_id`, clear `dirty`. With `features.idempotencyKey`, give the queued create an `Idempotency-Key` when it is queued and send it on every attempt, so a create whose answer was lost doesn't make a second track.
 - Track renamed: `PUT /api/tracks/{server_id}`.
 - Track deleted: `DELETE /api/tracks/{server_id}`; on 404 treat as already gone.
 - Tick toggled (boolean): queue the **desired end state** (`ticked: true/false`), not "toggle". With `features.booleanSet`, push it with `POST /api/ticks/set` and `value=true|false`: idempotent, always safe to replay. Without the flag, `POST /api/ticks/toggle` is idempotent *per tap*, not per state — replaying a queued toggle that was already applied flips it back — so fetch the current server value before pushing, and only toggle if it differs.
-- Tick counter set: `POST /api/ticks/set` with the desired value — this IS idempotent, always safe to replay. With `features.counterIncrement`, prefer queuing taps as deltas (see Conflict resolution).
+- Tick counter set: `POST /api/ticks/set` with the desired value — this IS idempotent, always safe to replay. With `features.counterIncrement` **and** `features.idempotencyKey`, prefer queuing taps as deltas, each with its own key (see Conflict resolution).
 
 ### Conflict resolution
 
@@ -564,7 +606,7 @@ Two devices edit the same track name, or toggle the same tick. Recommended polic
 - If server row differs from local, and local is not `dirty`: take server value (silent overwrite).
 - If server row differs and local IS `dirty`: push local on next push cycle; accept whatever server returns. For deletes specifically: if server shows a track the user deleted locally (and the delete is still queued), push the delete. If the user edited a track the server has deleted, create a new track with the local name + type.
 
-Counter ticks are the trickiest case — if both devices incremented the same tick offline, both push the same absolute value and one increment is silently lost. Note this is **not** a last-write-wins timing problem you can fix with a timestamp: both writes carry the same wrong value. The real fix is a commutative operation. When `features.counterIncrement` is `true` (§1), send user taps as signed deltas to `POST /api/ticks/increment` and let the server compose them; concurrent increments then merge correctly. While the flag is `false`, fall back to `POST /api/ticks/set`, live with the lost-increment risk for v1, and consider a subtle UI hint when a counter was edited on multiple devices.
+Counter ticks are the trickiest case — if both devices incremented the same tick offline, both push the same absolute value and one increment is silently lost. Note this is **not** a last-write-wins timing problem you can fix with a timestamp: both writes carry the same wrong value. The real fix is a commutative operation. When `features.counterIncrement` and `features.idempotencyKey` are both `true` (§1), send user taps as signed deltas to `POST /api/ticks/increment` and let the server compose them; concurrent increments then merge correctly. An increment isn't safe to retry by itself, so give each queued delta a new `Idempotency-Key` when it is queued, keep the key with the queued change until the server answers, and resend it on every retry (§1, Retrying writes safely). With `counterIncrement` alone, a retried increment whose first answer was lost counts twice: an offline queue that retries should then stay on `set`. While the flags are `false`, fall back to `POST /api/ticks/set`, live with the lost-increment risk for v1, and consider a subtle UI hint when a counter was edited on multiple devices.
 
 ### Offline queue
 

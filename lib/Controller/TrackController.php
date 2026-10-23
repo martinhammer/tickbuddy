@@ -7,6 +7,7 @@ namespace OCA\Tickbuddy\Controller;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ErrorReason;
+use OCA\Tickbuddy\Service\IdempotencyService;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
@@ -33,6 +34,7 @@ class TrackController extends OCSController {
 		string $appName,
 		IRequest $request,
 		private TrackService $trackService,
+		private IdempotencyService $idempotency,
 		private string $userId,
 	) {
 		parent::__construct($appName, $request);
@@ -74,26 +76,34 @@ class TrackController extends OCSController {
 	/**
 	 * Create a new track
 	 *
+	 * With an `Idempotency-Key` header (a UUID), a retry with the same key and
+	 * the same parameters is answered as the first request was and changes
+	 * nothing; see the `idempotencyKey` capability.
+	 *
 	 * @param string $name Track name
 	 * @param string $type Track type, either "boolean" or "counter"
-	 * @return DataResponse<Http::STATUS_CREATED, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_CREATED, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY, TickbuddyError, array{}>
 	 *
-	 * 201: Track created
-	 * 400: Invalid name or type
+	 * 201: Track created. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing
+	 * 400: Invalid name or type, or `Idempotency-Key` is not a UUID
 	 * 403: Track limit reached
+	 * 409: A request with the same `Idempotency-Key` is still being handled; try again shortly
+	 * 422: This `Idempotency-Key` was used for another request; nothing written
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/tracks')]
 	public function create(string $name = '', string $type = ''): DataResponse {
-		try {
-			$track = $this->trackService->create(trim($name), $type, $this->userId);
-			return new DataResponse($this->serializeTrack($track), Http::STATUS_CREATED);
-		} catch (InvalidTrackNameException|InvalidTrackTypeException $e) {
-			// An unknown type is a bad value here, not a wrong endpoint as for ticks
-			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
-		} catch (TrackLimitReachedException $e) {
-			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::TRACK_LIMIT_REACHED], Http::STATUS_FORBIDDEN);
-		}
+		return $this->idempotency->run($this->userId, 'tracks.create', [$name, $type], function () use ($name, $type): DataResponse {
+			try {
+				$track = $this->trackService->create(trim($name), $type, $this->userId);
+				return new DataResponse($this->serializeTrack($track), Http::STATUS_CREATED);
+			} catch (InvalidTrackNameException|InvalidTrackTypeException $e) {
+				// An unknown type is a bad value here, not a wrong endpoint as for ticks
+				return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
+			} catch (TrackLimitReachedException $e) {
+				return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::TRACK_LIMIT_REACHED], Http::STATUS_FORBIDDEN);
+			}
+		});
 	}
 
 	/**
