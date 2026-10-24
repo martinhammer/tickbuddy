@@ -22,13 +22,13 @@ Some of the key features which already exist:
 * A rich set of APIs leveraged by companion apps: [Tickdroid](https://github.com/martinhammer/tickdroid), [Tickcli](https://github.com/martinhammer/tickcli), [TickLLMe](https://github.com/martinhammer/tickllme)
 
 Planned features:
-* Ping webhooks for further automation integrations
+* Ping URLs for further automation integrations
 * Attaching short freetext notes to ticks
 * Additional track types
 * Setting and tracking of targets, goals and expectations 
 * UI enhancements to track management, logging, and analytics
 * Migration options from other tools
-* Support for translations
+* Support for translations and accessibility
 * Maybe even a smartwatch app
 
 ### Motivation
