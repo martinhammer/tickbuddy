@@ -14,7 +14,7 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 - Tickcli, a command-line client for your scripts and automations
 - TickLLMe, an MCP server that lets your AI agents log and read your entries
 	]]></description>
-	<version>2.3.0</version>
+	<version>2.4.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>

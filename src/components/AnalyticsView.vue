@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { getFirstDay } from '@nextcloud/l10n'
-import { generateUrl } from '@nextcloud/router'
+import NcActionLink from '@nextcloud/vue/components/NcActionLink'
+import NcActions from '@nextcloud/vue/components/NcActions'
+import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
+import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import type { ChartOptions } from 'chart.js'
@@ -23,12 +26,14 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import { fetchAllTicks, fetchStats, fetchTracks } from '../api.ts'
 import { fmtDate, parseDateStr, toDateStr, todayStr, userLocale } from '../dates.ts'
 import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
+import { MDI_PENCIL } from '../icons.ts'
+import { loadPreferences, showPrivate } from '../preferences.ts'
 import type { Tick, Track, TrackStats } from '../types.ts'
+import PrivateToggle from './PrivateToggle.vue'
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
 
 const props = defineProps<{
-	showPrivate: boolean
 	trackId?: number | null
 }>()
 
@@ -43,10 +48,8 @@ const trackStats = ref<TrackStats | null>(null)
 const selectedTrack = ref<{ id: number; label: string } | null>(null)
 const loading = ref(false)
 
-const settingsUrl = generateUrl('/settings/user/tickbuddy')
-
 const trackOptions = computed(() => {
-	const list = props.showPrivate ? tracks.value : tracks.value.filter(t => !t.private)
+	const list = showPrivate.value ? tracks.value : tracks.value.filter(t => !t.private)
 	return list.map(t => ({ id: t.id, label: t.name }))
 })
 
@@ -720,7 +723,8 @@ function hideHeatmapTooltip() {
 async function loadTracks() {
 	loading.value = true
 	try {
-		tracks.value = await fetchTracks()
+		const [t] = await Promise.all([fetchTracks(), loadPreferences()])
+		tracks.value = t
 	} finally {
 		loading.value = false
 	}
@@ -764,12 +768,18 @@ onMounted(async () => {
 </script>
 
 <template>
-	<p v-if="!loading && tracks.length === 0" :class="$style.emptyStandalone">
-		No tracks defined yet. Go to <a :href="settingsUrl">Settings → Personal → Tickbuddy</a> to add some.
-	</p>
-	<p v-else-if="!loading && trackOptions.length === 0" :class="$style.emptyStandalone">
-		All tracks are private. Enable "Show private tracks" in the sidebar settings to show them.
-	</p>
+	<NcEmptyContent v-if="!loading && tracks.length === 0" name="No tracks yet">
+		<template #description>
+			Add one in <a href="#tracks" :class="$style.link">Tracks</a>.
+		</template>
+	</NcEmptyContent>
+	<div v-else-if="!loading && trackOptions.length === 0" :class="$style.wrapper">
+		<div :class="$style.trackSelector">
+			<PrivateToggle />
+		</div>
+		<NcEmptyContent name="All your tracks are private"
+			description="Use the eye button to show them." />
+	</div>
 	<div v-else-if="trackOptions.length > 0" :class="$style.wrapper">
 		<div :class="$style.trackSelector">
 			<NcSelect v-model="selectedTrack"
@@ -777,6 +787,15 @@ onMounted(async () => {
 				:clearable="false"
 				input-label="Track"
 				:class="$style.trackSelect" />
+			<PrivateToggle />
+			<NcActions v-if="selectedTrack">
+				<NcActionLink :href="`#tracks/${selectedTrack.id}`">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_PENCIL" />
+					</template>
+					Edit track
+				</NcActionLink>
+			</NcActions>
 		</div>
 
 		<template v-if="selectedTrack && !loading">
@@ -1043,8 +1062,15 @@ onMounted(async () => {
 }
 
 .trackSelector {
+	display: flex;
+	align-items: flex-end;
+	gap: 4px;
 	margin-bottom: 24px;
-	padding-left: 44px;
+	padding-inline-start: 44px;
+}
+
+.link {
+	text-decoration: underline;
 }
 
 .trackSelect {
@@ -1054,13 +1080,6 @@ onMounted(async () => {
 .empty {
 	text-align: center;
 	color: var(--color-text-maxcontrast);
-	margin-top: 32px;
-}
-
-.emptyStandalone {
-	text-align: center;
-	color: var(--color-text-maxcontrast);
-	padding: 16px;
 	margin-top: 32px;
 }
 

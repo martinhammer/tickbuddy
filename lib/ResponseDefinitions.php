@@ -81,7 +81,12 @@ namespace OCA\Tickbuddy;
  * }
  *
  * @psalm-type TickbuddyPreferences = array{
- *     defaultView: string,
+ *     journalLayoutDesktop: string,
+ *     journalLayoutMobile: string,
+ *     showPrivateDesktop: bool,
+ *     showPrivateMobile: bool,
+ *     editableDaysDesktop: string,
+ *     editableDaysMobile: string,
  * }
  *
  * @psalm-suppress UnusedClass

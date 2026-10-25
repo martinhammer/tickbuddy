@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-use OCP\Util;
-
-Util::addScript(OCA\Tickbuddy\AppInfo\Application::APP_ID, OCA\Tickbuddy\AppInfo\Application::APP_ID . '-settings');
-Util::addStyle(OCA\Tickbuddy\AppInfo\Application::APP_ID, OCA\Tickbuddy\AppInfo\Application::APP_ID . '-settings');
+/** @var array{tracksUrl: string} $_ */
 
 ?>
 
-<div id="tickbuddy-settings"></div>
+<div class="section">
+	<h2>Tickbuddy</h2>
+	<p>Tracks are now managed in Tickbuddy.</p>
+	<p><a class="button primary" href="<?php p($_['tracksUrl']); ?>">Open Tracks</a></p>
+</div>

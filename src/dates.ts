@@ -68,3 +68,45 @@ const dayFormatter = new Intl.DateTimeFormat(userLocale, {
 export function fmtDay(ds: string): string {
 	return dayFormatter.format(parseDateStr(ds))
 }
+
+const shortDayFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short', day: 'numeric', month: 'short' })
+
+/**
+ * A date for labels where the year is mostly known, e.g. "Mon 19 Oct", with
+ * the year added outside the current one ("Mon 19 Oct 2025").
+ *
+ * @param ds the date as YYYY-MM-DD
+ * @param today the local date as YYYY-MM-DD
+ */
+export function fmtDayLabel(ds: string, today: string): string {
+	return ds.slice(0, 4) === today.slice(0, 4)
+		? shortDayFormatter.format(parseDateStr(ds)).replace(',', '')
+		: fmtDate(ds)
+}
+
+// Weekend days from the user's Nextcloud locale, as ISO day numbers (1=Mon … 7=Sun).
+// Chromium has the weekInfo property, Firefox the getWeekInfo() method; Saturday
+// and Sunday when neither is there.
+const weekendDays: Set<number> = (() => {
+	try {
+		const locale = new Intl.Locale(userLocale) as Intl.Locale & {
+			weekInfo?: { weekend?: number[] }
+			getWeekInfo?: () => { weekend?: number[] }
+		}
+		const info = locale.weekInfo ?? locale.getWeekInfo?.()
+		if (info?.weekend) return new Set(info.weekend)
+	} catch {
+		// ignore
+	}
+	return new Set([6, 7])
+})()
+
+/**
+ * Whether a day is a weekend day in the user's locale.
+ *
+ * @param ds the date as YYYY-MM-DD
+ */
+export function isWeekend(ds: string): boolean {
+	const jsDay = parseDateStr(ds).getDay()
+	return weekendDays.has(jsDay === 0 ? 7 : jsDay)
+}

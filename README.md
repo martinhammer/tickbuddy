@@ -12,9 +12,10 @@ Tickbuddy is published on the [Nextcloud app store](https://apps.nextcloud.com/a
 ### Features
 
 Some of the key features which already exist:
-* Settings screen to define, manage, archive, delete tracks (i.e. events to be tracked)
-* Main app screen for journal entry
-* Read-only screen for journal viewing
+* Today screen to tick each track for one day, with the last seven days, the current streak and the day's note
+* Journal screen in two layouts (days down or tracks down), with a choice of which days can be changed, notes in the cells, and "Go to date"
+* Tracks screen to add, rename, reorder, archive, restore and delete tracks (i.e. events to be tracked), and to import and export
+* Short freetext notes on any track's day
 * Analytics screen with stats and various visualizations
 * Nextcloud dashboard widget
 * Import/export data in JSON format
@@ -23,7 +24,6 @@ Some of the key features which already exist:
 
 Planned features:
 * Ping URLs for further automation integrations
-* Attaching short freetext notes to ticks
 * Additional track types
 * Setting and tracking of targets, goals and expectations 
 * UI enhancements to track management, logging, and analytics
