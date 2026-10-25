@@ -68,10 +68,17 @@ onBeforeUnmount(() => {
 	overflow: hidden;
 }
 
-/* A link-style button: Nextcloud's global button styles would draw a box. */
-.more {
+/* A link-style button. Nextcloud's core CSS draws every button that isn't an
+   NcButton as a light primary button, with selectors a single class can't beat
+   (button:not(.button-vue, …) is 0,1,1, and 0,2,1 with :hover or :focus), so
+   it is styled under .note, as a scoped style would be. */
+.note .more,
+.note .more:hover,
+.note .more:focus {
+	width: auto;
 	min-height: 0;
-	margin: 0;
+	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
+	margin: 0 !important;
 	padding: 0;
 	border: none;
 	background: none;
@@ -81,8 +88,8 @@ onBeforeUnmount(() => {
 	cursor: pointer;
 }
 
-.more:hover,
-.more:focus-visible {
+.note .more:hover,
+.note .more:focus-visible {
 	text-decoration: underline;
 }
 </style>

@@ -110,3 +110,33 @@ export function isWeekend(ds: string): boolean {
 	const jsDay = parseDateStr(ds).getDay()
 	return weekendDays.has(jsDay === 0 ? 7 : jsDay)
 }
+
+/**
+ * Today's title and the line under it, by how far back the day is: "Today",
+ * "Yesterday" and "2 days ago" to "6 days ago" over the full date; from 7 days
+ * back the date itself ("6 October", with the year in an earlier one) over the
+ * full date with its year.
+ *
+ * @param day the day shown as YYYY-MM-DD, not after today
+ * @param today the local date as YYYY-MM-DD
+ * @param locale a BCP 47 tag; the user's locale unless testing
+ */
+export function dayHeading(day: string, today: string, locale: string = userLocale): { title: string, line: string } {
+	const date = parseDateStr(day)
+	// Walked with addDays, so a DST day still counts as one
+	let daysBack = 0
+	while (daysBack < 7 && addDays(today, -daysBack) !== day) daysBack++
+	if (daysBack < 7) {
+		// numeric: 'auto' gives "today" and "yesterday" rather than "0 days ago"
+		const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-daysBack, 'day')
+		return {
+			title: relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1),
+			line: new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(date),
+		}
+	}
+	const sameYear = day.slice(0, 4) === today.slice(0, 4)
+	return {
+		title: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: sameYear ? undefined : 'numeric' }).format(date),
+		line: new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date),
+	}
+}

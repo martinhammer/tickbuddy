@@ -120,25 +120,38 @@ onBeforeUnmount(() => {
 	white-space: nowrap;
 }
 
-.trackButton,
-.dateButton {
+/* Nextcloud's core CSS draws every button that isn't an NcButton as a light
+   primary button, with selectors a single class can't beat (button:not(.button-vue,
+   …) is 0,1,1, and 0,2,1 with :hover or :focus). So the grid's buttons are
+   styled under .grid, as a scoped style would be. */
+.grid .trackButton,
+.grid .dateButton {
+	width: auto;
 	min-height: 0;
-	margin: 0;
+	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
+	margin: 0 !important;
 	border: none;
 	background: transparent;
 	color: var(--color-main-text);
 	font-size: inherit;
+	font-weight: normal;
 	cursor: pointer;
 }
 
-.trackButton {
+.grid .trackButton:focus,
+.grid .dateButton:hover,
+.grid .dateButton:focus {
+	background: transparent;
+}
+
+.grid .trackButton {
 	padding: 6px 10px;
 	border-radius: var(--border-radius-element, 8px);
 	font-weight: bold;
 }
 
-.trackButton:hover,
-.trackButton:focus-visible {
+.grid .trackButton:hover,
+.grid .trackButton:focus-visible {
 	background: var(--color-background-hover);
 }
 
@@ -154,15 +167,15 @@ onBeforeUnmount(() => {
 	white-space: nowrap;
 }
 
-.dateButton {
+.grid .dateButton {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	padding: 6px 12px;
 }
 
-.dateButton:hover,
-.dateButton:focus-visible {
+.grid .dateButton:hover,
+.grid .dateButton:focus-visible {
 	text-decoration: underline;
 }
 
@@ -170,7 +183,7 @@ onBeforeUnmount(() => {
 	color: var(--color-text-maxcontrast);
 }
 
-.lockedRow .dateButton {
+.grid .lockedRow .dateButton {
 	opacity: 0.55;
 }
 

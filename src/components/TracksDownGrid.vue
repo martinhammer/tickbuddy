@@ -140,28 +140,45 @@ onBeforeUnmount(() => {
 	font-weight: normal;
 }
 
-.dayButton {
+/* Nextcloud's core CSS draws every button that isn't an NcButton as a light
+   primary button, with selectors a single class can't beat (button:not(.button-vue,
+   …) is 0,1,1, and 0,2,1 with :hover or :focus). So the grid's buttons are
+   styled under .grid, as a scoped style would be. */
+.grid .dayButton,
+.grid .nameButton {
+	min-height: 0;
+	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
+	margin: 0 !important;
+	border: none;
+	background: transparent;
+	font-weight: normal;
+	cursor: pointer;
+}
+
+.grid .dayButton:hover,
+.grid .dayButton:focus,
+.grid .nameButton:hover,
+.grid .nameButton:focus {
+	background: transparent;
+}
+
+.grid .dayButton {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	width: 100%;
-	min-height: 0;
-	margin: 0;
 	padding: 4px 0;
-	border: none;
-	background: transparent;
 	color: var(--color-text-maxcontrast);
 	font-size: 12px;
 	line-height: 1.2;
-	cursor: pointer;
 }
 
-.dayButton:hover,
-.dayButton:focus-visible {
+.grid .dayButton:hover,
+.grid .dayButton:focus-visible {
 	text-decoration: underline;
 }
 
-.today .dayButton {
+.grid .today .dayButton {
 	color: var(--color-primary-element);
 	font-weight: bold;
 }
@@ -187,20 +204,15 @@ onBeforeUnmount(() => {
 	font-weight: normal;
 }
 
-.nameButton {
+.grid .nameButton {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
 	width: 100%;
-	min-height: 0;
-	margin: 0;
 	padding: 6px 12px 6px 4px;
-	border: none;
-	background: transparent;
 	color: var(--color-main-text);
 	font-size: inherit;
 	text-align: start;
-	cursor: pointer;
 }
 
 .nameButton:hover .name,
@@ -238,7 +250,7 @@ onBeforeUnmount(() => {
 	background-image: linear-gradient(color-mix(in srgb, var(--color-primary-element) 14%, transparent), color-mix(in srgb, var(--color-primary-element) 14%, transparent));
 }
 
-.lockedDay .dayButton {
+.grid .lockedDay .dayButton {
 	opacity: 0.55;
 }
 

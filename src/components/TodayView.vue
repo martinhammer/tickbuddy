@@ -9,7 +9,7 @@ import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 // so the server's own stylesheets cannot style them — the app must ship this itself.
 import '@nextcloud/dialogs/style.css'
 import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
-import { addDays, parseDateStr, userLocale } from '../dates.ts'
+import { addDays, dayHeading } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { fillFor, getPrimaryColor, levelFor } from '../heatmap.ts'
 import { MDI_CALENDAR_TODAY, MDI_CHEVRON_LEFT, MDI_CHEVRON_RIGHT, MDI_LOCK_OUTLINE } from '../icons.ts'
@@ -68,21 +68,7 @@ const week = computed(() => Array.from({ length: 7 }, (_, i) => addDays(today.va
 const locked = computed(() => !isEditable(shownDay.value, today.value, editableDays.value))
 
 // --- Header ---
-const weekdayFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'long' })
-const dateFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'long', day: 'numeric', month: 'long' })
-const dateYearFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-
-const title = computed(() => {
-	if (shownDay.value === today.value) return 'Today'
-	if (shownDay.value === addDays(today.value, -1)) return 'Yesterday'
-	return weekdayFormatter.format(parseDateStr(shownDay.value))
-})
-
-const fullDate = computed(() => {
-	const d = parseDateStr(shownDay.value)
-	const sameYear = shownDay.value.slice(0, 4) === today.value.slice(0, 4)
-	return (sameYear ? dateFormatter : dateYearFormatter).format(d)
-})
+const heading = computed(() => dayHeading(shownDay.value, today.value))
 
 function goToDay(day: string): void {
 	emit('update:day', day >= today.value ? null : day)
@@ -250,10 +236,10 @@ onMounted(() => {
 		<header :class="$style.header">
 			<div :class="$style.heading">
 				<h2 :class="$style.title">
-					{{ title }}
+					{{ heading.title }}
 				</h2>
 				<div :class="$style.date">
-					{{ fullDate }}
+					{{ heading.line }}
 					<span v-if="locked"
 						:class="$style.lock"
 						role="img"
@@ -329,10 +315,14 @@ onMounted(() => {
 
 <style module>
 /* Left-aligned, as Analytics lays out its page */
+/* Rows start under the title, both clear of the navigation's toggle, which
+   sits over the top left of the content (as on the Tracks page). The 660px
+   column plus the 44px indent. */
 .column {
 	box-sizing: border-box;
-	max-width: 660px;
+	max-width: 704px;
 	padding: 16px;
+	padding-inline-start: 60px;
 }
 
 .header {
@@ -342,8 +332,6 @@ onMounted(() => {
 	justify-content: space-between;
 	gap: 8px;
 	margin-block-end: 8px;
-	/* The navigation's toggle sits over the top left of the content */
-	padding-inline-start: 44px;
 }
 
 .heading {
@@ -392,6 +380,7 @@ onMounted(() => {
 @media (max-width: 1023px) {
 	.column {
 		padding: 12px;
+		padding-inline-start: 56px;
 	}
 }
 </style>

@@ -5,7 +5,7 @@ import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwit
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { fmtDate } from '../dates.ts'
 import { valueText } from '../heatmap.ts'
-import { MDI_MINUS, MDI_PENCIL_OUTLINE, MDI_PLUS } from '../icons.ts'
+import { MDI_MINUS, MDI_NOTE_TEXT_OUTLINE, MDI_PLUS } from '../icons.ts'
 import { runText } from '../runText.ts'
 import type { Track, TrackStats } from '../types.ts'
 import NoteField from './NoteField.vue'
@@ -73,41 +73,60 @@ function openNote(): void {
 <template>
 	<li :class="$style.row">
 		<div :class="$style.main">
-			<div :class="$style.name" :title="track.name">
-				{{ track.name }}
+			<!-- Line 1: the name, then the squares and the run -->
+			<div :class="$style.line1">
+				<div :class="$style.name" :title="track.name">
+					{{ track.name }}
+				</div>
+				<div :class="$style.week">
+					<span v-for="(square, i) in squares"
+						:key="square.date"
+						role="img"
+						:aria-label="squareLabel(square)"
+						:title="squareLabel(square)"
+						:class="[$style.square, i === 0 && $style.squareToday, i === 0 && square.value <= 0 && $style.squareOpen]"
+						:style="{ background: square.fill }" />
+					<span :class="$style.run">{{ runText(stats) }}</span>
+				</div>
 			</div>
-			<div :class="$style.week">
-				<span v-for="(square, i) in squares"
-					:key="square.date"
-					role="img"
-					:aria-label="squareLabel(square)"
-					:title="squareLabel(square)"
-					:class="[$style.square, i === 0 && $style.squareToday, i === 0 && square.value <= 0 && $style.squareOpen]"
-					:style="{ background: square.fill }" />
-				<span :class="$style.run">{{ runText(stats) }}</span>
-			</div>
-			<NoteField v-if="editing"
-				:text="note"
-				:track-name="track.name"
-				:save="saveNote"
-				:class="$style.note"
-				@close="editing = false" />
-			<!-- A click on the text edits it, as the pencil does; the pencil is the way in for the keyboard -->
-			<NoteText v-else-if="note"
-				:text="note"
-				:class="[$style.note, !locked && $style.noteEditable]"
-				@click="openNote" />
-		</div>
 
-		<NcButton v-if="!locked"
-			variant="tertiary"
-			:aria-label="note ? `Edit the note for ${track.name}` : `Add a note for ${track.name}`"
-			:title="note ? `Edit the note for ${track.name}` : `Add a note for ${track.name}`"
-			@click="openNote">
-			<template #icon>
-				<NcIconSvgWrapper :path="MDI_PENCIL_OUTLINE" />
-			</template>
-		</NcButton>
+			<!-- Line 2: the note icon, then the note or "Add a note". A locked day
+				 shows the note read-only, and no line at all without one. -->
+			<div v-if="!locked || note" :class="$style.noteLine">
+				<NcButton v-if="!locked"
+					variant="tertiary"
+					size="small"
+					:class="$style.noteButton"
+					:aria-label="note ? `Edit the note for ${track.name}` : `Add a note for ${track.name}`"
+					:title="note ? `Edit the note for ${track.name}` : `Add a note for ${track.name}`"
+					@click="openNote">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="16" :class="$style.noteIcon" />
+					</template>
+				</NcButton>
+				<span v-else :class="$style.noteIconStatic">
+					<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="16" :class="$style.noteIcon" />
+				</span>
+				<NoteField v-if="editing"
+					:text="note"
+					:track-name="track.name"
+					:save="saveNote"
+					:class="$style.note"
+					@close="editing = false" />
+				<!-- A click on the text edits it, as the icon does; the icon is the way in for the keyboard -->
+				<NoteText v-else-if="note"
+					:text="note"
+					:class="[$style.note, !locked && $style.noteEditable]"
+					@click="openNote" />
+				<button v-else
+					type="button"
+					:class="$style.addNote"
+					tabindex="-1"
+					@click="openNote">
+					Add a note
+				</button>
+			</div>
+		</div>
 
 		<div :class="[$style.control, locked && $style.controlLocked]">
 			<span v-if="isYesNo" @click.capture="onLockedClick">
@@ -158,10 +177,20 @@ function openNote(): void {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 4px;
 }
 
+.line1 {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+/* Cut off first when line 1 runs out of room, so the squares and run always show */
 .name {
+	flex: 0 1 auto;
+	min-width: 0;
 	font-weight: 600;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -169,8 +198,8 @@ function openNote(): void {
 }
 
 .week {
+	flex: none;
 	display: flex;
-	flex-wrap: wrap;
 	align-items: center;
 	gap: 3px;
 	font-size: 13px;
@@ -198,16 +227,75 @@ function openNote(): void {
 	color: var(--color-text-maxcontrast);
 }
 
+/* The icon, then the note as one block beside it, so wrapped lines indent past it */
+.noteLine {
+	display: flex;
+	align-items: flex-start;
+	gap: 4px;
+	/* The run text's size, for the note, "Add a note" and "Show more" */
+	font-size: 13px;
+	/* The small button's padding, so the icon sits under the name's first letter */
+	margin-inline-start: -4px;
+}
+
 .note {
-	margin-block-start: 2px;
+	flex: 1;
+	min-width: 0;
+	/* Centres the text's first line on the icon */
+	padding-block-start: 4px;
+}
+
+.noteIconStatic {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--clickable-area-small, 24px);
+	height: var(--clickable-area-small, 24px);
+}
+
+/* A link-style button, as "Show more". Nextcloud's core CSS draws every button
+   that isn't an NcButton as a light primary button, with selectors a single
+   class can't beat, so it is styled under .row, as a scoped style would be
+   (see CLAUDE.md). The keyboard reaches the field through the icon button. */
+.row .addNote,
+.row .addNote:hover,
+.row .addNote:focus {
+	width: auto;
+	min-height: 0;
+	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
+	margin: 0 !important;
+	padding: 4px 0 0;
+	border: none;
+	background: none;
+	color: var(--color-text-maxcontrast);
+	/* Buttons don't inherit these, so it would sit off the note text's line */
+	font: inherit;
+	line-height: inherit;
+	text-align: start;
+	cursor: pointer;
 }
 
 .noteEditable {
 	cursor: text;
 }
 
+/* Grey at rest, the text colour under the pointer or with keyboard focus. On
+   the icon: NcButton's scoped tertiary colour outranks a class on the button. */
+.noteIcon {
+	/* Lighter than the run text: --color-text-maxcontrast mixed a quarter of the
+	   way into the background, which keeps 3:1 against it (WCAG's minimum for
+	   icons) in light and dark themes */
+	color: color-mix(in srgb, var(--color-text-maxcontrast) 75%, var(--color-main-background));
+}
+
+.noteButton:hover .noteIcon,
+.noteButton:focus-visible .noteIcon {
+	color: var(--color-main-text);
+}
+
 /* One width on every row, that of "− 0 +", with the checkbox centred where a
-   counter's number sits, so controls and pencils line up down the page */
+   counter's number sits, so the controls line up down the page */
 .control {
 	flex: none;
 	display: flex;
@@ -233,9 +321,16 @@ function openNote(): void {
 	color: var(--color-text-maxcontrast);
 }
 
-/* Phones: names wrap rather than being cut off */
+/* Phones: line 1 wraps, the squares and run dropping under a name that
+   wraps rather than being cut off */
 @media (max-width: 1023px) {
+	.line1 {
+		flex-wrap: wrap;
+		row-gap: 4px;
+	}
+
 	.name {
+		flex-basis: 100%;
 		white-space: normal;
 		overflow-wrap: anywhere;
 	}

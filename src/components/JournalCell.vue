@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
-import { MDI_PENCIL_OUTLINE } from '../icons.ts'
+import { MDI_NOTE_TEXT_OUTLINE } from '../icons.ts'
 import type { JournalActions } from '../journal.ts'
 import type { Track } from '../types.ts'
 import NoteField from './NoteField.vue'
@@ -33,7 +33,7 @@ const label = computed(() => {
 	return `${props.track.name}, ${dayLabel.value}: ${shown}${note.value ? ', has a note' : ''}`
 })
 
-const pencilLabel = computed(() => note.value
+const noteLabel = computed(() => note.value
 	? `Edit the note for ${props.track.name}`
 	: `Add a note for ${props.track.name}`)
 
@@ -83,11 +83,11 @@ function save(text: string): Promise<boolean> {
 			</span>
 			<button v-if="!locked"
 				type="button"
-				:class="[$style.control, $style.pencil, $style.cornerPencil]"
-				:aria-label="pencilLabel"
-				:title="pencilLabel"
+				:class="[$style.control, $style.noteButton, $style.cornerNote]"
+				:aria-label="noteLabel"
+				:title="noteLabel"
 				@click="openEditor">
-				<NcIconSvgWrapper :path="MDI_PENCIL_OUTLINE" :size="14" />
+				<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="14" />
 			</button>
 		</template>
 
@@ -110,11 +110,11 @@ function save(text: string): Promise<boolean> {
 				</button>
 				<span :class="$style.divider" aria-hidden="true" />
 				<button type="button"
-					:class="[$style.pillButton, $style.pencil]"
-					:aria-label="pencilLabel"
-					:title="pencilLabel"
+					:class="[$style.pillButton, $style.noteButton]"
+					:aria-label="noteLabel"
+					:title="noteLabel"
 					@click="openEditor">
-					<NcIconSvgWrapper :path="MDI_PENCIL_OUTLINE" :size="14" />
+					<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="14" />
 				</button>
 			</span>
 		</template>
@@ -221,33 +221,38 @@ function save(text: string): Promise<boolean> {
 	background: color-mix(in srgb, var(--color-main-text) 55%, transparent);
 }
 
-.pencil {
+/* Nextcloud's core CSS draws every button that isn't an NcButton as a light
+   primary button, with selectors a single class can't beat (button:not(.button-vue,
+   …) is 0,1,1, and 0,2,1 with :hover, :focus or :disabled). So the cell's
+   buttons are styled under .cell, as a scoped style would be. */
+.cell .noteButton,
+.cell .pillButton {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	min-width: 0;
-	min-height: 0;
-	margin: 0;
+	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
+	margin: 0 !important;
 	padding: 0;
 	border: none;
 	background: transparent;
-	color: var(--color-text-maxcontrast);
+	font-weight: normal;
 	cursor: pointer;
 }
 
-.cornerPencil {
+.cell .noteButton:focus,
+.cell .pillButton:focus {
+	background: transparent;
+}
+
+.cell .cornerNote {
 	position: absolute;
 	inset-block-start: 0;
 	inset-inline-end: 0;
 	width: 18px;
+	min-width: 0;
 	height: 18px;
+	min-height: 0;
 	border-radius: 4px;
-}
-
-.cornerPencil:hover,
-.pencil:hover {
-	background: var(--color-background-hover);
-	color: var(--color-main-text);
 }
 
 /* Floats over the count, and may cover the days beside it for that moment, so
@@ -269,29 +274,40 @@ function save(text: string): Promise<boolean> {
 	white-space: nowrap;
 }
 
-.pillButton {
+.cell .pillButton {
 	width: 26px;
 	min-width: 26px;
 	height: 26px;
 	min-height: 26px;
-	margin: 0;
-	padding: 0;
-	border: none;
 	border-radius: 50%;
-	background: transparent;
 	color: var(--color-main-text);
 	font-size: 16px;
 	line-height: 1;
-	cursor: pointer;
 }
 
-.pillButton:hover:not(:disabled) {
+.cell .pillButton:hover:not(:disabled) {
 	background: var(--color-background-hover);
 }
 
-.pillButton:disabled {
+.cell .pillButton:disabled {
+	background: transparent;
 	opacity: 0.4;
 	cursor: default;
+}
+
+/* Grey at rest, the text colour under the pointer or with keyboard focus.
+   After .pillButton, so the note button in the pill is grey too. */
+.cell .noteButton {
+	/* Lighter than the run text: --color-text-maxcontrast mixed a quarter of the
+	   way into the background, which keeps 3:1 against it (WCAG's minimum for
+	   icons) in light and dark themes */
+	color: color-mix(in srgb, var(--color-text-maxcontrast) 75%, var(--color-main-background));
+}
+
+.cell .noteButton:hover,
+.cell .noteButton:focus-visible {
+	background: var(--color-background-hover);
+	color: var(--color-main-text);
 }
 
 .pillCount {
@@ -375,7 +391,7 @@ function save(text: string): Promise<boolean> {
 		background: transparent;
 	}
 
-	.pencil,
+	.noteButton,
 	.divider,
 	.noteBox {
 		display: none !important;

@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue'
-import NcButton from '@nextcloud/vue/components/NcButton'
-import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcTextArea from '@nextcloud/vue/components/NcTextArea'
-import { MDI_CLOSE } from '../icons.ts'
 
 // Editing a note in place. Enter saves, Shift+Enter adds a line break, Escape
-// cancels, losing focus saves, and ✕ deletes the note. Saving empty text
-// deletes it too. While a save runs the field is read-only; when it fails the
-// field stays open with what was typed, so nothing is lost.
+// cancels, and losing focus saves. Saving empty text deletes the note: there is
+// no delete button, as a ✕ read as "close this field". While a save runs the
+// field is read-only; when it fails the field stays open with what was typed,
+// so nothing is lost.
 
 // The server's limit (NoteService::MAX_LENGTH) in code points. maxlength counts
 // UTF-16 units, so a note with emoji stops a little sooner, never later.
@@ -63,16 +61,6 @@ async function commit(text: string): Promise<void> {
 	}
 }
 
-function remove(): void {
-	if (props.text === '') {
-		// Nothing stored to delete: drop what was typed
-		done = true
-		emit('close')
-		return
-	}
-	commit('')
-}
-
 function onKeydown(event: KeyboardEvent): void {
 	if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 		event.preventDefault()
@@ -86,9 +74,7 @@ function onKeydown(event: KeyboardEvent): void {
 	}
 }
 
-function onFocusout(event: FocusEvent): void {
-	// Tabbing to ✕ stays within the field
-	if (root.value?.contains(event.relatedTarget as Node | null)) return
+function onFocusout(): void {
 	commit(draft.value)
 }
 
@@ -103,38 +89,23 @@ onMounted(async () => {
 </script>
 
 <template>
-	<!-- click.stop: a click in the field (✕ included) is not a click on what holds it -->
+	<!-- click.stop: a click in the field is not a click on what holds it -->
 	<div ref="root"
 		:class="$style.field"
 		@click.stop
 		@keydown="onKeydown"
 		@focusout="onFocusout">
-		<div :class="$style.box">
-			<NcTextArea v-model="draft"
-				label-outside
-				:aria-label="`Note for ${trackName}`"
-				:maxlength="MAX_LENGTH"
-				:readonly="busy"
-				resize="none"
-				rows="1"
-				:input-class="$style.input"
-				@input="fit" />
-			<!-- mousedown.prevent: a click on ✕ mustn't blur the text first, which would save it -->
-			<NcButton variant="tertiary"
-				size="small"
-				aria-label="Delete note"
-				title="Delete note"
-				:disabled="busy"
-				:class="$style.delete"
-				@mousedown.prevent
-				@click="remove">
-				<template #icon>
-					<NcIconSvgWrapper :path="MDI_CLOSE" :size="16" />
-				</template>
-			</NcButton>
-		</div>
+		<NcTextArea v-model="draft"
+			label-outside
+			:aria-label="`Note for ${trackName}`"
+			:maxlength="MAX_LENGTH"
+			:readonly="busy"
+			resize="none"
+			rows="1"
+			:input-class="$style.input"
+			@input="fit" />
 		<p :class="$style.hint">
-			Enter saves · Shift+Enter new line · Escape cancels · ✕ deletes the note
+			Enter saves · Shift+Enter new line · Escape cancels · empty deletes the note
 		</p>
 	</div>
 </template>
@@ -144,21 +115,10 @@ onMounted(async () => {
 	min-width: 0;
 }
 
-.box {
-	position: relative;
-}
-
-/* Room for ✕, which sits inside the border at the top right */
+/* Grows with the text (fit), so no scrollbar and no minimum height */
 .input {
 	min-height: 0 !important;
-	padding-inline-end: 36px !important;
 	overflow-y: hidden;
-}
-
-.delete {
-	position: absolute !important;
-	inset-block-start: 4px;
-	inset-inline-end: 4px;
 }
 
 .hint {
