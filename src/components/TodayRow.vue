@@ -47,22 +47,10 @@ function squareLabel(square: Square): string {
 	return `${props.track.name}, ${fmtDate(square.date)}: ${valueText(square.value, isCounter)}`
 }
 
-// On a locked day the controls look disabled but still take the click, to say
-// why nothing changes (a disabled control would swallow it). Capturing stops
-// the click before the checkbox sees it.
-function onLockedClick(event: Event): void {
-	if (!props.locked) return
-	event.preventDefault()
-	event.stopPropagation()
-	emit('locked')
-}
-
-function onIncrement(delta: number): void {
-	if (props.locked) {
-		emit('locked')
-		return
-	}
-	emit('increment', delta)
+// A locked day shows the read-only value instead of the controls; a click on
+// it says why nothing changes.
+function onControlClick(): void {
+	if (props.locked) emit('locked')
 }
 
 function openNote(): void {
@@ -128,20 +116,26 @@ function openNote(): void {
 			</div>
 		</div>
 
-		<div :class="[$style.control, locked && $style.controlLocked]">
-			<span v-if="isYesNo" @click.capture="onLockedClick">
-				<NcCheckboxRadioSwitch :model-value="value > 0"
-					:aria-label="track.name"
-					:aria-disabled="locked ? 'true' : undefined"
-					@update:model-value="(checked: boolean) => emit('set-yes-no', checked)" />
-			</span>
+		<div :class="[$style.control, locked && $style.controlLocked]" @click="onControlClick">
+			<!-- A locked day: the value only, as the Journal shows it at rest -->
+			<span v-if="locked && isYesNo"
+				:class="$style.mark"
+				role="img"
+				:aria-label="`${track.name}: ${value > 0 ? 'ticked' : 'not ticked'}`">{{ value > 0 ? '✓' : '' }}</span>
+			<span v-else-if="locked && isCounter"
+				:class="[$style.count, value === 0 && $style.zero]"
+				role="img"
+				:aria-label="`${track.name}: ${value}`">{{ value }}</span>
+			<NcCheckboxRadioSwitch v-else-if="isYesNo"
+				:model-value="value > 0"
+				:aria-label="track.name"
+				@update:model-value="(checked: boolean) => emit('set-yes-no', checked)" />
 			<template v-else-if="isCounter">
 				<NcButton variant="tertiary"
 					:aria-label="`Take one from ${track.name}`"
 					:title="`Take one from ${track.name}`"
-					:aria-disabled="locked ? 'true' : undefined"
-					:disabled="!locked && value <= 0"
-					@click="onIncrement(-1)">
+					:disabled="value <= 0"
+					@click="emit('increment', -1)">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_MINUS" />
 					</template>
@@ -150,8 +144,7 @@ function openNote(): void {
 				<NcButton variant="tertiary"
 					:aria-label="`Add one to ${track.name}`"
 					:title="`Add one to ${track.name}`"
-					:aria-disabled="locked ? 'true' : undefined"
-					@click="onIncrement(1)">
+					@click="emit('increment', 1)">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_PLUS" />
 					</template>
@@ -304,10 +297,17 @@ function openNote(): void {
 	min-width: calc(2 * var(--default-clickable-area) + 3ch);
 }
 
-/* aria-disabled leaves the controls clickable (to say why nothing changes), so
-   they only look disabled. */
+/* Fills the area, so a click anywhere in it says why nothing changes */
 .controlLocked {
-	opacity: 0.5;
+	align-self: stretch;
+	cursor: default;
+}
+
+.mark {
+	color: var(--color-primary-element);
+	font-size: 18px;
+	font-weight: bold;
+	line-height: 1;
 }
 
 .count {
@@ -315,6 +315,10 @@ function openNote(): void {
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 	font-weight: 600;
+}
+
+.zero {
+	color: var(--color-text-maxcontrast);
 }
 
 .unsupported {

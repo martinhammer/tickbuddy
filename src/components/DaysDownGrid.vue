@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { addDays, isWeekend, parseDateStr, userLocale } from '../dates.ts'
-import { MDI_LOCK_OUTLINE } from '../icons.ts'
 import type { JournalActions } from '../journal.ts'
 import type { Track } from '../types.ts'
 import JournalCell from './JournalCell.vue'
@@ -70,17 +68,13 @@ onBeforeUnmount(() => {
 			<tbody>
 				<tr v-for="date in dates"
 					:key="date"
-					:class="{ [$style.weekend]: isWeekend(date), [$style.lockedRow]: actions.isLocked(date) }"
+					:class="{ [$style.weekend]: isWeekend(date) }"
 					:data-today="date === today || undefined">
 					<th scope="row" :class="$style.dateCell">
 						<button type="button"
 							:class="$style.dateButton"
 							:aria-label="`Open ${actions.dayLabel(date)} in Today`"
 							@click="actions.openDay(date)">
-							<NcIconSvgWrapper v-if="actions.isLocked(date)"
-								:path="MDI_LOCK_OUTLINE"
-								:size="14"
-								:class="$style.lock" />
 							{{ formatDate(date) }}
 						</button>
 					</th>
@@ -112,6 +106,13 @@ onBeforeUnmount(() => {
 .corner {
 	inset-inline-start: 0;
 	z-index: 6;
+}
+
+/* The grid's start margin, solid so that days scrolling under the sticky
+   column don't show through it */
+.corner,
+.dateCell {
+	border-inline-start: 8px solid var(--color-main-background);
 }
 
 .trackHeader {
@@ -168,23 +169,12 @@ onBeforeUnmount(() => {
 }
 
 .grid .dateButton {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
 	padding: 6px 12px;
 }
 
 .grid .dateButton:hover,
 .grid .dateButton:focus-visible {
 	text-decoration: underline;
-}
-
-.lock {
-	color: var(--color-text-maxcontrast);
-}
-
-.grid .lockedRow .dateButton {
-	opacity: 0.55;
 }
 
 .tickCell {

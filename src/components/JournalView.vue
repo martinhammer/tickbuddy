@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { showError } from '@nextcloud/dialogs'
-import NcActionCaption from '@nextcloud/vue/components/NcActionCaption'
-import NcActionRadio from '@nextcloud/vue/components/NcActionRadio'
-import NcActions from '@nextcloud/vue/components/NcActions'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDateTimePickerNative from '@nextcloud/vue/components/NcDateTimePickerNative'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
@@ -16,14 +13,15 @@ import { useIsMobile } from '@nextcloud/vue/composables/useIsMobile'
 import '@nextcloud/dialogs/style.css'
 import { deleteNote, fetchNotes, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
 import { addDays, fmtDayLabel, parseDateStr, toDateStr } from '../dates.ts'
-import { EDITABLE_DAYS, EDITABLE_DAYS_LABELS, isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
-import { MDI_BOOK_OPEN_PAGE_VARIANT_OUTLINE, MDI_CALENDAR_OUTLINE, MDI_CALENDAR_TODAY, MDI_LOCK_OPEN_VARIANT_OUTLINE, MDI_LOCK_OUTLINE } from '../icons.ts'
+import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
+import { MDI_CALENDAR_OUTLINE, MDI_CALENDAR_TODAY, MDI_PHONE_ROTATE_LANDSCAPE, MDI_PHONE_ROTATE_PORTRAIT } from '../icons.ts'
 import type { JournalActions } from '../journal.ts'
 import { editableDays, journalLayout, loadPreferences, showPrivate } from '../preferences.ts'
-import type { EditableDays, Note, Tick, Track } from '../types.ts'
+import type { Note, Tick, Track } from '../types.ts'
 import { useToday } from '../useToday.ts'
 import { writeFailed } from '../writeErrors.ts'
 import DaysDownGrid from './DaysDownGrid.vue'
+import EditableDaysMenu from './EditableDaysMenu.vue'
 import PrivateToggle from './PrivateToggle.vue'
 import TracksDownGrid from './TracksDownGrid.vue'
 
@@ -79,14 +77,9 @@ function tickKey(trackId: number, date: string): string {
 
 // --- Toolbar ---
 const layoutLabel = computed(() => journalLayout.value === 'daysDown' ? 'Switch to Tracks down' : 'Switch to Days down')
-const editableDaysLabel = computed(() => `Editable days: ${EDITABLE_DAYS_LABELS[editableDays.value]}`)
 
 function toggleLayout(): void {
 	journalLayout.value = journalLayout.value === 'daysDown' ? 'tracksDown' : 'daysDown'
-}
-
-function setEditableDays(value: string | number): void {
-	editableDays.value = value as EditableDays
 }
 
 // The picker's value: the first day as a local-midnight Date
@@ -305,23 +298,12 @@ onMounted(() => {
 					:title="layoutLabel"
 					@click="toggleLayout">
 					<template #icon>
-						<NcIconSvgWrapper :path="MDI_BOOK_OPEN_PAGE_VARIANT_OUTLINE" />
+						<!-- A portrait phone in Days down, a landscape one in Tracks down,
+							     with an arrow to the other -->
+						<NcIconSvgWrapper :path="journalLayout === 'daysDown' ? MDI_PHONE_ROTATE_LANDSCAPE : MDI_PHONE_ROTATE_PORTRAIT" />
 					</template>
 				</NcButton>
-				<NcActions :aria-label="editableDaysLabel" :title="editableDaysLabel">
-					<template #icon>
-						<NcIconSvgWrapper :path="editableDays === 'allDays' ? MDI_LOCK_OPEN_VARIANT_OUTLINE : MDI_LOCK_OUTLINE" />
-					</template>
-					<NcActionCaption name="Editable days" />
-					<NcActionRadio v-for="option in EDITABLE_DAYS"
-						:key="option"
-						name="tickbuddy-editable-days"
-						:value="option"
-						:model-value="editableDays"
-						@update:model-value="setEditableDays">
-						{{ EDITABLE_DAYS_LABELS[option] }}
-					</NcActionRadio>
-				</NcActions>
+				<EditableDaysMenu />
 			</div>
 		</div>
 
@@ -334,7 +316,7 @@ onMounted(() => {
 			</NcEmptyContent>
 			<NcEmptyContent v-else-if="view === 'allPrivate'"
 				name="All your tracks are private"
-				description="Use the eye button to show them." />
+				description="Use Show private to show them." />
 			<NcEmptyContent v-else-if="view === 'error'"
 				name="Couldn't load your tracks"
 				description="Check your connection, then try again.">
@@ -345,12 +327,14 @@ onMounted(() => {
 				</template>
 			</NcEmptyContent>
 			<DaysDownGrid v-else-if="journalLayout === 'daysDown'"
+				:class="$style.grid"
 				:tracks="visibleTracks"
 				:dates="dates"
 				:today="today"
 				:actions="actions"
 				@more="loadMore" />
 			<TracksDownGrid v-else
+				:class="$style.grid"
 				:tracks="visibleTracks"
 				:dates="dates"
 				:today="today"
@@ -396,7 +380,13 @@ onMounted(() => {
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
-	padding-inline: 8px;
+}
+
+/* Not the scroller's padding: sticky cells stick inside it, and earlier days
+   would show through. The start margin is the first column's (see the grids). */
+.grid {
+	box-sizing: border-box;
+	padding-inline-end: 8px;
 }
 
 .loading {

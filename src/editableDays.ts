@@ -20,8 +20,8 @@ const HISTORY_DAYS: Record<EditableDays, number | null> = {
 	allDays: null,
 }
 
-/** What a click on a locked day says, as a toast and as the lock's tooltip. */
-export const LOCKED_DAY_MESSAGE = 'This day is locked. Select editable days in the Journal.'
+/** What a click on a locked day says, as a toast, on Today and in the Journal. */
+export const LOCKED_DAY_MESSAGE = 'This day is locked. Use the Editable days button to change that.'
 
 /**
  * Whether a click may change this day, as Tickdroid's `EditableDays.isEditable`:

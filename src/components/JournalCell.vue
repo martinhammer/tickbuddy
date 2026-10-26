@@ -8,9 +8,11 @@ import NoteField from './NoteField.vue'
 import NoteText from './NoteText.vue'
 
 // One day of one track. At rest it reads like View journal did (✓, or the
-// count); under the pointer or with keyboard focus the controls show (Edit
-// journal's checkbox, or − and + floating over the count). On a touchscreen they
-// always show. The controls are always in the DOM, so Tab reaches them.
+// count); under the pointer or with keyboard focus a floating bar shows the
+// controls, with the checkbox or the count exactly where the value sits at rest,
+// then the note button. On a touchscreen they always show, without the note
+// button. The controls are always in the DOM, so Tab reaches them. A locked day
+// keeps its at-rest look throughout, and a click on it says why.
 
 const props = defineProps<{
 	track: Track
@@ -62,16 +64,16 @@ function save(text: string): Promise<boolean> {
 </script>
 
 <template>
-	<div :class="[$style.cell, locked && $style.locked, editing && $style.editing, isCounter && $style.counterCell]"
+	<div :class="[$style.cell, locked && $style.locked, editing && $style.editing]"
 		role="group"
 		:aria-label="label"
 		@click.capture="onClickCapture">
 		<span v-if="note" :class="$style.dot" aria-hidden="true" />
 
 		<template v-if="isYesNo">
-			<span :class="$style.stack">
-				<span :class="[$style.mark, !locked && $style.hidesOnHover]" aria-hidden="true">{{ value > 0 ? '✓' : '' }}</span>
-				<span v-if="!locked" :class="[$style.control, $style.checkbox]">
+			<span :class="[$style.mark, !locked && $style.hidesOnHover]" aria-hidden="true">{{ value > 0 ? '✓' : '' }}</span>
+			<span v-if="!locked" :class="[$style.control, $style.bar, $style.yesNoBar]">
+				<span :class="$style.checkboxSlot">
 					<input :id="`tick-${track.id}-${date}`"
 						type="checkbox"
 						class="checkbox"
@@ -80,41 +82,41 @@ function save(text: string): Promise<boolean> {
 						@change="onCheckboxChange">
 					<label :for="`tick-${track.id}-${date}`" />
 				</span>
+				<span :class="$style.divider" aria-hidden="true" />
+				<button type="button"
+					:class="$style.noteButton"
+					:aria-label="noteLabel"
+					:title="noteLabel"
+					@click="openEditor">
+					<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="20" :class="$style.noteIcon" />
+				</button>
 			</span>
-			<button v-if="!locked"
-				type="button"
-				:class="[$style.control, $style.noteButton, $style.cornerNote]"
-				:aria-label="noteLabel"
-				:title="noteLabel"
-				@click="openEditor">
-				<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="14" />
-			</button>
 		</template>
 
 		<template v-else-if="isCounter">
 			<span :class="[$style.num, value === 0 && $style.zero, !locked && $style.hidesOnHover]" aria-hidden="true">{{ value }}</span>
-			<span v-if="!locked" :class="[$style.control, $style.pill]">
+			<span v-if="!locked" :class="[$style.control, $style.bar, $style.counterBar]">
 				<button type="button"
-					:class="$style.pillButton"
+					:class="$style.stepButton"
 					:aria-label="`Take one from ${track.name}`"
 					:disabled="value <= 0"
 					@click="actions.increment(track, date, -1)">
 					−
 				</button>
-				<span :class="$style.pillCount" aria-hidden="true">{{ value }}</span>
+				<span :class="[$style.barCount, value === 0 && $style.zero]" aria-hidden="true">{{ value }}</span>
 				<button type="button"
-					:class="$style.pillButton"
+					:class="$style.stepButton"
 					:aria-label="`Add one to ${track.name}`"
 					@click="actions.increment(track, date, 1)">
 					+
 				</button>
 				<span :class="$style.divider" aria-hidden="true" />
 				<button type="button"
-					:class="[$style.pillButton, $style.noteButton]"
+					:class="$style.noteButton"
 					:aria-label="noteLabel"
 					:title="noteLabel"
 					@click="openEditor">
-					<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="14" />
+					<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="20" :class="$style.noteIcon" />
 				</button>
 			</span>
 		</template>
@@ -177,30 +179,11 @@ function save(text: string): Promise<boolean> {
 	opacity: 0;
 }
 
-.locked .mark,
-.locked .num {
-	opacity: 0.55;
-}
-
-.stack {
-	display: grid;
-	place-items: center;
-}
-
-.stack > * {
-	grid-area: 1 / 1;
-}
-
 .mark {
 	color: var(--color-primary-element);
 	font-size: 18px;
 	font-weight: bold;
 	line-height: 1;
-}
-
-/* Nextcloud's checkbox draws its box on the label */
-.checkbox {
-	display: flex;
 }
 
 .num {
@@ -211,14 +194,71 @@ function save(text: string): Promise<boolean> {
 	color: var(--color-text-maxcontrast);
 }
 
+/* Beside the value, placed from the cell's centre rather than its corner, so it
+   sits as close in Days down's wide cells as in Tracks down's 38px ones */
 .dot {
 	position: absolute;
 	inset-block-start: 3px;
-	inset-inline-end: 3px;
+	inset-inline-start: calc(50% + 10px);
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
 	background: color-mix(in srgb, var(--color-main-text) 55%, transparent);
+}
+
+/* The floating bar: vertically centred on the row, and placed from the cell's
+   centre so the checkbox or the count sits exactly where the value does at rest.
+   It may cover the cells beside it for that moment, so cells stay narrow. */
+.bar {
+	--bar-padding: 2px;
+	--step-size: 26px;
+	--count-width: 34px;
+	--checkbox-size: 30px;
+	position: absolute;
+	inset-block-start: 50%;
+	inset-inline-start: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	padding: var(--bar-padding);
+	border-radius: var(--border-radius-element, 8px);
+	background: var(--color-main-background);
+	box-shadow: 0 2px 8px var(--color-box-shadow);
+	white-space: nowrap;
+}
+
+/* The checkbox's centre on the cell's */
+.yesNoBar {
+	margin-inline-start: calc(-1 * (var(--bar-padding) + var(--checkbox-size) / 2));
+}
+
+/* The count's centre on the cell's, "−" and "+" about 30px either side of it */
+.counterBar {
+	margin-inline-start: calc(-1 * (var(--bar-padding) + var(--step-size) + var(--count-width) / 2));
+}
+
+.checkboxSlot {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--checkbox-size);
+	height: var(--checkbox-size);
+}
+
+/* Nextcloud's checkbox draws its box on the label, with an uneven margin
+   (3px before, 6px after) that would put it off the centre */
+.cell .checkboxSlot input.checkbox + label {
+	display: flex;
+}
+
+.cell .checkboxSlot input.checkbox + label::before {
+	margin: 0;
+}
+
+.barCount {
+	width: var(--count-width);
+	text-align: center;
+	font-variant-numeric: tabular-nums;
 }
 
 /* Nextcloud's core CSS draws every button that isn't an NcButton as a light
@@ -226,7 +266,7 @@ function save(text: string): Promise<boolean> {
    …) is 0,1,1, and 0,2,1 with :hover, :focus or :disabled). So the cell's
    buttons are styled under .cell, as a scoped style would be. */
 .cell .noteButton,
-.cell .pillButton {
+.cell .stepButton {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -240,64 +280,39 @@ function save(text: string): Promise<boolean> {
 }
 
 .cell .noteButton:focus,
-.cell .pillButton:focus {
+.cell .stepButton:focus {
 	background: transparent;
 }
 
-.cell .cornerNote {
-	position: absolute;
-	inset-block-start: 0;
-	inset-inline-end: 0;
-	width: 18px;
-	min-width: 0;
-	height: 18px;
-	min-height: 0;
-	border-radius: 4px;
-}
-
-/* Floats over the count, and may cover the days beside it for that moment, so
-   cells stay narrow. Centred with physical left: the centring is the same
-   either way round. */
-.pill {
-	position: absolute;
-	inset-block-start: 50%;
-	/* stylelint-disable-next-line csstools/use-logical */
-	left: 50%;
-	transform: translate(-50%, -50%);
-	display: flex;
-	align-items: center;
-	gap: 1px;
-	padding: 2px;
-	border-radius: 16px;
-	background: var(--color-main-background);
-	box-shadow: 0 2px 8px var(--color-box-shadow);
-	white-space: nowrap;
-}
-
-.cell .pillButton {
-	width: 26px;
-	min-width: 26px;
-	height: 26px;
-	min-height: 26px;
+.cell .stepButton {
+	width: var(--step-size);
+	min-width: var(--step-size);
+	height: var(--step-size);
+	min-height: var(--step-size);
 	border-radius: 50%;
 	color: var(--color-main-text);
 	font-size: 16px;
 	line-height: 1;
 }
 
-.cell .pillButton:hover:not(:disabled) {
+.cell .stepButton:hover:not(:disabled) {
 	background: var(--color-background-hover);
 }
 
-.cell .pillButton:disabled {
+.cell .stepButton:disabled {
 	background: transparent;
 	opacity: 0.4;
 	cursor: default;
 }
 
-/* Grey at rest, the text colour under the pointer or with keyboard focus.
-   After .pillButton, so the note button in the pill is grey too. */
+/* Today's size, grey at rest, the text colour under the pointer or with
+   keyboard focus */
 .cell .noteButton {
+	width: 32px;
+	min-width: 32px;
+	height: 32px;
+	min-height: 32px;
+	border-radius: var(--border-radius-element, 8px);
 	/* Lighter than the run text: --color-text-maxcontrast mixed a quarter of the
 	   way into the background, which keeps 3:1 against it (WCAG's minimum for
 	   icons) in light and dark themes */
@@ -310,17 +325,18 @@ function save(text: string): Promise<boolean> {
 	color: var(--color-main-text);
 }
 
-.pillCount {
-	min-width: 2ch;
-	text-align: center;
-	font-variant-numeric: tabular-nums;
-	font-weight: 600;
+/* NcIconSvgWrapper is at least the default clickable area (34px or more), larger
+   than the button, which pushed the icon off centre and stretched the bar. Its
+   scoped rule is 0,2,0. */
+.cell .noteButton .noteIcon {
+	min-width: 0;
+	min-height: 0;
 }
 
 .divider {
 	width: 1px;
-	height: 18px;
-	margin-inline: 2px;
+	height: 20px;
+	margin-inline: 3px;
 	background: var(--color-border);
 }
 
@@ -340,6 +356,8 @@ function save(text: string): Promise<boolean> {
 	font-size: 13px;
 	font-weight: normal;
 	text-align: start;
+	/* The table cell it sits in doesn't wrap */
+	white-space: normal;
 	cursor: text;
 }
 
@@ -372,8 +390,9 @@ function save(text: string): Promise<boolean> {
 	font-size: 12px;
 }
 
-/* Touchscreens: no hover, so the controls always show (counter cells get wider),
-   and notes are read and edited on Today instead */
+/* Touchscreens: no hover, so the controls always show, in the cell rather than
+   floating (counter cells get wider; "−" and "+" are the same size, so the count
+   stays centred), and notes are read and edited on Today instead */
 @media (hover: none) {
 	.control {
 		opacity: 1;
@@ -384,9 +403,11 @@ function save(text: string): Promise<boolean> {
 		display: none;
 	}
 
-	.pill {
+	.bar {
 		position: static;
 		transform: none;
+		margin: 0;
+		padding: 0;
 		box-shadow: none;
 		background: transparent;
 	}

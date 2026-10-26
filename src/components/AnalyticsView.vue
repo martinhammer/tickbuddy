@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { getFirstDay } from '@nextcloud/l10n'
-import NcActionLink from '@nextcloud/vue/components/NcActionLink'
-import NcActions from '@nextcloud/vue/components/NcActions'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
-import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import type { ChartOptions } from 'chart.js'
@@ -26,10 +23,8 @@ import zoomPlugin from 'chartjs-plugin-zoom'
 import { fetchAllTicks, fetchStats, fetchTracks } from '../api.ts'
 import { fmtDate, parseDateStr, toDateStr, todayStr, userLocale } from '../dates.ts'
 import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
-import { MDI_PENCIL } from '../icons.ts'
 import { loadPreferences, showPrivate } from '../preferences.ts'
 import type { Tick, Track, TrackStats } from '../types.ts'
-import PrivateToggle from './PrivateToggle.vue'
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
 
@@ -773,13 +768,9 @@ onMounted(async () => {
 			Add one in <a href="#tracks" :class="$style.link">Tracks</a>.
 		</template>
 	</NcEmptyContent>
-	<div v-else-if="!loading && trackOptions.length === 0" :class="$style.wrapper">
-		<div :class="$style.trackSelector">
-			<PrivateToggle />
-		</div>
-		<NcEmptyContent name="All your tracks are private"
-			description="Use the eye button to show them." />
-	</div>
+	<NcEmptyContent v-else-if="!loading && trackOptions.length === 0"
+		name="All your tracks are private"
+		description="Use Show private on Today or in the Journal to show them." />
 	<div v-else-if="trackOptions.length > 0" :class="$style.wrapper">
 		<div :class="$style.trackSelector">
 			<NcSelect v-model="selectedTrack"
@@ -787,15 +778,6 @@ onMounted(async () => {
 				:clearable="false"
 				input-label="Track"
 				:class="$style.trackSelect" />
-			<PrivateToggle />
-			<NcActions v-if="selectedTrack">
-				<NcActionLink :href="`#tracks/${selectedTrack.id}`">
-					<template #icon>
-						<NcIconSvgWrapper :path="MDI_PENCIL" />
-					</template>
-					Edit track
-				</NcActionLink>
-			</NcActions>
 		</div>
 
 		<template v-if="selectedTrack && !loading">

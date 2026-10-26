@@ -4,7 +4,7 @@ import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { MDI_EYE_OFF_OUTLINE, MDI_EYE_OUTLINE } from '../icons.ts'
 import { showPrivate } from '../preferences.ts'
 
-// The eye on Today, the Journal and Analytics: one saved value, shared by all three.
+// The eye on Today and the Journal: one saved value, shared by both and followed by Analytics.
 </script>
 
 <template>

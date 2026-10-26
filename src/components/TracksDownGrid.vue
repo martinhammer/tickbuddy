@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { isWeekend, parseDateStr, userLocale } from '../dates.ts'
-import { MDI_LOCK_OUTLINE } from '../icons.ts'
-import { isKnownType } from '../journal.ts'
 import type { JournalActions } from '../journal.ts'
 import type { Track } from '../types.ts'
 import JournalCell from './JournalCell.vue'
@@ -28,16 +25,10 @@ function weekday(date: string): string {
 	return date === props.today ? 'Today' : weekdayFormatter.format(parseDateStr(date))
 }
 
-function typeName(track: Track): string {
-	if (!isKnownType(track.type)) return track.type
-	return track.type === 'counter' ? 'Counter' : 'Yes/No'
-}
-
 function dayClasses(date: string, style: Record<string, string>): (string | false)[] {
 	return [
 		date === props.today && style.today,
 		isWeekend(date) && style.weekend,
-		props.actions.isLocked(date) && style.lockedDay,
 	]
 }
 
@@ -75,10 +66,6 @@ onBeforeUnmount(() => {
 							:class="$style.dayButton"
 							:aria-label="`Open ${actions.dayLabel(date)} in Today`"
 							@click="actions.openDay(date)">
-							<NcIconSvgWrapper v-if="actions.isLocked(date)"
-								:path="MDI_LOCK_OUTLINE"
-								:size="12"
-								:class="$style.lock" />
 							<span :class="$style.weekday">{{ weekday(date) }}</span>
 							<span>{{ parseDateStr(date).getDate() }}</span>
 						</button>
@@ -93,7 +80,6 @@ onBeforeUnmount(() => {
 							:title="`Show analytics for ${track.name}`"
 							@click="actions.openTrack(track.id)">
 							<span :class="$style.name">{{ track.name }}</span>
-							<span :class="$style.type">{{ typeName(track) }}</span>
 						</button>
 					</th>
 					<td v-for="date in dates"
@@ -131,6 +117,13 @@ onBeforeUnmount(() => {
 .corner {
 	inset-inline-start: 0;
 	z-index: 6;
+}
+
+/* The grid's start margin, solid so that days scrolling under the sticky
+   column don't show through it */
+.corner,
+.nameCell {
+	border-inline-start: 8px solid var(--color-main-background);
 }
 
 .dayHeader {
@@ -188,10 +181,6 @@ onBeforeUnmount(() => {
 	white-space: nowrap;
 }
 
-.lock {
-	color: var(--color-text-maxcontrast);
-}
-
 .nameCell {
 	position: sticky;
 	inset-inline-start: 0;
@@ -228,11 +217,6 @@ onBeforeUnmount(() => {
 	font-weight: 600;
 }
 
-.type {
-	color: var(--color-text-maxcontrast);
-	font-size: 12px;
-}
-
 .tickCell {
 	width: 38px;
 	min-width: 38px;
@@ -248,10 +232,6 @@ onBeforeUnmount(() => {
 
 .today {
 	background-image: linear-gradient(color-mix(in srgb, var(--color-primary-element) 14%, transparent), color-mix(in srgb, var(--color-primary-element) 14%, transparent));
-}
-
-.grid .lockedDay .dayButton {
-	opacity: 0.55;
 }
 
 .sentinel {

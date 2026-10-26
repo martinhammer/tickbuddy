@@ -18,12 +18,3 @@ export interface JournalActions {
 	/** The label for a day in a cell's name, e.g. "Mon 19 Oct" */
 	dayLabel(date: string): string
 }
-
-/**
- * Whether the web can show controls for a track type. Anything else is shown read-only.
- *
- * @param type the track's type
- */
-export function isKnownType(type: string): boolean {
-	return type === 'boolean' || type === 'counter'
-}

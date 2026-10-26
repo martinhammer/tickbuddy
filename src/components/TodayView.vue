@@ -12,11 +12,12 @@ import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementC
 import { addDays, dayHeading } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { fillFor, getPrimaryColor, levelFor } from '../heatmap.ts'
-import { MDI_CALENDAR_TODAY, MDI_CHEVRON_LEFT, MDI_CHEVRON_RIGHT, MDI_LOCK_OUTLINE } from '../icons.ts'
+import { MDI_CALENDAR_TODAY, MDI_CHEVRON_LEFT, MDI_CHEVRON_RIGHT } from '../icons.ts'
 import { editableDays, loadPreferences, showPrivate } from '../preferences.ts'
 import type { Track, TrackStats } from '../types.ts'
 import { useToday } from '../useToday.ts'
 import { writeFailed } from '../writeErrors.ts'
+import EditableDaysMenu from './EditableDaysMenu.vue'
 import PrivateToggle from './PrivateToggle.vue'
 import TodayRow from './TodayRow.vue'
 
@@ -66,6 +67,11 @@ const statsByTrack = computed(() => new Map(stats.value.map(s => [s.trackId, s])
 const week = computed(() => Array.from({ length: 7 }, (_, i) => addDays(today.value, -i)))
 
 const locked = computed(() => !isEditable(shownDay.value, today.value, editableDays.value))
+
+// The Editable days button shows while the day is locked, and stays on a day
+// unlocked with it until another day is shown, so the choice can be undone.
+const changedEditableDaysOn = ref<string | null>(null)
+const showEditableDays = computed(() => locked.value || changedEditableDaysOn.value === shownDay.value)
 
 // --- Header ---
 const heading = computed(() => dayHeading(shownDay.value, today.value))
@@ -161,6 +167,7 @@ async function loadDay(day: string): Promise<void> {
 }
 
 watch(shownDay, (day, previous) => {
+	if (day !== previous) changedEditableDaysOn.value = null
 	if (status.value === 'ready' && day !== previous) loadDay(day)
 })
 
@@ -240,17 +247,11 @@ onMounted(() => {
 				</h2>
 				<div :class="$style.date">
 					{{ heading.line }}
-					<span v-if="locked"
-						:class="$style.lock"
-						role="img"
-						:aria-label="LOCKED_DAY_MESSAGE"
-						:title="LOCKED_DAY_MESSAGE">
-						<NcIconSvgWrapper :path="MDI_LOCK_OUTLINE" :size="16" />
-					</span>
 				</div>
 			</div>
 			<div :class="$style.actions">
 				<PrivateToggle />
+				<EditableDaysMenu v-if="showEditableDays" @changed="changedEditableDaysOn = shownDay" />
 				<NcButton v-if="shownDay !== today" variant="secondary" @click="goToDay(today)">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_CALENDAR_TODAY" />
@@ -285,7 +286,7 @@ onMounted(() => {
 		</NcEmptyContent>
 		<NcEmptyContent v-else-if="view === 'allPrivate'"
 			name="All your tracks are private"
-			description="Use the eye button to show them." />
+			description="Use Show private to show them." />
 		<NcEmptyContent v-else-if="view === 'error'"
 			name="Couldn't load your tracks"
 			description="Check your connection, then try again.">
@@ -346,14 +347,7 @@ onMounted(() => {
 }
 
 .date {
-	display: flex;
-	align-items: center;
-	gap: 6px;
 	color: var(--color-text-maxcontrast);
-}
-
-.lock {
-	display: inline-flex;
 }
 
 .actions {
