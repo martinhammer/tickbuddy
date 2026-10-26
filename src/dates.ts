@@ -112,6 +112,19 @@ export function isWeekend(ds: string): boolean {
 }
 
 /**
+ * The newest of Today's seven squares: today, or, once the day shown is more
+ * than six days back, six days after it, so the day shown is the oldest square.
+ * Stepping a day back or forward moves the outline one square or scrolls the
+ * squares one day, never jumps.
+ *
+ * @param day the day shown as YYYY-MM-DD, not after today
+ * @param today the local date as YYYY-MM-DD
+ */
+export function squaresEnd(day: string, today: string): string {
+	return day < addDays(today, -6) ? addDays(day, 6) : today
+}
+
+/**
  * Today's title and the line under it, by how far back the day is: "Today",
  * "Yesterday" and "2 days ago" to "6 days ago" over the full date; from 7 days
  * back the date itself ("6 October", with the year in an earlier one) over the

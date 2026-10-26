@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, dayHeading, parseDateStr, toDateStr } from './dates.ts'
+import { addDays, dayHeading, parseDateStr, squaresEnd, toDateStr } from './dates.ts'
 
 describe('addDays', () => {
 	it('crosses month and year ends', () => {
@@ -62,5 +62,29 @@ describe('dayHeading', () => {
 
 	it('capitalises the relative title in other languages', () => {
 		expect(dayHeading('2026-10-24', today, 'de-DE').title).toBe('Gestern')
+	})
+})
+
+describe('squaresEnd', () => {
+	const today = '2026-10-26'
+
+	it('ends on today while the day shown is one of the last seven', () => {
+		expect(squaresEnd(today, today)).toBe(today)
+		expect(squaresEnd('2026-10-25', today)).toBe(today)
+		expect(squaresEnd('2026-10-20', today)).toBe(today)
+	})
+
+	it('keeps an older day shown as the oldest square', () => {
+		expect(squaresEnd('2026-10-19', today)).toBe('2026-10-25')
+		expect(squaresEnd('2026-10-01', today)).toBe('2026-10-07')
+	})
+
+	it('moves at most one day per step back', () => {
+		let end = squaresEnd(today, today)
+		for (let back = 1; back <= 20; back++) {
+			const next = squaresEnd(addDays(today, -back), today)
+			expect([end, addDays(end, -1)]).toContain(next)
+			end = next
+		}
 	})
 })

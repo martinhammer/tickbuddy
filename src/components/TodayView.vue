@@ -9,7 +9,7 @@ import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 // so the server's own stylesheets cannot style them — the app must ship this itself.
 import '@nextcloud/dialogs/style.css'
 import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
-import { addDays, dayHeading } from '../dates.ts'
+import { addDays, dayHeading, squaresEnd } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { fillFor, getPrimaryColor, levelFor } from '../heatmap.ts'
 import { MDI_CALENDAR_TODAY, MDI_CHEVRON_LEFT, MDI_CHEVRON_RIGHT } from '../icons.ts'
@@ -35,7 +35,8 @@ type LoadStatus = 'loading' | 'ready' | 'error'
 const status = ref<LoadStatus>('loading')
 const tracks = ref<Track[]>([])
 const stats = ref<TrackStats[]>([])
-// Tick values and notes by tickKey(), for the last seven days and the day shown
+// Tick values and notes by tickKey(), for the last seven days and the squares'
+// days (the same seven unless the day shown is further back)
 const tickValues = ref<Record<string, number>>({})
 const notes = ref<Record<string, string>>({})
 const primaryColor = ref(getPrimaryColor())
@@ -63,8 +64,12 @@ const view = computed<'loading' | 'error' | 'empty' | 'allPrivate' | 'list'>(() 
 
 const statsByTrack = computed(() => new Map(stats.value.map(s => [s.trackId, s])))
 
-// Squares and streaks always show the real today, whichever day the screen shows.
-const week = computed(() => Array.from({ length: 7 }, (_, i) => addDays(today.value, -i)))
+// The squares follow the day shown (squaresEnd), newest first, its square
+// outlined; the run stays today's.
+const week = computed(() => {
+	const end = squaresEnd(shownDay.value, today.value)
+	return Array.from({ length: 7 }, (_, i) => addDays(end, -i))
+})
 
 const locked = computed(() => !isEditable(shownDay.value, today.value, editableDays.value))
 
@@ -92,14 +97,16 @@ const rows = computed(() => visibleTracks.value.map((track) => {
 		note: notes.value[tickKey(track.id, shownDay.value)] ?? '',
 		squares: week.value.map((date) => {
 			const value = tickValues.value[tickKey(track.id, date)] ?? 0
-			return { date, value, fill: fillFor(levelFor(value, isCounter, maxValue), primaryColor.value) }
+			return { date, value, fill: fillFor(levelFor(value, isCounter, maxValue), primaryColor.value), shown: date === shownDay.value }
 		}),
 	}
 }))
 
 // --- Loading ---
-function needsOwnTicks(day: string): boolean {
-	return day < addDays(today.value, -6)
+// The squares' days when they aren't the last seven, which load() fetches anyway
+function squaresRange(day: string): [string, string] | null {
+	const end = squaresEnd(day, today.value)
+	return end === today.value ? null : [addDays(end, -6), end]
 }
 
 async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
@@ -110,11 +117,12 @@ async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
 	if (mode === 'retry') status.value = 'loading'
 	const now = today.value
 	const day = shownDay.value
+	const range = squaresRange(day)
 	try {
 		const [t, k, dayTicks, s, n] = await Promise.all([
 			fetchTracks(),
 			fetchTicks(addDays(now, -6), now),
-			needsOwnTicks(day) ? fetchTicks(day, day) : Promise.resolve([]),
+			range ? fetchTicks(...range) : Promise.resolve([]),
 			fetchStats(now),
 			fetchNotes(day, day),
 			loadPreferences(),
@@ -142,18 +150,21 @@ async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
 	}
 }
 
-// Another day: only its ticks (when outside the seven days) and notes.
+// Another day: its notes, and the squares' ticks when they aren't the last seven.
 async function loadDay(day: string): Promise<void> {
 	const seq = ++daySeq
+	const range = squaresRange(day)
 	try {
 		const [dayTicks, n] = await Promise.all([
-			needsOwnTicks(day) ? fetchTicks(day, day) : Promise.resolve(null),
+			range ? fetchTicks(...range) : Promise.resolve(null),
 			fetchNotes(day, day),
 		])
 		if (seq !== daySeq || day !== shownDay.value) return
-		if (dayTicks) {
+		if (range && dayTicks) {
 			const values = { ...tickValues.value }
-			for (const track of tracks.value) delete values[tickKey(track.id, day)]
+			for (let date = range[0]; date <= range[1]; date = addDays(date, 1)) {
+				for (const track of tracks.value) delete values[tickKey(track.id, date)]
+			}
 			for (const tick of dayTicks) values[tickKey(tick.trackId, tick.date)] = tick.value
 			tickValues.value = values
 		}

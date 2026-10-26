@@ -17,13 +17,15 @@ export interface Square {
 	date: string
 	value: number
 	fill: string
+	/** The day shown, outlined */
+	shown: boolean
 }
 
 const props = defineProps<{
 	track: Track
 	/** The value on the day shown */
 	value: number
-	/** The last seven days ending on the real today, today first */
+	/** Seven days, newest first: the last seven, or the day shown and the six after it */
 	squares: Square[]
 	stats: TrackStats | undefined
 	/** The day's note, "" when there is none */
@@ -67,12 +69,12 @@ function openNote(): void {
 					{{ track.name }}
 				</div>
 				<div :class="$style.week">
-					<span v-for="(square, i) in squares"
+					<span v-for="square in squares"
 						:key="square.date"
 						role="img"
 						:aria-label="squareLabel(square)"
 						:title="squareLabel(square)"
-						:class="[$style.square, i === 0 && $style.squareToday, i === 0 && square.value <= 0 && $style.squareOpen]"
+						:class="[$style.square, square.shown && $style.squareShown, square.shown && square.value <= 0 && $style.squareOpen]"
 						:style="{ background: square.fill }" />
 					<span :class="$style.run">{{ runText(stats) }}</span>
 				</div>
@@ -204,8 +206,9 @@ function openNote(): void {
 	border-radius: 2px;
 }
 
-/* Drawn inside the square, so today is the same size as the other days. */
-.squareToday {
+/* The day shown: drawn inside the square, so it is the same size as the others.
+   Dashed while open, as on the dashboard widget's today. */
+.squareShown {
 	outline: 1.5px solid color-mix(in srgb, var(--color-primary-element) 60%, transparent);
 	outline-offset: -1.5px;
 }

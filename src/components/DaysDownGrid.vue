@@ -172,15 +172,13 @@ onBeforeUnmount(() => {
 	padding: 6px 12px;
 }
 
-.grid .dateButton:hover,
-.grid .dateButton:focus-visible {
-	text-decoration: underline;
-}
-
 .tickCell {
 	padding: 0 4px;
 	text-align: center;
 	border-block-end: 1px solid var(--color-border);
+	/* Solid like the date cell, so Nextcloud's own tr:hover colour doesn't show
+	   through and the row highlights in one colour */
+	background-color: var(--color-main-background);
 }
 
 /* Shading on the cells, not the row: the sticky date cell needs a solid background */

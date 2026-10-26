@@ -84,6 +84,9 @@ async function runImport() {
 		size="small"
 		@update:open="(open) => { if (!open) emit('close') }">
 		<div :class="$style.body">
+			<p :class="$style.intro">
+				Import from a previous Tickbuddy export or from a Tickmate backup.
+			</p>
 			<input ref="tickmateInputRef"
 				type="file"
 				accept=".db"
@@ -142,6 +145,10 @@ async function runImport() {
 	flex-direction: column;
 	gap: 12px;
 	padding-block: 8px;
+}
+
+.intro {
+	margin: 0;
 }
 
 .hiddenFileInput {

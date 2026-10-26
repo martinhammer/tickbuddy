@@ -25,13 +25,16 @@ import {
 	MDI_CHEVRON_RIGHT,
 	MDI_DELETE_OUTLINE,
 	MDI_DRAG,
+	MDI_FILE_SWAP_OUTLINE,
+	MDI_PENCIL_OUTLINE,
 	MDI_PLUS,
+	MDI_RESTORE,
 	MDI_TRAY_ARROW_DOWN,
 	MDI_TRAY_ARROW_UP,
 } from '../icons.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
 import { errorReason, httpStatus } from '../strictHandling.ts'
-import { typeName } from '../trackMenu.ts'
+import { dropIndex, typeName } from '../trackMenu.ts'
 import type { TrackMenuItem } from '../trackMenu.ts'
 import type { Track } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -132,6 +135,7 @@ function menuItems(track: Track): TrackMenuItem[] {
 	const index = tracks.value.findIndex(t => t.id === track.id)
 	const items: TrackMenuItem[] = [
 		{ key: 'analytics', label: 'Show analytics', icon: MDI_CHART_BAR, run: () => { window.location.hash = `#analytics/${track.id}` } },
+		{ key: 'rename', label: 'Rename track', icon: MDI_PENCIL_OUTLINE, run: () => renameTrack(track) },
 	]
 	if (index > 0) {
 		items.push({ key: 'up', label: 'Move up', icon: MDI_ARROW_UP, run: () => move(index, index - 1) })
@@ -144,6 +148,15 @@ function menuItems(track: Track): TrackMenuItem[] {
 		{ key: 'delete', label: 'Delete track', icon: MDI_DELETE_OUTLINE, danger: true, run: () => { trackPendingDelete.value = track } },
 	)
 	return items
+}
+
+// Rename opens the track's sidebar with its name already being edited (as Files'
+// Rename does in a file's ⋯ menu)
+const renamingTrackId = ref<number | null>(null)
+
+function renameTrack(track: Track) {
+	renamingTrackId.value = track.id
+	if (props.trackId !== track.id) emit('open-track', track.id)
 }
 
 // --- Delete, archive, restore ---
@@ -281,7 +294,9 @@ function onDrop(toIndex: number) {
 	dragIndex.value = null
 	dragOverIndex.value = null
 	if (fromIndex === null) return
-	move(fromIndex, toIndex)
+	// move() does nothing when this is where the track already is, and undoes a
+	// refused save at this index too
+	move(fromIndex, dropIndex(fromIndex, toIndex))
 }
 
 function onDragEnd() {
@@ -319,18 +334,21 @@ onMounted(() => {
 						</template>
 						New track
 					</NcButton>
-					<NcActions>
+					<NcActions aria-label="Import and export" title="Import and export">
+						<template #icon>
+							<NcIconSvgWrapper :path="MDI_FILE_SWAP_OUTLINE" />
+						</template>
 						<NcActionButton close-after-click @click="dialog = 'import'">
 							<template #icon>
 								<NcIconSvgWrapper :path="MDI_TRAY_ARROW_UP" />
 							</template>
-							Import…
+							Import
 						</NcActionButton>
 						<NcActionButton close-after-click @click="dialog = 'export'">
 							<template #icon>
 								<NcIconSvgWrapper :path="MDI_TRAY_ARROW_DOWN" />
 							</template>
-							Export…
+							Export
 						</NcActionButton>
 					</NcActions>
 				</div>
@@ -354,7 +372,7 @@ onMounted(() => {
 						:href="`#tracks/${track.id}`"
 						:active="track.id === trackId"
 						force-display-actions
-						:class="{ [$style.dragOver]: dragOverIndex === index }"
+						:class="[$style.trackRow, { [$style.dragOver]: dragOverIndex === index }]"
 						@click="openTrack(track, $event)"
 						@dragover="onDragOver(index, $event)"
 						@dragleave="onDragLeave"
@@ -405,27 +423,35 @@ onMounted(() => {
 						Archived tracks ({{ archivedTracks.length }})
 					</NcButton>
 					<ul v-show="showArchived" id="tickbuddy-archived-tracks" :class="$style.archivedList">
-						<li v-for="track in archivedTracks" :key="track.id" :class="$style.archivedRow">
-							<div :class="$style.archivedText">
-								<div>
-									{{ track.name }}
-									<span :class="$style.archivedDate">archived {{ fmtDay(track.archivedAt) }}</span>
+						<!-- Not NcListItems, which are always links, but laid out as they are:
+							 an empty space the drag handle's width, the name where the active
+							 names start, and the ⋯ in the same column -->
+						<li v-for="track in archivedTracks" :key="track.id" :class="[$style.trackRow, $style.archivedRow]">
+							<div :class="$style.archivedItem">
+								<NcIconSvgWrapper :path="MDI_DRAG" :class="$style.handleSpace" />
+								<div :class="$style.archivedText">
+									<div :class="$style.archivedName">
+										{{ track.name }}
+										<span :class="$style.archivedDate">archived {{ fmtDay(track.archivedAt) }}</span>
+									</div>
+									<div :class="$style.archivedType">
+										{{ typeName(track.type) }}{{ track.private ? ' · Private' : '' }}
+									</div>
 								</div>
-								<div :class="$style.archivedType">
-									{{ typeName(track.type) }}{{ track.private ? ' · Private' : '' }}
-								</div>
-							</div>
-							<div :class="$style.rowActions">
-								<NcButton variant="tertiary-no-background"
-									aria-label="Restore track"
-									@click="setArchived(track, false)">
-									Restore
-								</NcButton>
-								<NcButton variant="tertiary-no-background"
-									aria-label="Delete track"
-									@click="trackPendingDelete = track">
-									Delete
-								</NcButton>
+								<NcActions :class="$style.archivedActions">
+									<NcActionButton close-after-click @click="setArchived(track, false)">
+										<template #icon>
+											<NcIconSvgWrapper :path="MDI_RESTORE" />
+										</template>
+										Restore track
+									</NcActionButton>
+									<NcActionButton :class="$style.danger" close-after-click @click="trackPendingDelete = track">
+										<template #icon>
+											<NcIconSvgWrapper :path="MDI_DELETE_OUTLINE" />
+										</template>
+										Delete track
+									</NcActionButton>
+								</NcActions>
 							</div>
 						</li>
 					</ul>
@@ -446,8 +472,11 @@ onMounted(() => {
 
 	<TrackSidebar v-if="selectedTrack"
 		:track="selectedTrack"
-		:menu-items="menuItems(selectedTrack)"
+		:rename-requested="renamingTrackId === selectedTrack.id"
 		@close="emit('close-track')"
+		@rename-started="renamingTrackId = null"
+		@archive="trackPendingArchive = selectedTrack"
+		@delete="trackPendingDelete = selectedTrack"
 		@rename="(name) => selectedTrack && saveName(selectedTrack, name)"
 		@set-private="(value) => selectedTrack && setPrivate(selectedTrack, value)" />
 </template>
@@ -518,19 +547,43 @@ onMounted(() => {
 .archivedList {
 	display: flex;
 	flex-direction: column;
+	gap: 2px;
 }
 
-.archivedRow {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 8px 12px;
+.trackRow {
 	border-block-end: 1px solid var(--color-border);
 }
 
+/* NcListItem's spacing: its wrapper's 2px 4px, then the item's grid baseline */
+.archivedRow {
+	padding: 2px 4px;
+}
+
+.archivedItem {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	height: calc(2lh + 2 * var(--default-grid-baseline));
+	padding: var(--default-grid-baseline);
+}
+
+/* Takes the drag handle's room without showing it */
+.handleSpace {
+	flex: none;
+	visibility: hidden;
+}
+
 .archivedText {
+	flex: 1 1 auto;
 	min-width: 0;
+	padding-inline-start: calc(2 * var(--default-grid-baseline));
+}
+
+.archivedName {
+	overflow: hidden;
+	font-weight: var(--font-weight-element, 500);
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
 .archivedDate {
@@ -540,13 +593,15 @@ onMounted(() => {
 }
 
 .archivedType {
+	overflow: hidden;
 	color: var(--color-text-maxcontrast);
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
-.rowActions {
+.archivedActions {
 	flex: none;
-	display: flex;
-	gap: 4px;
+	margin-inline-start: var(--default-grid-baseline);
 }
 
 @media (max-width: 1023px) {

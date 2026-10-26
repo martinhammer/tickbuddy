@@ -46,6 +46,9 @@ async function doExport() {
 		size="small"
 		@update:open="(open) => { if (!open) emit('close') }">
 		<div :class="$style.body">
+			<p :class="$style.intro">
+				Export your tracks, ticks and notes as a JSON file for backup or transfer.
+			</p>
 			<NcCheckboxRadioSwitch v-model="exportPrivate" type="switch">
 				Include private tracks
 			</NcCheckboxRadioSwitch>
@@ -65,6 +68,13 @@ async function doExport() {
 
 <style module>
 .body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
 	padding-block: 8px;
+}
+
+.intro {
+	margin: 0;
 }
 </style>

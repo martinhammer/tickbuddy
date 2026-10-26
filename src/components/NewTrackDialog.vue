@@ -6,7 +6,9 @@ import { generateOcsUrl } from '@nextcloud/router'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
+import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
+import { MDI_EYE_OUTLINE } from '../icons.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
 
 // The server's limit (TrackService::MAX_NAME_LENGTH), so a longer paste is cut
@@ -67,6 +69,9 @@ async function add(): Promise<void> {
 		size="small"
 		@update:open="(open) => { if (!open) emit('close') }">
 		<div :class="$style.form">
+			<p :class="$style.intro">
+				A track is a habit or event you record each day.
+			</p>
 			<NcTextField v-model="name"
 				label="Name"
 				:maxlength="MAX_NAME_LENGTH"
@@ -77,30 +82,29 @@ async function add(): Promise<void> {
 				<legend :class="$style.legend">
 					Type
 				</legend>
-				<div :class="$style.typeButtons">
-					<NcCheckboxRadioSwitch v-model="type"
-						type="radio"
-						value="boolean"
-						name="tickbuddy-new-track-type"
-						button-variant
-						button-variant-grouped="horizontal">
-						Yes/No
-					</NcCheckboxRadioSwitch>
-					<NcCheckboxRadioSwitch v-model="type"
-						type="radio"
-						value="counter"
-						name="tickbuddy-new-track-type"
-						button-variant
-						button-variant-grouped="horizontal">
-						Counter
-					</NcCheckboxRadioSwitch>
-				</div>
+				<NcCheckboxRadioSwitch v-model="type"
+					type="radio"
+					value="boolean"
+					name="tickbuddy-new-track-type">
+					Yes/No
+				</NcCheckboxRadioSwitch>
+				<NcCheckboxRadioSwitch v-model="type"
+					type="radio"
+					value="counter"
+					name="tickbuddy-new-track-type">
+					Counter
+				</NcCheckboxRadioSwitch>
 				<p :class="$style.hint">
 					The type can't be changed later.
 				</p>
 			</fieldset>
 			<NcCheckboxRadioSwitch v-model="isPrivate" type="switch">
 				Private
+				<template #description>
+					Hidden unless Show private tracks
+					<NcIconSvgWrapper :path="MDI_EYE_OUTLINE" :size="16" inline />
+					is selected. Never shown on the dashboard widget.
+				</template>
 			</NcCheckboxRadioSwitch>
 		</div>
 		<template #actions>
@@ -122,6 +126,10 @@ async function add(): Promise<void> {
 	padding-block: 8px;
 }
 
+.intro {
+	margin: 0;
+}
+
 .type {
 	margin: 0;
 	padding: 0;
@@ -131,10 +139,6 @@ async function add(): Promise<void> {
 .legend {
 	margin-block-end: 6px;
 	font-weight: bold;
-}
-
-.typeButtons {
-	display: flex;
 }
 
 .hint {

@@ -166,11 +166,6 @@ onBeforeUnmount(() => {
 	line-height: 1.2;
 }
 
-.grid .dayButton:hover,
-.grid .dayButton:focus-visible {
-	text-decoration: underline;
-}
-
 .grid .today .dayButton {
 	color: var(--color-primary-element);
 	font-weight: bold;
@@ -193,20 +188,23 @@ onBeforeUnmount(() => {
 	font-weight: normal;
 }
 
+/* Styled like Days down's track headings */
 .grid .nameButton {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
-	width: 100%;
-	padding: 6px 12px 6px 4px;
+	width: auto;
+	max-width: 100%;
+	padding: 6px 10px;
+	border-radius: var(--border-radius-element, 8px);
 	color: var(--color-main-text);
 	font-size: inherit;
 	text-align: start;
 }
 
-.nameButton:hover .name,
-.nameButton:focus-visible .name {
-	text-decoration: underline;
+.grid .nameButton:hover,
+.grid .nameButton:focus-visible {
+	background: var(--color-background-hover);
 }
 
 .name {
@@ -214,7 +212,7 @@ onBeforeUnmount(() => {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 600;
+	font-weight: bold;
 }
 
 .tickCell {
