@@ -6,6 +6,7 @@ import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { fmtDate } from '../dates.ts'
 import { valueText } from '../heatmap.ts'
 import { MDI_MINUS, MDI_NOTE_TEXT_OUTLINE, MDI_PLUS } from '../icons.ts'
+import { hashFor } from '../routes.ts'
 import { runText } from '../runText.ts'
 import type { Track, TrackStats } from '../types.ts'
 import NoteField from './NoteField.vue'
@@ -45,6 +46,8 @@ const editing = ref(false)
 const isYesNo = props.track.type === 'boolean'
 const isCounter = props.track.type === 'counter'
 
+const analyticsLabel = `Show analytics for ${props.track.name}`
+
 function squareLabel(square: Square): string {
 	return `${props.track.name}, ${fmtDate(square.date)}: ${valueText(square.value, isCounter)}`
 }
@@ -63,12 +66,36 @@ function openNote(): void {
 <template>
 	<li :class="$style.row">
 		<div :class="$style.main">
-			<!-- Line 1: the name, then the squares and the run -->
+			<!-- Line 1: the name and the note icon, then the squares and the run -->
 			<div :class="$style.line1">
-				<div :class="$style.name" :title="track.name">
-					{{ track.name }}
+				<div :class="$style.nameGroup">
+					<!-- A click on the name opens the note field too, a mouse convenience;
+						 the icon is the way in for the keyboard and screen readers -->
+					<div :class="[$style.name, !locked && $style.nameEditable]"
+						:title="track.name"
+						@click="openNote">
+						{{ track.name }}
+					</div>
+					<!-- Shown under the pointer, with focus and on touchscreens, only on a
+						 row without a note; its space is always kept, so the squares never move -->
+					<NcButton v-if="!locked && !note && !editing"
+						variant="tertiary"
+						size="small"
+						:class="[$style.noteButton, $style.nameNoteButton]"
+						:aria-label="`Add a note for ${track.name}`"
+						:title="`Add a note for ${track.name}`"
+						@click="openNote">
+						<template #icon>
+							<NcIconSvgWrapper :path="MDI_NOTE_TEXT_OUTLINE" :size="16" :class="$style.noteIcon" />
+						</template>
+					</NcButton>
+					<span v-else :class="$style.iconSpace" />
 				</div>
-				<div :class="$style.week">
+				<!-- The squares and the run are one link to the track's Analytics, one
+					 Tab stop; the squares keep their own titles -->
+				<a :class="$style.week"
+					:href="hashFor({ screen: 'analytics', trackId: track.id })"
+					:aria-label="analyticsLabel">
 					<span v-for="square in squares"
 						:key="square.date"
 						role="img"
@@ -76,13 +103,13 @@ function openNote(): void {
 						:title="squareLabel(square)"
 						:class="[$style.square, square.shown && $style.squareShown, square.shown && square.value <= 0 && $style.squareOpen]"
 						:style="{ background: square.fill }" />
-					<span :class="$style.run">{{ runText(stats) }}</span>
-				</div>
+					<span :class="$style.run" :title="analyticsLabel">{{ runText(stats) }}</span>
+				</a>
 			</div>
 
-			<!-- Line 2: the note icon, then the note or "Add a note". A locked day
-				 shows the note read-only, and no line at all without one. -->
-			<div v-if="!locked || note" :class="$style.noteLine">
+			<!-- Line 2, only with a note or while one is being written: the note
+				 icon, then the note. A locked day shows the note read-only. -->
+			<div v-if="note || (editing && !locked)" :class="$style.noteLine">
 				<NcButton v-if="!locked"
 					variant="tertiary"
 					size="small"
@@ -104,17 +131,10 @@ function openNote(): void {
 					:class="$style.note"
 					@close="editing = false" />
 				<!-- A click on the text edits it, as the icon does; the icon is the way in for the keyboard -->
-				<NoteText v-else-if="note"
+				<NoteText v-else
 					:text="note"
 					:class="[$style.note, !locked && $style.noteEditable]"
 					@click="openNote" />
-				<button v-else
-					type="button"
-					:class="$style.addNote"
-					tabindex="-1"
-					@click="openNote">
-					Add a note
-				</button>
 			</div>
 		</div>
 
@@ -182,7 +202,16 @@ function openNote(): void {
 	min-width: 0;
 }
 
-/* Cut off first when line 1 runs out of room, so the squares and run always show */
+/* The name and its note icon, cut off first when line 1 runs out of room,
+   so the squares and run always show */
+.nameGroup {
+	flex: 0 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
 .name {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -192,12 +221,44 @@ function openNote(): void {
 	white-space: nowrap;
 }
 
+.nameEditable {
+	cursor: pointer;
+}
+
+/* Hidden with opacity, not display, so its space is kept and Tab reaches it */
+.nameNoteButton {
+	flex: none;
+	opacity: 0;
+}
+
+.row:hover .nameNoteButton,
+.row:focus-within .nameNoteButton {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.nameNoteButton {
+		opacity: 1;
+	}
+}
+
+/* The icon's space on a row with a note, or a locked day */
+.iconSpace {
+	flex: none;
+	width: var(--clickable-area-small, 24px);
+	height: var(--clickable-area-small, 24px);
+}
+
 .week {
 	flex: none;
 	display: flex;
 	align-items: center;
 	gap: 3px;
 	font-size: 13px;
+	/* A link without a link's look: no underline, no hover styling */
+	color: inherit;
+	text-decoration: none;
+	cursor: pointer;
 }
 
 .square {
@@ -228,7 +289,7 @@ function openNote(): void {
 	display: flex;
 	align-items: flex-start;
 	gap: 4px;
-	/* The run text's size, for the note, "Add a note" and "Show more" */
+	/* The run text's size, for the note and "Show more" */
 	font-size: 13px;
 	/* The small button's padding, so the icon sits under the name's first letter */
 	margin-inline-start: -4px;
@@ -248,28 +309,6 @@ function openNote(): void {
 	justify-content: center;
 	width: var(--clickable-area-small, 24px);
 	height: var(--clickable-area-small, 24px);
-}
-
-/* A link-style button, as "Show more". Nextcloud's core CSS draws every button
-   that isn't an NcButton as a light primary button, with selectors a single
-   class can't beat, so it is styled under .row, as a scoped style would be
-   (see CLAUDE.md). The keyboard reaches the field through the icon button. */
-.row .addNote,
-.row .addNote:hover,
-.row .addNote:focus {
-	width: auto;
-	min-height: 0;
-	/* Its margin rule adds a :not() (0,2,1), which only !important beats */
-	margin: 0 !important;
-	padding: 4px 0 0;
-	border: none;
-	background: none;
-	color: var(--color-text-maxcontrast);
-	/* Buttons don't inherit these, so it would sit off the note text's line */
-	font: inherit;
-	line-height: inherit;
-	text-align: start;
-	cursor: pointer;
 }
 
 .noteEditable {
@@ -336,8 +375,11 @@ function openNote(): void {
 		row-gap: 4px;
 	}
 
-	.name {
+	.nameGroup {
 		flex-basis: 100%;
+	}
+
+	.name {
 		white-space: normal;
 		overflow-wrap: anywhere;
 	}

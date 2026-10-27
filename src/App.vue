@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import NcAppContent from '@nextcloud/vue/components/NcAppContent'
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation'
 import NcAppNavigationItem from '@nextcloud/vue/components/NcAppNavigationItem'
@@ -19,9 +19,11 @@ import TracksView from './components/TracksView.vue'
 // (Analytics), set up (Tracks). The screen lives in the URL hash; see routes.ts.
 
 const route = ref<Route>(parseHash(window.location.hash, todayStr()).route)
-// Track shown in Analytics. Kept here so it survives switching screens, and so
-// a click on a journal track name can preselect it.
-const analyticsTrackId = ref<number | null>(route.value.screen === 'analytics' ? route.value.trackId : null)
+// The last track the Analytics picker lists that it showed, for the
+// navigation's link, so it survives switching screens. A track the picker
+// doesn't list (archived, or private while hidden) is shown when the route
+// names it, but never kept here.
+const analyticsTrackId = ref<number | null>(null)
 // Whether the open track sidebar was opened from the list, by pushing a history
 // entry: closing it then goes back, so Back and ✕ agree.
 let sidebarPushed = false
@@ -31,9 +33,6 @@ function applyHash(): void {
 	const { route: next, replaceWith } = parseHash(window.location.hash, todayStr())
 	if (replaceWith !== null) history.replaceState(null, '', replaceWith)
 	route.value = next
-	if (next.screen === 'analytics' && next.trackId !== null) {
-		analyticsTrackId.value = next.trackId
-	}
 	sidebarPushed = sidebarPushed && next.screen === 'tracks' && next.trackId !== null
 		&& previous.screen === 'tracks'
 }
@@ -74,11 +73,13 @@ function closeTrackSidebar(): void {
 	replaceRoute({ screen: 'tracks', trackId: null })
 }
 
-watch(analyticsTrackId, (trackId) => {
+// The track Analytics shows: put it in the URL, and remember it if the picker lists it
+function setAnalyticsTrack(trackId: number | null, listed: boolean): void {
+	if (listed) analyticsTrackId.value = trackId
 	if (route.value.screen === 'analytics') {
 		replaceRoute({ screen: 'analytics', trackId })
 	}
-})
+}
 
 onMounted(() => {
 	window.addEventListener('hashchange', applyHash)
@@ -140,7 +141,8 @@ onBeforeUnmount(() => {
 				@open-day="(day) => navigate({ screen: 'today', day })"
 				@select-track="(trackId) => navigate({ screen: 'analytics', trackId })" />
 			<AnalyticsView v-else-if="route.screen === 'analytics'"
-				v-model:track-id="analyticsTrackId" />
+				:track-id="route.trackId ?? analyticsTrackId"
+				@update:track-id="setAnalyticsTrack" />
 		</NcAppContent>
 	</NcContent>
 </template>

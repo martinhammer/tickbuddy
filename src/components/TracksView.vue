@@ -34,7 +34,7 @@ import {
 } from '../icons.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
 import { errorReason, httpStatus } from '../strictHandling.ts'
-import { dropIndex, typeName } from '../trackMenu.ts'
+import { dropIndex, gapAt, typeName } from '../trackMenu.ts'
 import type { TrackMenuItem } from '../trackMenu.ts'
 import type { Track } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -72,7 +72,8 @@ const showArchived = ref(false)
 const trackPendingDelete = ref<Track | null>(null)
 const trackPendingArchive = ref<Track | null>(null)
 const dragIndex = ref<number | null>(null)
-const dragOverIndex = ref<number | null>(null)
+// The gap the drag points at: above row i is i, after the last row is tracks.length
+const dragGap = ref<number | null>(null)
 const dialog = ref<'new' | 'import' | 'export' | null>(null)
 
 const { loaded } = useToday(() => { loadTracks().catch(() => {}) })
@@ -131,10 +132,15 @@ function openTrack(track: Track, event: MouseEvent | KeyboardEvent): void {
 }
 
 // --- The ⋯ menu ---
+// Archived tracks too: their ⋯ menu is the only way into their Analytics
+function showAnalytics(track: Track): void {
+	window.location.hash = `#analytics/${track.id}`
+}
+
 function menuItems(track: Track): TrackMenuItem[] {
 	const index = tracks.value.findIndex(t => t.id === track.id)
 	const items: TrackMenuItem[] = [
-		{ key: 'analytics', label: 'Show analytics', icon: MDI_CHART_BAR, run: () => { window.location.hash = `#analytics/${track.id}` } },
+		{ key: 'analytics', label: 'Show analytics', icon: MDI_CHART_BAR, run: () => showAnalytics(track) },
 		{ key: 'rename', label: 'Rename track', icon: MDI_PENCIL_OUTLINE, run: () => renameTrack(track) },
 	]
 	if (index > 0) {
@@ -275,6 +281,11 @@ function onDragStart(index: number, event: DragEvent) {
 	}
 }
 
+// Above the row over its upper half, below it over its lower half
+function gapFor(index: number, event: DragEvent): number {
+	return gapAt(index, event.clientY, (event.currentTarget as HTMLElement).getBoundingClientRect())
+}
+
 function onDragOver(index: number, event: DragEvent) {
 	// Only a drag started on a handle here, not a link dragged in from elsewhere
 	if (dragIndex.value === null) return
@@ -282,26 +293,26 @@ function onDragOver(index: number, event: DragEvent) {
 	if (event.dataTransfer) {
 		event.dataTransfer.dropEffect = 'move'
 	}
-	dragOverIndex.value = index
+	dragGap.value = gapFor(index, event)
 }
 
 function onDragLeave() {
-	dragOverIndex.value = null
+	dragGap.value = null
 }
 
-function onDrop(toIndex: number) {
+function onDrop(index: number, event: DragEvent) {
 	const fromIndex = dragIndex.value
 	dragIndex.value = null
-	dragOverIndex.value = null
+	dragGap.value = null
 	if (fromIndex === null) return
-	// move() does nothing when this is where the track already is, and undoes a
-	// refused save at this index too
-	move(fromIndex, dropIndex(fromIndex, toIndex))
+	// move() does nothing when this is where the track already is (dropped just
+	// above or just below it), and undoes a refused save at this index too
+	move(fromIndex, dropIndex(fromIndex, gapFor(index, event)))
 }
 
 function onDragEnd() {
 	dragIndex.value = null
-	dragOverIndex.value = null
+	dragGap.value = null
 }
 
 // --- Dialogs ---
@@ -372,11 +383,14 @@ onMounted(() => {
 						:href="`#tracks/${track.id}`"
 						:active="track.id === trackId"
 						force-display-actions
-						:class="[$style.trackRow, { [$style.dragOver]: dragOverIndex === index }]"
+						:class="[$style.trackRow, {
+							[$style.dragOver]: dragGap === index,
+							[$style.dragOverEnd]: dragGap === tracks.length && index === tracks.length - 1,
+						}]"
 						@click="openTrack(track, $event)"
 						@dragover="onDragOver(index, $event)"
 						@dragleave="onDragLeave"
-						@drop="onDrop(index)"
+						@drop="onDrop(index, $event)"
 						@dragend="onDragEnd">
 						<template #icon>
 							<span :class="$style.dragHandle"
@@ -439,6 +453,12 @@ onMounted(() => {
 									</div>
 								</div>
 								<NcActions :class="$style.archivedActions">
+									<NcActionButton close-after-click @click="showAnalytics(track)">
+										<template #icon>
+											<NcIconSvgWrapper :path="MDI_CHART_BAR" />
+										</template>
+										Show analytics
+									</NcActionButton>
 									<NcActionButton close-after-click @click="setArchived(track, false)">
 										<template #icon>
 											<NcIconSvgWrapper :path="MDI_RESTORE" />
@@ -532,8 +552,13 @@ onMounted(() => {
 	cursor: grabbing;
 }
 
+/* The line at the drag's gap: on top of the row below it, or under the last row */
 .dragOver {
 	box-shadow: inset 0 2px 0 var(--color-primary-element);
+}
+
+.dragOverEnd {
+	box-shadow: inset 0 -2px 0 var(--color-primary-element);
 }
 
 .danger :global(.action-button) {

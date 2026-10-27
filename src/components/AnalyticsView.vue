@@ -33,10 +33,14 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-	'update:trackId': [trackId: number | null]
+	/** The track shown, and whether the picker lists it */
+	'update:trackId': [trackId: number | null, listed: boolean]
 }>()
 
-const tracks = ref<Track[]>([])
+// Active and archived tracks. The picker offers active ones (private ones only
+// while shown); any other is shown only when the route names it.
+const allTracks = ref<Track[]>([])
+const tracks = computed(() => allTracks.value.filter(t => t.archivedAt === null))
 const allTicks = ref<Tick[]>([])
 // The selected track's stats, with runs, from GET /api/stats.
 const trackStats = ref<TrackStats | null>(null)
@@ -48,10 +52,22 @@ const trackOptions = computed(() => {
 	return list.map(t => ({ id: t.id, label: t.name }))
 })
 
+// A track named by the route that the picker doesn't list (archived, or private
+// while private tracks are hidden): the picker's value, but not an option
+const namedOption = computed(() => {
+	if (trackOptions.value.some(o => o.id === props.trackId)) return null
+	const track = allTracks.value.find(t => t.id === props.trackId)
+	return track ? { id: track.id, label: track.name } : null
+})
+
 // The track to show when nothing valid is selected: the one handed in from a
-// journal column header if it is available, else the first one.
+// journal column header or named by the route if it is available, else the first one.
 function resolveTrack(options: { id: number; label: string }[]) {
-	return options.find(o => o.id === props.trackId) ?? options[0] ?? null
+	return options.find(o => o.id === props.trackId) ?? namedOption.value ?? options[0] ?? null
+}
+
+function isShowable(id: number): boolean {
+	return trackOptions.value.some(o => o.id === id) || namedOption.value?.id === id
 }
 
 // The URL can name a different track while this view stays mounted (history
@@ -59,6 +75,7 @@ function resolveTrack(options: { id: number; label: string }[]) {
 watch(() => props.trackId, (trackId) => {
 	if (trackId == null || selectedTrack.value?.id === trackId) return
 	const option = trackOptions.value.find(o => o.id === trackId)
+		?? (namedOption.value?.id === trackId ? namedOption.value : undefined)
 	if (option) {
 		selectedTrack.value = option
 	}
@@ -66,21 +83,33 @@ watch(() => props.trackId, (trackId) => {
 
 // When available tracks change (e.g. private toggle), ensure selection is still valid
 watch(trackOptions, (options) => {
-	if (!selectedTrack.value || !options.some(o => o.id === selectedTrack.value!.id)) {
+	if (!selectedTrack.value || !isShowable(selectedTrack.value.id)) {
 		selectedTrack.value = resolveTrack(options)
 	}
 })
 
+// The selected track's archive date, null while active. Its charts end on
+// that day, as the server's stats do.
+const archivedAt = computed(() => {
+	if (!selectedTrack.value) return null
+	return allTracks.value.find(t => t.id === selectedTrack.value!.id)?.archivedAt ?? null
+})
+
+const archivedLine = computed(() => archivedAt.value === null
+	? null
+	: `Archived on ${new Intl.DateTimeFormat(userLocale, { day: 'numeric', month: 'long', year: 'numeric' }).format(parseDateStr(archivedAt.value))}`)
+
 const trackTicks = computed(() => {
 	if (!selectedTrack.value) return []
+	const end = archivedAt.value
 	return allTicks.value
-		.filter(t => t.trackId === selectedTrack.value!.id)
+		.filter(t => t.trackId === selectedTrack.value!.id && (end === null || t.date <= end))
 		.sort((a, b) => a.date.localeCompare(b.date))
 })
 
 const selectedTrackType = computed(() => {
 	if (!selectedTrack.value) return 'boolean'
-	return tracks.value.find(t => t.id === selectedTrack.value!.id)?.type ?? 'boolean'
+	return allTracks.value.find(t => t.id === selectedTrack.value!.id)?.type ?? 'boolean'
 })
 
 // --- Primary colour extraction ---
@@ -595,7 +624,8 @@ const heatmapData = computed(() => {
 	const byDate = new Map<string, number>()
 	for (const t of ticks) byDate.set(t.date, t.value)
 
-	const today = new Date()
+	// Ends today, or on an archived track's archive date
+	const today = archivedAt.value === null ? new Date() : parseDateStr(archivedAt.value)
 	today.setHours(0, 0, 0, 0)
 
 	// Trailing 365 days, extended back to the first tick if history is longer.
@@ -718,8 +748,8 @@ function hideHeatmapTooltip() {
 async function loadTracks() {
 	loading.value = true
 	try {
-		const [t] = await Promise.all([fetchTracks(), loadPreferences()])
-		tracks.value = t
+		const [t] = await Promise.all([fetchTracks(true), loadPreferences()])
+		allTracks.value = t
 	} finally {
 		loading.value = false
 	}
@@ -752,7 +782,7 @@ async function loadTicks() {
 }
 
 watch(selectedTrack, (track) => {
-	emit('update:trackId', track?.id ?? null)
+	emit('update:trackId', track?.id ?? null, track !== null && trackOptions.value.some(o => o.id === track.id))
 	loadTicks()
 })
 
@@ -763,15 +793,15 @@ onMounted(async () => {
 </script>
 
 <template>
-	<NcEmptyContent v-if="!loading && tracks.length === 0" name="No tracks yet">
+	<NcEmptyContent v-if="!loading && tracks.length === 0 && !namedOption" name="No tracks yet">
 		<template #description>
 			Add one in <a href="#tracks" :class="$style.link">Tracks</a>.
 		</template>
 	</NcEmptyContent>
-	<NcEmptyContent v-else-if="!loading && trackOptions.length === 0"
+	<NcEmptyContent v-else-if="!loading && trackOptions.length === 0 && !namedOption"
 		name="All your tracks are private"
 		description="Use Show private on Today or in the Journal to show them." />
-	<div v-else-if="trackOptions.length > 0" :class="$style.wrapper">
+	<div v-else-if="trackOptions.length > 0 || namedOption" :class="$style.wrapper">
 		<div :class="$style.trackSelector">
 			<NcSelect v-model="selectedTrack"
 				:options="trackOptions"
@@ -781,6 +811,10 @@ onMounted(async () => {
 		</div>
 
 		<template v-if="selectedTrack && !loading">
+			<div v-if="archivedLine" :class="$style.archivedLine">
+				{{ archivedLine }}
+			</div>
+
 			<div v-if="trackTicks.length === 0" :class="$style.empty">
 				No data recorded for this track yet.
 			</div>
@@ -1057,6 +1091,13 @@ onMounted(async () => {
 
 .trackSelect {
 	max-width: 300px;
+}
+
+/* Under the picker, lined up with it */
+.archivedLine {
+	margin-block: -12px 16px;
+	padding-inline-start: 44px;
+	color: var(--color-text-maxcontrast);
 }
 
 .empty {
