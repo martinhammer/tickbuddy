@@ -38,7 +38,7 @@ const emit = defineEmits<{
 }>()
 
 // Active and archived tracks. The picker offers active ones (private ones only
-// while shown); any other is shown only when the route names it.
+// while shown); an archived one is shown only when the route names it.
 const allTracks = ref<Track[]>([])
 const tracks = computed(() => allTracks.value.filter(t => t.archivedAt === null))
 const allTicks = ref<Tick[]>([])
@@ -52,12 +52,11 @@ const trackOptions = computed(() => {
 	return list.map(t => ({ id: t.id, label: t.name }))
 })
 
-// A track named by the route that the picker doesn't list (archived, or private
-// while private tracks are hidden): the picker's value, but not an option
+// An archived track named by the route: the picker's value, but not an option.
+// A hidden private track isn't one: it falls back to the first track, as in 2.3.0.
 const namedOption = computed(() => {
-	if (trackOptions.value.some(o => o.id === props.trackId)) return null
 	const track = allTracks.value.find(t => t.id === props.trackId)
-	return track ? { id: track.id, label: track.name } : null
+	return track && track.archivedAt !== null ? { id: track.id, label: track.name } : null
 })
 
 // The track to show when nothing valid is selected: the one handed in from a

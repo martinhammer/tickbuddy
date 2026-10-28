@@ -109,7 +109,7 @@ async function runImport() {
 				Replace existing database
 			</NcCheckboxRadioSwitch>
 			<p :class="$style.hint">
-				When on, all your tracks, ticks and notes are deleted and replaced with the imported data. When off, imported tracks are added after yours.
+				When on, all your tracks, ticks and notes are deleted and replaced with the imported data. When off, imported tracks are added after the existing ones.
 			</p>
 		</div>
 		<template #actions>
