@@ -44,17 +44,17 @@ Feel free to get in touch and/or submit an issue.
 
 ### Screenshots
 
-Settings screen
-![Screenshot of settings screen](img/Settings_20261014.png)
+Today screen
+![Screenshot of view journal screen](img/Today_20261028.png)
 
-Edit journal screen
-![Screenshot of edit journal screen](img/Edit_20261009.png)
-
-View journal screen
-![Screenshot of view journal screen](img/View_20261009.png)
+Journal screen
+![Screenshot of edit journal screen](img/Journal_20261028.png)
 
 Analytics screen
-![Screenshot of analytics screen](img/Analytics_20261009.png)
+![Screenshot of analytics screen](img/Analytics_20261028.png)
+
+Tracks screen
+![Screenshot of settings screen](img/Tracks_20261028.png)
 
 Dashboard Widget
-![Screenshot of dashboard widget](img/Dashboard_20261009.png)
+![Screenshot of dashboard widget](img/Dashboard_20261028.png)
