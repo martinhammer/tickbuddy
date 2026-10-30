@@ -91,6 +91,7 @@ async function finishWithKey(finish: () => void): Promise<void> {
 
 <template>
 	<NcAppSidebar :name="track.name"
+		:class="$style.sidebar"
 		@opened="opened = true"
 		@close="emit('close')">
 		<template #info>
@@ -133,6 +134,7 @@ async function finishWithKey(finish: () => void): Promise<void> {
 
 		<div :class="$style.body">
 			<NcCheckboxRadioSwitch :model-value="track.private"
+				:class="$style.switch"
 				type="switch"
 				@update:model-value="(value: boolean) => emit('set-private', value)">
 				Private
@@ -159,13 +161,23 @@ async function finishWithKey(finish: () => void): Promise<void> {
 </template>
 
 <style module>
+/* At phone width the sidebar is 100vw wide and anchored right, so inside
+   Nextcloud's content area (which has a margin) its left edge was clipped; fill
+   that area instead. Doubled class to outrank the library's scoped rule */
+@media only screen and (max-width: 512px) {
+	.sidebar.sidebar:global(.app-sidebar) {
+		--app-sidebar-width: 100%;
+	}
+}
+
 /* The built-in header's spacing (NcAppSidebar's .app-sidebar-header__desc), with
-   room at the end for the close button */
+   room at the end for the close button. Both variables are the sidebar's own */
 .head {
 	box-sizing: border-box;
 	min-width: 0;
+	padding-inline: var(--app-sidebar-padding);
+	padding-inline-end: var(--app-sidebar-close-button-offset);
 	padding-block: var(--app-sidebar-padding) calc(var(--app-sidebar-padding) / 2);
-	padding-inline: var(--app-sidebar-padding) calc(var(--default-clickable-area) + 2 * var(--app-sidebar-padding));
 }
 
 .nameRow {
@@ -221,13 +233,21 @@ async function finishWithKey(finish: () => void): Promise<void> {
 	text-overflow: ellipsis;
 }
 
+/* One left edge under the name: the switch, its help text and the buttons share
+   the header's inline padding */
 .body {
-	padding: 8px 16px;
+	padding-block: 8px;
+	padding-inline: var(--app-sidebar-padding);
+}
+
+/* The switch pads its content on both sides; without the start padding its
+   toggle starts on the body's edge like everything else */
+.body .switch :global(.checkbox-radio-switch__content) {
+	padding-inline-start: 0;
 }
 
 .help {
 	color: var(--color-text-maxcontrast);
-	padding-inline-start: 4px;
 }
 
 .buttons {

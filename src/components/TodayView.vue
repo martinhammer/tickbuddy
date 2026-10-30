@@ -382,10 +382,15 @@ onMounted(() => {
 	flex-direction: column;
 }
 
+/* At phone width the rows take the full width; only the header still clears
+   the navigation's toggle (56px from the content's edge) */
 @media (max-width: 1023px) {
 	.column {
 		padding: 12px;
-		padding-inline-start: 56px;
+	}
+
+	.header {
+		padding-inline-start: 44px;
 	}
 }
 </style>

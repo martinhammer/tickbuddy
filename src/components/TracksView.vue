@@ -629,9 +629,15 @@ onMounted(() => {
 	margin-inline-start: var(--default-grid-baseline);
 }
 
+/* At phone width the lists take the full width; only the header row still
+   clears the navigation's toggle (52px from the content's edge) */
 @media (max-width: 1023px) {
 	.page {
-		padding-inline-end: 12px;
+		padding-inline: 12px;
+	}
+
+	.header {
+		padding-inline-start: 40px;
 	}
 }
 </style>
