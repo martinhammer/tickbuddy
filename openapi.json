@@ -237,10 +237,30 @@
             "Preferences": {
                 "type": "object",
                 "required": [
-                    "defaultView"
+                    "journalLayoutDesktop",
+                    "journalLayoutMobile",
+                    "showPrivateDesktop",
+                    "showPrivateMobile",
+                    "editableDaysDesktop",
+                    "editableDaysMobile"
                 ],
                 "properties": {
-                    "defaultView": {
+                    "journalLayoutDesktop": {
+                        "type": "string"
+                    },
+                    "journalLayoutMobile": {
+                        "type": "string"
+                    },
+                    "showPrivateDesktop": {
+                        "type": "boolean"
+                    },
+                    "showPrivateMobile": {
+                        "type": "boolean"
+                    },
+                    "editableDaysDesktop": {
+                        "type": "string"
+                    },
+                    "editableDaysMobile": {
                         "type": "string"
                     }
                 }
@@ -1747,6 +1767,7 @@
             "put": {
                 "operationId": "preferences-update",
                 "summary": "Update the current user's preferences",
+                "description": "Only the fields sent change. Every value is checked before anything is saved, so one unknown value saves nothing.",
                 "tags": [
                     "preferences"
                 ],
@@ -1765,10 +1786,41 @@
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "defaultView": {
+                                    "journalLayoutDesktop": {
                                         "type": "string",
-                                        "default": "journal",
-                                        "description": "Default view; one of \"journal\", \"readonly\", \"analytics\""
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Journal layout on desktop: \"daysDown\" or \"tracksDown\""
+                                    },
+                                    "journalLayoutMobile": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Journal layout on mobile: \"daysDown\" or \"tracksDown\""
+                                    },
+                                    "showPrivateDesktop": {
+                                        "type": "boolean",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Whether private tracks are shown on desktop"
+                                    },
+                                    "showPrivateMobile": {
+                                        "type": "boolean",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Whether private tracks are shown on mobile"
+                                    },
+                                    "editableDaysDesktop": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Days a click can change on desktop: \"activeDay\", \"activeAndPrevious\", \"oneWeek\" or \"allDays\""
+                                    },
+                                    "editableDaysMobile": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Days a click can change on mobile: \"activeDay\", \"activeAndPrevious\", \"oneWeek\" or \"allDays\""
                                     }
                                 }
                             }
@@ -1789,7 +1841,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Preferences updated",
+                        "description": "Preferences updated, all of them returned",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1810,6 +1862,36 @@
                                                 },
                                                 "data": {
                                                     "$ref": "#/components/schemas/Preferences"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "A value isn't one of the allowed ones; nothing saved",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -4122,5 +4204,10 @@
             }
         }
     },
-    "tags": []
+    "tags": [
+        {
+            "name": "preferences",
+            "description": "The web's toolbar choices, one value per device class (desktop, mobile). Only the web reads these; other clients keep their own."
+        }
+    ]
 }

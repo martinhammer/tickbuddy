@@ -1,100 +1,92 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
-import axios from '@nextcloud/axios'
-import { generateOcsUrl } from '@nextcloud/router'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import NcAppContent from '@nextcloud/vue/components/NcAppContent'
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation'
 import NcAppNavigationItem from '@nextcloud/vue/components/NcAppNavigationItem'
-import NcAppNavigationSettings from '@nextcloud/vue/components/NcAppNavigationSettings'
-import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcContent from '@nextcloud/vue/components/NcContent'
+import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
+import { todayStr } from './dates.ts'
+import { MDI_CALENDAR_MONTH_OUTLINE, MDI_CHART_BAR, MDI_CHECKBOX_MARKED_OUTLINE, MDI_FORMAT_LIST_CHECKS } from './icons.ts'
+import { loadPreferences } from './preferences.ts'
+import { hashFor, parseHash } from './routes.ts'
+import type { Route } from './routes.ts'
 import AnalyticsView from './components/AnalyticsView.vue'
-import TickGrid from './components/TickGrid.vue'
+import JournalView from './components/JournalView.vue'
+import TodayView from './components/TodayView.vue'
+import TracksView from './components/TracksView.vue'
 
-type View = 'journal' | 'readonly' | 'analytics'
+// Four screens with one job each: tick (Today), review (Journal), understand
+// (Analytics), set up (Tracks). The screen lives in the URL hash; see routes.ts.
 
-const VIEWS: View[] = ['journal', 'readonly', 'analytics']
-
-const currentView = ref<View>('journal')
-const showPrivate = ref(false)
-// Track shown in Analytics. Kept here so it survives switching views, and so a
-// click on a journal column header can preselect it.
+const route = ref<Route>(parseHash(window.location.hash, todayStr()).route)
+// The last track the Analytics picker lists that it showed, for the
+// navigation's link, so it survives switching screens. A track the picker
+// doesn't list (archived, or private while hidden) is shown when the route
+// names it, but never kept here.
 const analyticsTrackId = ref<number | null>(null)
-
-// --- Hash routing -----------------------------------------------------------
-// The view lives in the URL hash (#journal, #analytics/3), not in the path:
-// PageController only serves /apps/tickbuddy/, so a real path would 404 on
-// reload. Navigation is therefore just a hash change — the browser maintains
-// the history stack and we only translate between hash and state, which is why
-// Back/Forward work without a router.
-
-function hashFor(view: View, trackId: number | null): string {
-	return view === 'analytics' && trackId !== null ? `#analytics/${trackId}` : `#${view}`
-}
-
-function currentHash(): string {
-	return hashFor(currentView.value, analyticsTrackId.value)
-}
-
-function parseHash(): { view: View, trackId: number | null } | null {
-	const [name, rawId] = window.location.hash.slice(1).split('/')
-	if (!VIEWS.includes(name as View)) return null
-	const trackId = Number.parseInt(rawId, 10)
-	return { view: name as View, trackId: Number.isNaN(trackId) ? null : trackId }
-}
+// Whether the open track sidebar was opened from the list, by pushing a history
+// entry: closing it then goes back, so Back and ✕ agree.
+let sidebarPushed = false
 
 function applyHash(): void {
-	const parsed = parseHash()
-	if (!parsed) {
-		// Unknown or bare "#" — keep the state we have and make the URL match it.
-		history.replaceState(null, '', currentHash())
+	const previous = route.value
+	const { route: next, replaceWith } = parseHash(window.location.hash, todayStr())
+	if (replaceWith !== null) history.replaceState(null, '', replaceWith)
+	route.value = next
+	sidebarPushed = sidebarPushed && next.screen === 'tracks' && next.trackId !== null
+		&& previous.screen === 'tracks'
+}
+
+// Refining the screen shown (another day on Today, another track in Analytics
+// or the sidebar) replaces the history entry rather than pushing one, so Back
+// leaves the screen instead of stepping through every day or track.
+function replaceRoute(next: Route): void {
+	route.value = next
+	history.replaceState(null, '', hashFor(next))
+}
+
+function navigate(next: Route): void {
+	// Assigning the hash is the navigation; hashchange feeds it back into state.
+	window.location.hash = hashFor(next)
+}
+
+function setTodayDay(day: string | null): void {
+	replaceRoute({ screen: 'today', day })
+}
+
+function openTrackSidebar(trackId: number): void {
+	const current = route.value
+	if (current.screen === 'tracks' && current.trackId !== null) {
+		replaceRoute({ screen: 'tracks', trackId })
 		return
 	}
-	currentView.value = parsed.view
-	// Only adopt a track when the hash names one, so leaving Analytics does not
-	// forget which track was open.
-	if (parsed.trackId !== null) {
-		analyticsTrackId.value = parsed.trackId
+	sidebarPushed = current.screen === 'tracks'
+	navigate({ screen: 'tracks', trackId })
+}
+
+function closeTrackSidebar(): void {
+	if (sidebarPushed) {
+		sidebarPushed = false
+		history.back()
+		return
+	}
+	replaceRoute({ screen: 'tracks', trackId: null })
+}
+
+// The track Analytics shows: put it in the URL, and remember it if the picker lists it
+function setAnalyticsTrack(trackId: number | null, listed: boolean): void {
+	if (listed) analyticsTrackId.value = trackId
+	if (route.value.screen === 'analytics') {
+		replaceRoute({ screen: 'analytics', trackId })
 	}
 }
 
-function showAnalyticsFor(trackId: number): void {
-	// Assigning the hash is the navigation; hashchange feeds it back into state.
-	window.location.hash = hashFor('analytics', trackId)
-}
-
-// Picking a track in the Analytics dropdown refines the current view rather
-// than being a navigation of its own, so it replaces the history entry instead
-// of pushing one — otherwise Back would step through every track viewed.
-watch(analyticsTrackId, () => {
-	if (currentView.value === 'analytics') {
-		history.replaceState(null, '', currentHash())
-	}
-})
-
-async function loadDefaultView(): Promise<void> {
-	try {
-		const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/preferences'))
-		const view = response.data.ocs.data.defaultView as View
-		if (VIEWS.includes(view)) {
-			currentView.value = view
-		}
-	} catch {
-		// use default
-	}
-}
-
-onMounted(async () => {
+onMounted(() => {
 	window.addEventListener('hashchange', applyHash)
-	if (parseHash()) {
-		// A link or reload named the view; it wins over the saved preference.
-		applyHash()
-	} else {
-		await loadDefaultView()
-	}
-	// Stamp the state onto the current entry rather than pushing, so the first
-	// Back leaves the app instead of merely stripping the hash.
-	history.replaceState(null, '', currentHash())
+	// Make the URL match: the first Back then leaves the app instead of merely
+	// stripping the hash.
+	history.replaceState(null, '', hashFor(route.value))
+	loadPreferences()
 })
 
 onBeforeUnmount(() => {
@@ -106,36 +98,51 @@ onBeforeUnmount(() => {
 	<NcContent app-name="tickbuddy">
 		<NcAppNavigation>
 			<template #list>
-				<NcAppNavigationItem name="Edit journal"
+				<NcAppNavigationItem name="Today"
+					href="#today"
+					:active="route.screen === 'today'">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_CHECKBOX_MARKED_OUTLINE" />
+					</template>
+				</NcAppNavigationItem>
+				<NcAppNavigationItem name="Journal"
 					href="#journal"
-					:active="currentView === 'journal'" />
-				<NcAppNavigationItem name="View journal"
-					href="#readonly"
-					:active="currentView === 'readonly'" />
+					:active="route.screen === 'journal'">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_CALENDAR_MONTH_OUTLINE" />
+					</template>
+				</NcAppNavigationItem>
 				<NcAppNavigationItem name="Analytics"
-					:href="hashFor('analytics', analyticsTrackId)"
-					:active="currentView === 'analytics'" />
-			</template>
-			<template #footer>
-				<NcAppNavigationSettings>
-					<NcCheckboxRadioSwitch v-model="showPrivate"
-						type="switch">
-						Show private tracks
-					</NcCheckboxRadioSwitch>
-				</NcAppNavigationSettings>
+					:href="hashFor({ screen: 'analytics', trackId: analyticsTrackId })"
+					:active="route.screen === 'analytics'">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_CHART_BAR" />
+					</template>
+				</NcAppNavigationItem>
+				<NcAppNavigationItem name="Tracks"
+					href="#tracks"
+					:active="route.screen === 'tracks'">
+					<template #icon>
+						<NcIconSvgWrapper :path="MDI_FORMAT_LIST_CHECKS" />
+					</template>
+				</NcAppNavigationItem>
 			</template>
 		</NcAppNavigation>
-		<NcAppContent>
-			<TickGrid v-if="currentView === 'journal'"
-				:show-private="showPrivate"
-				@select-track="showAnalyticsFor" />
-			<TickGrid v-else-if="currentView === 'readonly'"
-				:show-private="showPrivate"
-				readonly
-				@select-track="showAnalyticsFor" />
-			<AnalyticsView v-else-if="currentView === 'analytics'"
-				v-model:track-id="analyticsTrackId"
-				:show-private="showPrivate" />
+		<!-- Tracks brings its own NcAppContent, with the sidebar beside it -->
+		<TracksView v-if="route.screen === 'tracks'"
+			:track-id="route.trackId"
+			@open-track="openTrackSidebar"
+			@close-track="closeTrackSidebar" />
+		<NcAppContent v-else>
+			<TodayView v-if="route.screen === 'today'"
+				:day="route.day"
+				@update:day="setTodayDay" />
+			<JournalView v-else-if="route.screen === 'journal'"
+				@open-day="(day) => navigate({ screen: 'today', day })"
+				@select-track="(trackId) => navigate({ screen: 'analytics', trackId })" />
+			<AnalyticsView v-else-if="route.screen === 'analytics'"
+				:track-id="route.trackId ?? analyticsTrackId"
+				@update:track-id="setAnalyticsTrack" />
 		</NcAppContent>
 	</NcContent>
 </template>

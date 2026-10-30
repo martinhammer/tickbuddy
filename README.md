@@ -9,12 +9,15 @@ Tickbuddy is published on the [Nextcloud app store](https://apps.nextcloud.com/a
 - [Tickcli](https://github.com/martinhammer/tickcli), a command-line client for your scripts and automations
 - [TickLLMe](https://github.com/martinhammer/tickllme), an MCP server that lets your AI agents log and read your entries
 
+You can learn more about Tickbuddy and the companion apps over at [tickbuddy.app](http://tickbuddy.app).
+
 ### Features
 
-Some of the key features which already exist:
-* Settings screen to define, manage, archive, delete tracks (i.e. events to be tracked)
-* Main app screen for journal entry
-* Read-only screen for journal viewing
+Key features available now:
+* Today screen to tick each track for one day, with the last seven days, the current streak and the day's note
+* Journal screen in two layouts (days down or tracks down), with a choice of which days can be changed, notes in the cells, and "Go to date"
+* Tracks screen to add, rename, reorder, archive, restore and delete tracks (i.e. events to be tracked), and to import and export
+* Short free-text notes on any track's day
 * Analytics screen with stats and various visualizations
 * Nextcloud dashboard widget
 * Import/export data in JSON format
@@ -23,10 +26,8 @@ Some of the key features which already exist:
 
 Planned features:
 * Ping URLs for further automation integrations
-* Attaching short freetext notes to ticks
 * Additional track types
 * Setting and tracking of targets, goals and expectations 
-* UI enhancements to track management, logging, and analytics
 * Migration options from other tools
 * Support for translations and accessibility
 * Maybe even a smartwatch app
@@ -44,17 +45,17 @@ Feel free to get in touch and/or submit an issue.
 
 ### Screenshots
 
-Settings screen
-![Screenshot of settings screen](img/Settings_20261014.png)
+Today screen
+![Screenshot of view journal screen](img/Today_20261030.png)
 
-Edit journal screen
-![Screenshot of edit journal screen](img/Edit_20261009.png)
-
-View journal screen
-![Screenshot of view journal screen](img/View_20261009.png)
+Journal screen
+![Screenshot of edit journal screen](img/Journal_20261030.png)
 
 Analytics screen
-![Screenshot of analytics screen](img/Analytics_20261009.png)
+![Screenshot of analytics screen](img/Analytics_20261030.png)
+
+Tracks screen
+![Screenshot of settings screen](img/Tracks_20261030.png)
 
 Dashboard Widget
-![Screenshot of dashboard widget](img/Dashboard_20261009.png)
+![Screenshot of dashboard widget](img/Dashboard_20261030.png)

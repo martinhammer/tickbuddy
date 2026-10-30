@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - unreleased
+
+### Added
+- Today screen, where Tickbuddy now opens: one row per track for a single day, with the last seven days, the current streak or break, and the day's note; arrows go back to earlier days, and a Today button comes back
+- Journal layouts setting: Days down (as before) and Tracks down (days across, today first)
+- Editable days setting: choose which days a click can change (Today, +1 day, 1 week, All); other days are locked
+- Notes on the web: add, edit and delete a day's note on Today and in the Journal
+- Journal: "Go to date" starts the journal on any earlier day
+- Tracks: new screen to manage tracks and import/export
+
+### Changed
+- Edit journal and View journal merged into one Journal screen
+- Track management moved from Personal settings into the app (Tracks screen)
+- "Show private tracks" moved from the navigation's settings to a button on Today, the Journal and Analytics; the setting is now stored across sessions
+- Counters add and take one instead of setting a value, and yes/no days are set to what the checkbox shows instead of toggled, so changes made meanwhile on another device are kept
+
+### Removed
+- "Default screen" setting
+- API: `defaultView` from `GET`/`PUT /api/preferences`, which now hold the web's toolbar choices (an unknown value is http 400)
+
+
 ## [2.3.0] - 2026-10-24
 
 ### Added

@@ -49,3 +49,26 @@ export interface TrackStats {
 	/** Only when asked for with includeRuns. */
 	runs?: Run[]
 }
+
+/** A note on a track's day (`GET /api/notes`); track and date are its key. */
+export interface Note {
+	trackId: number
+	date: string // YYYY-MM-DD
+	text: string
+}
+
+/** The Journal's two layouts, as Tickdroid's (`JournalLayout.kt`). */
+export type JournalLayout = 'daysDown' | 'tracksDown'
+
+/** Which days a click can change, as Tickdroid's (`EditableDays.kt`). */
+export type EditableDays = 'activeDay' | 'activeAndPrevious' | 'oneWeek' | 'allDays'
+
+/** `GET /api/preferences`: the toolbar choices, one value per device class. */
+export interface Preferences {
+	journalLayoutDesktop: JournalLayout
+	journalLayoutMobile: JournalLayout
+	showPrivateDesktop: boolean
+	showPrivateMobile: boolean
+	editableDaysDesktop: EditableDays
+	editableDaysMobile: EditableDays
+}

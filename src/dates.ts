@@ -68,3 +68,88 @@ const dayFormatter = new Intl.DateTimeFormat(userLocale, {
 export function fmtDay(ds: string): string {
 	return dayFormatter.format(parseDateStr(ds))
 }
+
+const shortDayFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short', day: 'numeric', month: 'short' })
+
+/**
+ * A date for labels where the year is mostly known, e.g. "Mon 19 Oct", with
+ * the year added outside the current one ("Mon 19 Oct 2025").
+ *
+ * @param ds the date as YYYY-MM-DD
+ * @param today the local date as YYYY-MM-DD
+ */
+export function fmtDayLabel(ds: string, today: string): string {
+	return ds.slice(0, 4) === today.slice(0, 4)
+		? shortDayFormatter.format(parseDateStr(ds)).replace(',', '')
+		: fmtDate(ds)
+}
+
+// Weekend days from the user's Nextcloud locale, as ISO day numbers (1=Mon … 7=Sun).
+// Chromium has the weekInfo property, Firefox the getWeekInfo() method; Saturday
+// and Sunday when neither is there.
+const weekendDays: Set<number> = (() => {
+	try {
+		const locale = new Intl.Locale(userLocale) as Intl.Locale & {
+			weekInfo?: { weekend?: number[] }
+			getWeekInfo?: () => { weekend?: number[] }
+		}
+		const info = locale.weekInfo ?? locale.getWeekInfo?.()
+		if (info?.weekend) return new Set(info.weekend)
+	} catch {
+		// ignore
+	}
+	return new Set([6, 7])
+})()
+
+/**
+ * Whether a day is a weekend day in the user's locale.
+ *
+ * @param ds the date as YYYY-MM-DD
+ */
+export function isWeekend(ds: string): boolean {
+	const jsDay = parseDateStr(ds).getDay()
+	return weekendDays.has(jsDay === 0 ? 7 : jsDay)
+}
+
+/**
+ * The newest of Today's seven squares: today, or, once the day shown is more
+ * than six days back, six days after it, so the day shown is the oldest square.
+ * Stepping a day back or forward moves the outline one square or scrolls the
+ * squares one day, never jumps.
+ *
+ * @param day the day shown as YYYY-MM-DD, not after today
+ * @param today the local date as YYYY-MM-DD
+ */
+export function squaresEnd(day: string, today: string): string {
+	return day < addDays(today, -6) ? addDays(day, 6) : today
+}
+
+/**
+ * Today's title and the line under it, by how far back the day is: "Today",
+ * "Yesterday" and "2 days ago" to "6 days ago" over the full date; from 7 days
+ * back the date itself ("6 October", with the year in an earlier one) over the
+ * full date with its year.
+ *
+ * @param day the day shown as YYYY-MM-DD, not after today
+ * @param today the local date as YYYY-MM-DD
+ * @param locale a BCP 47 tag; the user's locale unless testing
+ */
+export function dayHeading(day: string, today: string, locale: string = userLocale): { title: string, line: string } {
+	const date = parseDateStr(day)
+	// Walked with addDays, so a DST day still counts as one
+	let daysBack = 0
+	while (daysBack < 7 && addDays(today, -daysBack) !== day) daysBack++
+	if (daysBack < 7) {
+		// numeric: 'auto' gives "today" and "yesterday" rather than "0 days ago"
+		const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-daysBack, 'day')
+		return {
+			title: relative.charAt(0).toLocaleUpperCase(locale) + relative.slice(1),
+			line: new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(date),
+		}
+	}
+	const sameYear = day.slice(0, 4) === today.slice(0, 4)
+	return {
+		title: new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: sameYear ? undefined : 'numeric' }).format(date),
+		line: new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date),
+	}
+}

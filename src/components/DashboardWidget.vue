@@ -16,8 +16,8 @@ const MDI_REFRESH = 'M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 
 const STALE_AFTER_MS = 5 * 60 * 1000
 
 const appUrl = generateUrl('/apps/tickbuddy/')
-const journalUrl = appUrl + '#journal'
-const settingsUrl = generateUrl('/settings/user/tickbuddy')
+const todayUrl = appUrl + '#today'
+const tracksUrl = appUrl + '#tracks'
 
 function analyticsUrl(trackId: number): string {
 	return appUrl + '#analytics/' + trackId
@@ -399,7 +399,7 @@ onBeforeUnmount(() => {
 			<NcLoadingIcon v-if="view === 'loading'" :size="32" />
 			<template v-else-if="view === 'empty'">
 				<span :class="$style.messageTitle">No tracks yet</span>
-				<span :class="$style.messageText">Add tracks in Tickbuddy settings</span>
+				<span :class="$style.messageText">Add tracks in Tickbuddy.</span>
 			</template>
 			<template v-else-if="view === 'allPrivate'">
 				<span :class="$style.messageTitle">All your tracks are private</span>
@@ -417,10 +417,10 @@ onBeforeUnmount(() => {
 		<div v-if="view !== 'loading'" :class="$style.footer">
 			<NcButton v-if="view === 'empty' || view === 'allPrivate'"
 				variant="secondary"
-				:href="settingsUrl">
-				Edit settings
+				:href="tracksUrl">
+				{{ view === 'empty' ? 'Add tracks' : 'Open Tracks' }}
 			</NcButton>
-			<NcButton v-else variant="secondary" :href="journalUrl">
+			<NcButton v-else variant="secondary" :href="todayUrl">
 				Edit journal
 			</NcButton>
 		</div>

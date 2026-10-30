@@ -14,7 +14,7 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 - Tickcli, a command-line client for your scripts and automations
 - TickLLMe, an MCP server that lets your AI agents log and read your entries
 	]]></description>
-	<version>2.3.0</version>
+	<version>2.4.0</version>
 	<licence>AGPL-3.0-or-later</licence>
 	<author mail="me@martinhammer.com" homepage="https://github.com/martinhammer">Martin Hammer</author>
 	<namespace>Tickbuddy</namespace>
@@ -23,10 +23,11 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 	<website>https://tickbuddy.app</website>
 	<bugs>https://github.com/martinhammer/tickbuddy</bugs>
 	<repository type="git">https://github.com/martinhammer/tickbuddy</repository>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Edit_20261009.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261009.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Settings_20261014.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261009.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Today_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Journal_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Tracks_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261030.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="33" max-version="36"/>
 	</dependencies>
