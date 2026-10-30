@@ -23,11 +23,11 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 	<website>https://tickbuddy.app</website>
 	<bugs>https://github.com/martinhammer/tickbuddy</bugs>
 	<repository type="git">https://github.com/martinhammer/tickbuddy</repository>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Today_20261028.png.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Journal_20261028.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261028.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Tracks_20261028.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261028.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Today_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Journal_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Tracks_20261030.png</screenshot>
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261030.png</screenshot>
 	<dependencies>
 		<nextcloud min-version="33" max-version="36"/>
 	</dependencies>
