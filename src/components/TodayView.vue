@@ -5,9 +5,6 @@ import NcButton from '@nextcloud/vue/components/NcButton'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-// Toasts are a Vue component with hashed CSS-module class names since @nextcloud/dialogs 7,
-// so the server's own stylesheets cannot style them — the app must ship this itself.
-import '@nextcloud/dialogs/style.css'
 import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
 import { addDays, dayHeading, squaresEnd } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
