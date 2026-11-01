@@ -162,7 +162,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `npm run watch` — development build with file watching
 - `npm run lint` — ESLint
 - `npm run stylelint` — Stylelint for Vue/SCSS/CSS
-- `npm run typecheck` — `vue-tsc --noEmit`, type-checks `.ts` **and `.vue` templates**
+- `npm run typecheck` — `vue-tsc --noEmit`, type-checks `.ts` **and `.vue` templates** (`npm run ts:check` is an alias, the name CI's `lint-typescript.yml` calls)
 - `npm test` — Vitest unit tests (`src/*.test.ts`), run with `TZ=Europe/Berlin` (set in `vitest.config.ts`) so date walks cross a DST change
 
 ### Backend (composer)
@@ -170,7 +170,7 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 - `composer cs:check` — PHP CS Fixer dry run
 - `composer cs:fix` — PHP CS Fixer auto-fix
 - `composer psalm` — static analysis (error level 1, strictest)
-- `composer test:unit` — PHPUnit tests (`tests/` directory)
+- `composer test:unit` — PHPUnit tests (`tests/` directory). Standalone they run against the `nextcloud/ocp` stubs; in CI (`phpunit-sqlite.yml`) inside a `nextcloud/server` checkout without `ocp`, so `tests/bootstrap.php` loads the server's bootstrap when it is there
 - `composer rector` — Rector refactoring + auto CS fix
 - `composer openapi` — regenerate OpenAPI spec from docblocks
 
@@ -178,6 +178,24 @@ Both `{id}` routes declare `requirements: ['id' => '\d+']`. Without it, `{id}` c
 ```
 vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests/phpunit.xml
 ```
+
+### CI workflows
+
+`.github/workflows/` follows the org templates in `nextcloud/.github` (`workflow-templates/`), the source of truth, synced by hand with the script in that repo's README (*Update workflows manually*). `assign.yml` is the only workflow of our own. After a sync, outside the `nextcloud` org:
+
+```sh
+sed -i 's/ubuntu-latest-low/ubuntu-latest/' .github/workflows/*.yml
+for b in $(grep -ho "'stable[0-9]*'" .github/workflows/*.yml | tr -d "'" | sort -u); do
+	git ls-remote --exit-code --heads origin "$b" > /dev/null ||
+		sed -i "/^ *- '$b'$/d" .github/workflows/*.yml
+done
+```
+
+(the org's runner label doesn't exist here, and `npm-audit-fix`'s matrix names stable branches this repo doesn't have, which fail every week). Deliberate changes live in `.yml.patch` files the sync re-applies:
+- `update-nextcloud-ocp-matrix.yml.patch` removes the `repository_owner == 'nextcloud'` guard (without it the weekly `ocp` bump is silently skipped) and, with `npm-audit-fix.yml.patch`, the approve and auto-merge steps: **bot PRs are merged by hand** (auto-merge is off in the repo settings, so that step would fail every run).
+- `node-test.yml.patch` removes the coverage steps (no `test:coverage` script, no Codecov).
+
+`appstore-build-publish.yml` is deliberately absent: releases are packaged with `make package` and uploaded to the app store by hand.
 
 ## Demo data
 
@@ -190,11 +208,11 @@ vendor-bin/phpunit/vendor/bin/phpunit tests/unit/Controller/ApiTest.php -c tests
 - All PHP files use `declare(strict_types=1)`
 - Psalm runs at error level 1 with `findUnusedCode` enabled; suppress unused classes injected by Nextcloud with `@psalm-suppress UnusedClass`
 - **No "…" on labels**: no button or menu label ends in "…" (the Tracks page's ⋯ menu says "Import" and "Export"). An ellipsis only marks something in progress ("Exporting…") or a placeholder's example list.
-- Node version: 24 — `.nvmrc` and `package.json` `engines` must stay in step; CI reads the version from `engines` (the `fallbackNode: '^20'` in the workflows only applies if `engines` is absent)
+- Node version: 24 — `.nvmrc` and `package.json` `engines` must stay in step; CI reads the versions from `engines` (node and npm), with no fallback
 
 ### Frontend checks and `@nextcloud/vue` gotchas
 
-`npm run typecheck` is the only check that sees third-party component prop types — ESLint cannot, because no rule reads `@nextcloud/vue`'s type definitions. CI runs it via `.github/workflows/lint-typecheck.yml` (mirrors `lint-eslint.yml`: same pinned action SHAs, same `paths-filter` gate, same summary job for branch protection). **Run it after every `@nextcloud/vue` bump** — that is the class of breakage it exists to catch. It does **not** catch CSS or layout regressions; those need a look at the running app.
+`npm run typecheck` is the only check that sees third-party component prop types — ESLint cannot, because no rule reads `@nextcloud/vue`'s type definitions. CI runs it via `.github/workflows/lint-typescript.yml` (the org template, which calls `npm run ts:check`, the alias; it skips silently if that script is missing). **Run it after every `@nextcloud/vue` bump** — that is the class of breakage it exists to catch. It does **not** catch CSS or layout regressions; those need a look at the running app.
 
 Breakages already hit, kept here so they are not reintroduced:
 

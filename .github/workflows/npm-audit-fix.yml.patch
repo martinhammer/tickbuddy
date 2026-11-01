@@ -1,0 +1,22 @@
+--- a/.github/workflows/npm-audit-fix.yml
++++ b/.github/workflows/npm-audit-fix.yml
+@@ -115,19 +115,3 @@
+           labels: |
+             dependencies
+             3. to review
+-
+-      # Approve using the default GITHUB_TOKEN, as the PR itself was created
+-      # using COMMAND_BOT_PAT and GitHub does not allow an account to approve its own PR
+-      - name: GitHub actions bot approve
+-        if: steps.freeze.outputs.active != 'true' && steps.create-pull-request.outputs.pull-request-operation != 'none'
+-        run: gh pr review --approve "$PR_URL"
+-        env:
+-          PR_URL: ${{ steps.create-pull-request.outputs.pull-request-url }}
+-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+-
+-      - name: Enable auto merge
+-        if: steps.freeze.outputs.active != 'true' && steps.create-pull-request.outputs.pull-request-operation != 'none' && fromJSON(env.AUTOMERGE)
+-        uses: peter-evans/enable-pull-request-automerge@a660677d5469627102a1c1e11409dd063606628d # v3.0.0
+-        with:
+-          token: ${{ secrets.GITHUB_TOKEN }}
+-          pull-request-number: ${{ steps.create-pull-request.outputs.pull-request-number }}

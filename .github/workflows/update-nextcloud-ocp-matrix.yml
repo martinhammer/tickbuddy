@@ -11,20 +11,26 @@ name: Update nextcloud/ocp
 on:
   workflow_dispatch:
   schedule:
-    - cron: '5 2 * * 0'
+    - cron: '5 22 * * 6'
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   update-nextcloud-ocp:
     runs-on: ubuntu-latest
 
+    env:
+      # env variable for maintainers: 'false' disables auto-merge for these pull requests
+      AUTOMERGE: true
+
     strategy:
       fail-fast: false
       matrix:
-        branches: ['main']
-        target: ['stable33']
+        branches:
+          - ${{ github.event.repository.default_branch }}
 
     name: update-nextcloud-ocp-${{ matrix.branches }}
 
@@ -35,10 +41,14 @@ jobs:
           ref: ${{ matrix.branches }}
           submodules: true
 
-      - name: Set up php8.2
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+      - name: Get version matrix
+        id: versions
+        uses: nextcloud-libraries/nextcloud-version-matrix@cd0211ffcef1065e2020cd579e4843b8746e7a58 # v1.3.3
+
+      - name: Set up php${{ steps.versions.outputs.php-min }}
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
-          php-version: 8.2
+          php-version: ${{ steps.versions.outputs.php-min }}
           # https://docs.nextcloud.com/server/stable/admin_manual/installation/source_installation.html#prerequisites-for-manual-installation
           extensions: bz2, ctype, curl, dom, fileinfo, gd, iconv, intl, json, libxml, mbstring, openssl, pcntl, posix, session, simplexml, xmlreader, xmlwriter, zip, zlib, sqlite, pdo_sqlite
           coverage: none
@@ -51,12 +61,28 @@ jobs:
           grep '/appinfo/info.xml' .github/CODEOWNERS | cut -f 2- -d ' ' | xargs | awk '{ print "codeowners="$0 }' >> $GITHUB_OUTPUT
         continue-on-error: true
 
-      - name: Composer install
-        run: composer install
+      - name: Install composer dependencies
+        uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+      - name: Check composer bin for nextcloud/ocp exists
+        id: check_composer_bin
+        uses: andstor/file-existence-action@558493d6c74bf472d87c84eab196434afc2fa029 # v3.1.0
+        with:
+          files: vendor-bin/nextcloud-ocp/composer.json
 
       - name: Composer update nextcloud/ocp
         id: update_branch
-        run: composer require --dev nextcloud/ocp:dev-${{ matrix.target }}
+        env:
+          USE_COMPOSER_BIN: ${{ steps.check_composer_bin.outputs.files_exists }}
+          BRANCH_NAME: ${{ steps.versions.outputs.branches-min }}
+        run: |
+          COMPOSER_CMD='composer'
+          if [[ "$USE_COMPOSER_BIN" == 'true' ]]; then
+            COMPOSER_CMD='composer bin nextcloud-ocp'
+          fi
+
+          echo $COMPOSER_CMD require --dev nextcloud/ocp:dev-$BRANCH_NAME
+          $COMPOSER_CMD require --dev nextcloud/ocp:dev-$BRANCH_NAME
 
       - name: Raise on issue on failure
         uses: dacbd/create-issue-action@cdb57ab6ff8862aa09fee2be6ba77a59581921c2 # v2.0.0
@@ -67,6 +93,7 @@ jobs:
           body: 'Please check the output of the GitHub action and manually resolve the issues<br>${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}<br>${{ steps.codeowners.outputs.codeowners }}'
 
       - name: Create Pull Request
+        id: create-pull-request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ secrets.COMMAND_BOT_PAT }}
@@ -76,6 +103,7 @@ jobs:
           signoff: true
           branch: 'automated/noid/${{ matrix.branches }}-update-nextcloud-ocp'
           title: '[${{ matrix.branches }}] Update nextcloud/ocp dependency'
+          add-paths: ${{ steps.check_composer_bin.outputs.files_exists == 'true' && 'vendor-bin/nextcloud-ocp/composer.json,vendor-bin/nextcloud-ocp/composer.lock' || 'composer.json,composer.lock' }}
           body: |
             Auto-generated update of [nextcloud/ocp](https://github.com/nextcloud-deps/ocp/) dependency
           labels: |

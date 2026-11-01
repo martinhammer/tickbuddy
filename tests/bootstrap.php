@@ -2,6 +2,13 @@
 
 declare(strict_types=1);
 
+// Inside a server checkout (apps/tickbuddy, as the phpunit-sqlite workflow
+// runs it, without nextcloud/ocp) the server's bootstrap provides OCP and DBAL.
+$serverBootstrap = __DIR__ . '/../../../tests/bootstrap.php';
+if (is_file($serverBootstrap)) {
+	require_once $serverBootstrap;
+}
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 // Load Nextcloud's OCP stubs for the test runtime only.
