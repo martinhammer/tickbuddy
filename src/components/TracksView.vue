@@ -11,9 +11,6 @@ import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcListItem from '@nextcloud/vue/components/NcListItem'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-// Toasts are a Vue component with hashed CSS-module class names since @nextcloud/dialogs 7,
-// so the server's own stylesheets cannot style them — the app must ship this itself.
-import '@nextcloud/dialogs/style.css'
 import { fetchTracks } from '../api.ts'
 import { fmtDay, todayStr, userLocale } from '../dates.ts'
 import {
