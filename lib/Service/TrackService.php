@@ -10,12 +10,16 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\DB\Exception as DbException;
+use OCP\IDBConnection;
 
 class TrackService {
 	public const MAX_TRACKS = 99;
 	/** The name column's size. Checked here because SQLite doesn't enforce it. */
 	public const MAX_NAME_LENGTH = 255;
 	public const VALID_TYPES = ['boolean', 'counter'];
+	/** Reorder attempts before a reorder racing other writes is told to try again */
+	private const REORDER_ATTEMPTS = 3;
 
 	public function __construct(
 		private TrackMapper $trackMapper,
@@ -23,6 +27,7 @@ class TrackService {
 		private NoteMapper $noteMapper,
 		private ITimeFactory $timeFactory,
 		private StrictHandling $strictHandling,
+		private IDBConnection $db,
 	) {
 	}
 
@@ -166,12 +171,45 @@ class TrackService {
 	 * A list naming an archived track changes nothing: refused for clients that
 	 * asked for strict handling, quietly ignored for the rest.
 	 *
+	 * In one transaction, with the user's tracks locked from the read on, so a
+	 * renumbering that fails halfway leaves the previous order rather than a
+	 * mix of old and new numbers. A track created or restored elsewhere in the
+	 * meantime can still take a number this one hands out; the whole reorder is
+	 * then rolled back and tried again with that track in the list.
+	 *
 	 * @param int[] $trackIds Ordered list of track IDs
 	 * @return Track[] The active tracks, in the new order
 	 * @throws ReadOnlyTrackException if an archived track is listed and the client asked for strict handling
+	 * @throws TrackOrderConflictException if other writes kept taking the numbers
 	 */
 	public function reorder(array $trackIds, string $userId): array {
-		$all = $this->trackMapper->findAllByUser($userId);
+		for ($attempt = 0; $attempt < self::REORDER_ATTEMPTS; $attempt++) {
+			$this->db->beginTransaction();
+			try {
+				$this->reorderLocked($trackIds, $userId);
+				$this->db->commit();
+				return $this->trackMapper->findActiveByUser($userId);
+			} catch (DbException $e) {
+				$this->db->rollBack();
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+					throw $e;
+				}
+			} catch (\Throwable $e) {
+				$this->db->rollBack();
+				throw $e;
+			}
+		}
+		throw new TrackOrderConflictException('The tracks changed while reordering; try again');
+	}
+
+	/**
+	 * The reorder itself, inside reorder()'s transaction.
+	 *
+	 * @param int[] $trackIds
+	 * @throws ReadOnlyTrackException
+	 */
+	private function reorderLocked(array $trackIds, string $userId): void {
+		$all = $this->trackMapper->findAllByUser($userId, true);
 		// A reorder that lists an archived track is refused whole for strict clients,
 		// and ignored whole for the rest. Ids not in $byId aren't the user's.
 		$byId = [];
@@ -181,12 +219,11 @@ class TrackService {
 		foreach ($trackIds as $id) {
 			if (isset($byId[$id]) && $byId[$id]->getArchivedAt() !== null) {
 				$this->strictHandling->refuseArchived($byId[$id]);
-				return $this->trackMapper->findActiveByUser($userId);
+				return;
 			}
 		}
 		$order = self::fullOrder($trackIds, array_map(fn (Track $t) => $t->getId(), $all));
 		$this->trackMapper->reorder($userId, $order);
-		return $this->trackMapper->findActiveByUser($userId);
 	}
 
 	/**

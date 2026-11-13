@@ -318,7 +318,7 @@ Bulk reorder. Send the desired order of track IDs. The listed tracks come first,
 Form params:
 - `trackIds[]` (array of ints, required, non-empty). In form-encoded bodies this is `trackIds[]=1&trackIds[]=5&trackIds[]=3`.
 
-Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`).
+Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`), or `409` (`databaseConflict`) when tracks kept being created or restored elsewhere while it ran: nothing changed, pull the tracks and try again.
 
 If `trackIds` lists **any** archived track, nothing changes: `423` with `Prefer: handling=strict` (the message names the first archived track listed; pull and try again), otherwise `200` with the active tracks in their current order. Unlisted archived tracks are fine.
 

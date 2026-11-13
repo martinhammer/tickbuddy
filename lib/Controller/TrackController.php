@@ -13,6 +13,7 @@ use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
+use OCA\Tickbuddy\Service\TrackOrderConflictException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
@@ -116,10 +117,11 @@ class TrackController extends OCSController {
 	 * active tracks in their current order.
 	 *
 	 * @param list<int> $trackIds Ordered list of track IDs
-	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_LOCKED, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_CONFLICT|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
 	 * 200: Tracks reordered, active tracks returned in the new order. When an archived track is listed, without Prefer: handling=strict: nothing changed, active tracks in their current order
 	 * 400: trackIds is required
+	 * 409: Tracks kept being created or restored elsewhere while reordering; nothing changed, try again
 	 * 423: An archived track is listed; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
 	// This literal path overlaps `PUT /api/tracks/{id}`. That route constrains
@@ -134,6 +136,8 @@ class TrackController extends OCSController {
 		}
 		try {
 			$tracks = $this->trackService->reorder($ids, $this->userId);
+		} catch (TrackOrderConflictException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::DATABASE_CONFLICT], Http::STATUS_CONFLICT);
 		} catch (ReadOnlyTrackException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}

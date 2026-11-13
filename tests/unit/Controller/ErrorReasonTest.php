@@ -24,6 +24,7 @@ use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\StatsService;
 use OCA\Tickbuddy\Service\TickService;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
+use OCA\Tickbuddy\Service\TrackOrderConflictException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http\DataResponse;
@@ -158,6 +159,8 @@ final class ErrorReasonTest extends TestCase {
 	public function testReorderErrors(): void {
 		$this->assertError($this->tracks($this->readOnly())->reorder([]), 400, 'trackIds is required', 'invalidValue');
 		$this->assertError($this->tracks($this->readOnly())->reorder([1, 2]), 423, 'Exercise is archived, so nothing was changed', 'archived');
+		$this->assertError($this->tracks(new TrackOrderConflictException('The tracks changed while reordering; try again'))->reorder([1, 2]),
+			409, 'The tracks changed while reordering; try again', 'databaseConflict');
 	}
 
 	public function testDestroyErrors(): void {

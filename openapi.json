@@ -3779,6 +3779,36 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "Tracks kept being created or restored elsewhere while reordering; nothing changed, try again",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "423": {
                         "description": "An archived track is listed; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
                         "content": {
