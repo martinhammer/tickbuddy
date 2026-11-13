@@ -12,6 +12,9 @@ use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
 
 class TickService {
+	/** Write attempts before a write that keeps losing to other requests gives up */
+	private const WRITE_ATTEMPTS = 3;
+
 	public function __construct(
 		private TickMapper $tickMapper,
 		private TrackMapper $trackMapper,
@@ -79,8 +82,18 @@ class TickService {
 			$this->tickMapper->delete($tick);
 			$ticked = false;
 		} catch (DoesNotExistException) {
-			$this->insertTick($userId, $trackId, $date, 1);
-			$ticked = true;
+			try {
+				$this->insertTick($userId, $trackId, $date, 1);
+				$ticked = true;
+			} catch (DbException $e) {
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+					throw $e;
+				}
+				// Another request ticked the day in between: this toggle undoes
+				// it, as a second toggle does
+				$this->deleteTick($userId, $trackId, $date);
+				$ticked = false;
+			}
 		}
 		return ['ticked' => $ticked, 'value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
@@ -122,22 +135,8 @@ class TickService {
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
 
-		try {
-			$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
-			if ($value <= 0) {
-				$this->tickMapper->delete($tick);
-				$value = 0;
-			} else {
-				$tick->setValue($value);
-				$this->tickMapper->update($tick);
-			}
-		} catch (DoesNotExistException) {
-			if ($value <= 0) {
-				$value = 0;
-			} else {
-				$this->insertTick($userId, $trackId, $date, $value);
-			}
-		}
+		$value = max($value, 0);
+		$this->writeCounter($userId, $trackId, $date, $value);
 		return ['value' => $value] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
@@ -163,6 +162,40 @@ class TickService {
 
 		$this->writeYesNo($userId, $trackId, $date, $ticked);
 		return ['value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
+	}
+
+	/**
+	 * Store a counter's absolute value, 0 deleting the row. Last write wins: if
+	 * another request inserted the day's row in between, this value replaces
+	 * its value; if that row is gone again by the time it is read, insert again.
+	 *
+	 * @throws DbException if other requests kept inserting and deleting the row
+	 */
+	private function writeCounter(string $userId, int $trackId, string $date, int $value): void {
+		for ($attempt = 1; ; $attempt++) {
+			try {
+				$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
+				if ($value === 0) {
+					$this->tickMapper->delete($tick);
+				} else {
+					$tick->setValue($value);
+					$this->tickMapper->update($tick);
+				}
+				return;
+			} catch (DoesNotExistException) {
+				if ($value === 0) {
+					return;
+				}
+				try {
+					$this->insertTick($userId, $trackId, $date, $value);
+					return;
+				} catch (DbException $e) {
+					if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::WRITE_ATTEMPTS) {
+						throw $e;
+					}
+				}
+			}
+		}
 	}
 
 	private function writeYesNo(string $userId, int $trackId, string $date, bool $ticked): void {
@@ -224,7 +257,8 @@ class TickService {
 	 * exists, and `value = value + delta` is applied atomically per row by every
 	 * database. Only when nothing was updated is a row inserted; if another
 	 * request inserted it in between, the unique index refuses ours and the
-	 * UPDATE is retried once, which now lands.
+	 * UPDATE is tried again. That row can be gone again by then (a decrement
+	 * to 0, or a set of 0), so the two are tried in turn, a few times.
 	 *
 	 * No explicit transaction: each statement is atomic on its own, and on
 	 * PostgreSQL a unique violation aborts the whole transaction, which would
@@ -265,10 +299,14 @@ class TickService {
 
 	/**
 	 * @return int The value after this request's write
+	 * @throws DbException if other requests kept inserting and deleting the row,
+	 *                     with the delta not stored
 	 */
 	private function addDelta(string $userId, int $trackId, string $date, int $delta): int {
-		$updated = $this->tickMapper->addToValue($userId, $trackId, $date, $delta);
-		if ($updated === 0) {
+		for ($attempt = 1; ; $attempt++) {
+			if ($this->tickMapper->addToValue($userId, $trackId, $date, $delta) > 0) {
+				break;
+			}
 			if ($delta < 0) {
 				// Nothing to take away from
 				return 0;
@@ -277,11 +315,10 @@ class TickService {
 				$this->insertTick($userId, $trackId, $date, $delta);
 				return $delta;
 			} catch (DbException $e) {
-				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::WRITE_ATTEMPTS) {
 					throw $e;
 				}
 				// Another request inserted the day's row meanwhile: add to it
-				$this->tickMapper->addToValue($userId, $trackId, $date, $delta);
 			}
 		}
 
@@ -367,6 +404,14 @@ class TickService {
 		$tick->setDate($date);
 		$tick->setValue($value);
 		$this->tickMapper->insert($tick);
+	}
+
+	private function deleteTick(string $userId, int $trackId, string $date): void {
+		try {
+			$this->tickMapper->delete($this->tickMapper->findByUserTrackDate($userId, $trackId, $date));
+		} catch (DoesNotExistException) {
+			// Already gone
+		}
 	}
 
 	/**

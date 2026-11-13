@@ -230,13 +230,35 @@ final class NoteServiceTest extends TestCase {
 		$this->assertSame('mine', $this->service->set($this->userId, 1, '2026-10-18', 'mine'));
 	}
 
-	// --- append ---
+	public function testSetRacingInsertAlreadyDeletedInsertsAgain(): void {
+		$this->track();
+		$this->noNote();
+		$this->noteMapper->expects($this->exactly(2))->method('insert')->willReturnOnConsecutiveCalls(
+			$this->throwException($this->uniqueViolation()),
+			$this->returnArgument(0),
+		);
+		$this->noteMapper->expects($this->never())->method('update');
+
+		$this->assertSame('mine', $this->service->set($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	public function testSetGivesUpAfterThreeLostRaces(): void {
+		$this->track();
+		$this->noNote();
+		$e = $this->uniqueViolation();
+		$this->noteMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->set($this->userId, 1, '2026-10-18', 'mine');
+	}
 
 	private function uniqueViolation(): DbException {
 		$e = $this->createMock(DbException::class);
 		$e->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
 		return $e;
 	}
+
+	// --- append ---
 
 	public function testAppendToNoNoteStoresTheText(): void {
 		$this->track();

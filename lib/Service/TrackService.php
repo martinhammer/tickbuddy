@@ -20,6 +20,8 @@ class TrackService {
 	public const VALID_TYPES = ['boolean', 'counter'];
 	/** Reorder attempts before a reorder racing other writes is told to try again */
 	private const REORDER_ATTEMPTS = 3;
+	/** Attempts at taking the end of the list, which a create or restore elsewhere can take first */
+	private const END_OF_LIST_ATTEMPTS = 3;
 
 	public function __construct(
 		private TrackMapper $trackMapper,
@@ -75,9 +77,14 @@ class TrackService {
 	}
 
 	/**
+	 * Create a track at the end of the list. A create or restore elsewhere can
+	 * take that place between reading it and inserting: the unique index then
+	 * refuses this insert, and the limit and the end are read again.
+	 *
 	 * @throws TrackLimitReachedException
 	 * @throws InvalidTrackNameException
 	 * @throws InvalidTrackTypeException
+	 * @throws DbException if other writes kept taking the end of the list
 	 */
 	public function create(string $name, string $type, string $userId): Track {
 		$name = self::cleanName($name);
@@ -85,18 +92,24 @@ class TrackService {
 			throw new InvalidTrackTypeException('Invalid track type: ' . $type);
 		}
 
-		if ($this->trackMapper->countByUser($userId) >= self::MAX_TRACKS) {
-			throw new TrackLimitReachedException('Maximum of ' . self::MAX_TRACKS . ' tracks reached');
+		for ($attempt = 1; ; $attempt++) {
+			if ($this->trackMapper->countByUser($userId) >= self::MAX_TRACKS) {
+				throw new TrackLimitReachedException('Maximum of ' . self::MAX_TRACKS . ' tracks reached');
+			}
+
+			$track = new Track();
+			$track->setUserId($userId);
+			$track->setName($name);
+			$track->setType($type);
+			$track->setSortOrder($this->trackMapper->getMaxSortOrder($userId) + 1);
+			try {
+				return $this->trackMapper->insert($track);
+			} catch (DbException $e) {
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::END_OF_LIST_ATTEMPTS) {
+					throw $e;
+				}
+			}
 		}
-
-		$sortOrder = $this->trackMapper->getMaxSortOrder($userId) + 1;
-
-		$track = new Track();
-		$track->setUserId($userId);
-		$track->setName($name);
-		$track->setType($type);
-		$track->setSortOrder($sortOrder);
-		return $this->trackMapper->insert($track);
 	}
 
 	/**
@@ -154,13 +167,32 @@ class TrackService {
 		if ($archived === true) {
 			$track->setArchivedAt($archivedAt ?? $this->timeFactory->getDateTime()->format('Y-m-d'));
 		} elseif ($archived === false && $track->getArchivedAt() !== null) {
-			// A restored track goes to the end of the list. The max includes this
-			// track's own position, so max + 1 can't collide with the unique index.
 			$track->setArchivedAt(null);
-			$track->setSortOrder($this->trackMapper->getMaxSortOrder($userId) + 1);
+			return $this->updateAtEnd($track, $userId);
 		}
 
 		return $this->trackMapper->update($track);
+	}
+
+	/**
+	 * Save a track moved to the end of the list. The max includes this track's
+	 * own position, but a create or restore elsewhere can take max + 1 between
+	 * reading it and writing: the unique index then refuses this update, and
+	 * the end is read again.
+	 *
+	 * @throws DbException if other writes kept taking the end of the list
+	 */
+	private function updateAtEnd(Track $track, string $userId): Track {
+		for ($attempt = 1; ; $attempt++) {
+			$track->setSortOrder($this->trackMapper->getMaxSortOrder($userId) + 1);
+			try {
+				return $this->trackMapper->update($track);
+			} catch (DbException $e) {
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::END_OF_LIST_ATTEMPTS) {
+					throw $e;
+				}
+			}
+		}
 	}
 
 	/**

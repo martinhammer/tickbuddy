@@ -90,6 +90,52 @@ final class TrackServiceTest extends TestCase {
 		$this->assertEquals(4, $track->getSortOrder());
 	}
 
+	public function testCreateTakesTheNextEndWhenAnotherCreateTookIt(): void {
+		$this->trackMapper->method('countByUser')->willReturnOnConsecutiveCalls(3, 4);
+		$this->trackMapper->method('getMaxSortOrder')->willReturnOnConsecutiveCalls(3, 4);
+		$orders = [];
+		$this->trackMapper->expects($this->exactly(2))->method('insert')
+			->willReturnCallback(function (Track $t) use (&$orders): Track {
+				$orders[] = $t->getSortOrder();
+				if (count($orders) === 1) {
+					throw $this->uniqueViolation();
+				}
+				return $t;
+			});
+
+		$this->assertSame(5, $this->service->create('Coffee', 'counter', $this->userId)->getSortOrder());
+		$this->assertSame([4, 5], $orders);
+	}
+
+	public function testCreateChecksTheLimitAgainAfterLosingTheEnd(): void {
+		$this->trackMapper->method('countByUser')->willReturnOnConsecutiveCalls(98, 99);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(98);
+		$this->trackMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+
+		$this->expectException(TrackLimitReachedException::class);
+		$this->service->create('Coffee', 'counter', $this->userId);
+	}
+
+	public function testCreateGivesUpAfterThreeLostRaces(): void {
+		$this->trackMapper->method('countByUser')->willReturn(3);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(3);
+		$e = $this->uniqueViolation();
+		$this->trackMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->create('Coffee', 'counter', $this->userId);
+	}
+
+	public function testCreateDoesNotRetryOtherDatabaseErrors(): void {
+		$this->trackMapper->method('countByUser')->willReturn(3);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(3);
+		$e = new DbException('Connection lost');
+		$this->trackMapper->expects($this->once())->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->create('Coffee', 'counter', $this->userId);
+	}
+
 	public function testCreateWithInvalidTypeThrows(): void {
 		$this->expectException(InvalidTrackTypeException::class);
 		$this->service->create('Bad', 'invalid', $this->userId);
@@ -210,6 +256,25 @@ final class TrackServiceTest extends TestCase {
 
 		$this->assertNull($updated->getArchivedAt());
 		$this->assertSame(10, $updated->getSortOrder());
+	}
+
+	public function testRestoreTakesTheNextEndWhenAnotherWriteTookIt(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturnOnConsecutiveCalls(9, 10);
+		$orders = [];
+		$this->trackMapper->expects($this->exactly(2))->method('update')
+			->willReturnCallback(function (Track $t) use (&$orders): Track {
+				$orders[] = $t->getSortOrder();
+				if (count($orders) === 1) {
+					throw $this->uniqueViolation();
+				}
+				return $t;
+			});
+
+		$updated = $this->service->update(7, $this->userId, archived: false);
+
+		$this->assertNull($updated->getArchivedAt());
+		$this->assertSame([10, 11], $orders);
 	}
 
 	public function testRestoreOfActiveTrackChangesNothing(): void {

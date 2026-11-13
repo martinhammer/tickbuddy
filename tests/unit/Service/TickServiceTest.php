@@ -80,6 +80,39 @@ final class TickServiceTest extends TestCase {
 		$this->assertSame(['ticked' => false, 'value' => 0], $result);
 	}
 
+	public function testToggleRacingAnotherInsertUndoesIt(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$winner = $this->makeTick(1);
+		$this->tickMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls(
+			$this->throwException(new DoesNotExistException('')),
+			$winner,
+		);
+		$this->tickMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->expects($this->once())->method('delete')->with($winner);
+
+		$this->assertSame(['ticked' => false, 'value' => 0], $this->service->toggle($this->userId, 1, '2026-04-11'));
+	}
+
+	public function testToggleRacingAnInsertAlreadyUndoneIsUnticked(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$this->tickMapper->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->expects($this->never())->method('delete');
+
+		$this->assertSame(['ticked' => false, 'value' => 0], $this->service->toggle($this->userId, 1, '2026-04-11'));
+	}
+
+	public function testToggleOtherDatabaseErrorsAreNotCaught(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeBooleanTrack());
+		$this->noTick();
+		$e = new DbException('Connection lost');
+		$this->tickMapper->method('insert')->willThrowException($e);
+		$this->tickMapper->expects($this->never())->method('delete');
+
+		$this->expectExceptionObject($e);
+		$this->service->toggle($this->userId, 1, '2026-04-11');
+	}
+
 	public function testToggleRejectsCounterTrack(): void {
 		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
 
@@ -250,6 +283,50 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->method('insert')->willThrowException($this->uniqueViolation());
 
 		$this->assertSame(['value' => 1], $this->service->set($this->userId, 1, '2026-10-17', true));
+	}
+
+	public function testSetCounterRacingAnotherInsertReplacesItsValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$winner = $this->makeTick(2);
+		$this->tickMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls(
+			$this->throwException(new DoesNotExistException('')),
+			$winner,
+		);
+		$this->tickMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->expects($this->once())->method('update')
+			->with($this->callback(fn (Tick $t) => $t === $winner && $t->getValue() === 5));
+
+		$this->assertSame(['value' => 5], $this->service->set($this->userId, 2, '2026-10-17', 5));
+	}
+
+	public function testSetCounterRacingAnInsertAlreadyDeletedInsertsAgain(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->exactly(2))->method('insert')->willReturnOnConsecutiveCalls(
+			$this->throwException($this->uniqueViolation()),
+			$this->returnArgument(0),
+		);
+
+		$this->assertSame(['value' => 5], $this->service->set($this->userId, 2, '2026-10-17', 5));
+	}
+
+	public function testSetCounterGivesUpAfterThreeLostRaces(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
+		$e = $this->uniqueViolation();
+		$this->tickMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->set($this->userId, 2, '2026-10-17', 5);
+	}
+
+	public function testSetCounterBelowZeroIsZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$tick = $this->makeTick(4);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-17', -3));
 	}
 
 	public function testSetCounterReadsAStringValue(): void {
@@ -423,6 +500,28 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(4));
 
 		$this->assertSame(4, $this->service->increment($this->userId, 2, '2026-10-17', 3)['value']);
+	}
+
+	public function testIncrementRacingAnInsertAlreadyDeletedInsertsAgain(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		// Our insert lost to another request's, whose row a decrement then deleted
+		$this->tickMapper->expects($this->exactly(2))->method('addToValue')->willReturn(0);
+		$this->tickMapper->expects($this->exactly(2))->method('insert')->willReturnOnConsecutiveCalls(
+			$this->throwException($this->uniqueViolation()),
+			$this->returnArgument(0),
+		);
+
+		$this->assertSame(3, $this->service->increment($this->userId, 2, '2026-10-17', 3)['value']);
+	}
+
+	public function testIncrementGivesUpAfterThreeLostRacesRatherThanAnswerZero(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->exactly(3))->method('addToValue')->willReturn(0);
+		$e = $this->uniqueViolation();
+		$this->tickMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->increment($this->userId, 2, '2026-10-17', 3);
 	}
 
 	public function testIncrementOnArchivedCounterAnswersTheStoredValue(): void {
