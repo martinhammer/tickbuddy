@@ -9,6 +9,7 @@ import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import NcPopover from '@nextcloud/vue/components/NcPopover'
 import { useIsMobile } from '@nextcloud/vue/composables/useIsMobile'
 import { deleteNote, fetchNotes, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
+import { cellWrites, keepCells, replaceDays, tickKey } from '../cellWrites.ts'
 import { addDays, fmtDayLabel, parseDateStr, toDateStr } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { MDI_CALENDAR_OUTLINE, MDI_CALENDAR_TODAY, MDI_PHONE_ROTATE_LANDSCAPE, MDI_PHONE_ROTATE_PORTRAIT } from '../icons.ts'
@@ -48,7 +49,11 @@ const goToDateOpen = ref(false)
 const todayScrolledAway = ref(false)
 const scroller = ref<HTMLElement | null>(null)
 const isMobile = useIsMobile()
+const tickWrites = cellWrites()
+const noteWrites = cellWrites()
 let loadSeq = 0
+// Goes up when the first day changes, which a page of older days loaded before can't follow
+let pageSeq = 0
 let inFlight = 0
 
 const { today, loaded } = useToday(() => load('quiet'))
@@ -67,10 +72,6 @@ const view = computed<'loading' | 'error' | 'empty' | 'allPrivate' | 'grid'>(() 
 	if (visibleTracks.value.length === 0) return 'allPrivate'
 	return 'grid'
 })
-
-function tickKey(trackId: number, date: string): string {
-	return `${trackId}|${date}`
-}
 
 // --- Toolbar ---
 const layoutLabel = computed(() => journalLayout.value === 'daysDown' ? 'Switch to Tracks down' : 'Switch to Days down')
@@ -93,6 +94,7 @@ const pickedDate = computed<Date>({
 const maxDate = computed(() => parseDateStr(today.value))
 
 function goTo(day: string | null): void {
+	pageSeq++
 	anchor.value = day
 	daysLoaded.value = PAGE_DAYS
 	todayScrolledAway.value = false
@@ -134,13 +136,16 @@ function checkTodayInView(): void {
 }
 
 // --- Loading ---
-function applyRange(ticks: Tick[], rangeNotes: Note[], replace: boolean): void {
-	const values = replace ? {} : { ...tickValues.value }
-	const noteTexts = replace ? {} : { ...notes.value }
+// A load's answer for the days from `from` to `to`. Other days stay as they
+// are, so a reload and a page of older days can arrive in either order, and so
+// does every cell written since the load started (the marks).
+function applyRange(from: string, to: string, ticks: Tick[], rangeNotes: Note[], tickMark: number, noteMark: number): void {
+	const values: Record<string, number> = {}
+	const noteTexts: Record<string, string> = {}
 	for (const tick of ticks) values[tickKey(tick.trackId, tick.date)] = tick.value
 	for (const note of rangeNotes) noteTexts[tickKey(note.trackId, note.date)] = note.text
-	tickValues.value = values
-	notes.value = noteTexts
+	tickValues.value = keepCells(replaceDays(tickValues.value, values, from, to), tickValues.value, tickWrites.changedSince(tickMark))
+	notes.value = keepCells(replaceDays(notes.value, noteTexts, from, to), notes.value, noteWrites.changedSince(noteMark))
 }
 
 // Everything shown, again. 'page' shows the spinner, as a first load does.
@@ -152,12 +157,14 @@ async function load(mode: 'initial' | 'page' | 'quiet' | 'retry'): Promise<void>
 	if (mode !== 'quiet') status.value = 'loading'
 	const from = dates.value[dates.value.length - 1]
 	const to = dates.value[0]
+	const tickMark = tickWrites.mark()
+	const noteMark = noteWrites.mark()
 	try {
 		const [t, k, n] = await Promise.all([fetchTracks(), fetchTicks(from, to), fetchNotes(from, to), loadPreferences()])
 		// A newer load started meanwhile: let it have the last word.
 		if (seq !== loadSeq) return
 		tracks.value = t
-		applyRange(k, n, true)
+		applyRange(from, to, k, n, tickMark, noteMark)
 		status.value = 'ready'
 		loaded()
 	} catch {
@@ -173,16 +180,18 @@ async function load(mode: 'initial' | 'page' | 'quiet' | 'retry'): Promise<void>
 async function loadMore(): Promise<void> {
 	if (loadingMore.value || status.value !== 'ready') return
 	loadingMore.value = true
-	const seq = loadSeq
+	const seq = pageSeq
 	const last = dates.value[dates.value.length - 1]
 	const from = addDays(last, -PAGE_DAYS)
 	const to = addDays(last, -1)
+	const tickMark = tickWrites.mark()
+	const noteMark = noteWrites.mark()
 	try {
 		const [t, k, n] = await Promise.all([fetchTracks(), fetchTicks(from, to), fetchNotes(from, to)])
-		// A full load started meanwhile and replaces everything
-		if (seq !== loadSeq) return
+		// Go to date started over meanwhile: these days may not follow the new first day
+		if (seq !== pageSeq) return
 		tracks.value = t
-		applyRange(k, n, false)
+		applyRange(from, to, k, n, tickMark, noteMark)
 		daysLoaded.value += PAGE_DAYS
 	} catch {
 		// The sentinel tries again when it next comes into view
@@ -196,34 +205,35 @@ function reload(): Promise<void> {
 }
 
 // --- Cells ---
+// A cell's writes go one at a time, so its last answer is its value.
 async function onSetYesNo(track: Track, date: string, value: boolean, input: HTMLInputElement | null): Promise<void> {
+	const key = tickKey(track.id, date)
 	try {
-		tickValues.value[tickKey(track.id, date)] = await setYesNo(track.id, date, value)
+		tickValues.value[key] = await tickWrites.run(key, () => setYesNo(track.id, date, value))
 	} catch (e) {
 		// The native checkbox flipped itself on click. The ticks are unchanged, so the
 		// rendered `:checked` prop is unchanged too and Vue patches nothing — the box would
 		// stay visually flipped against the stored value. Put it back by hand.
-		if (input) input.checked = (tickValues.value[tickKey(track.id, date)] ?? 0) > 0
+		if (input) input.checked = (tickValues.value[key] ?? 0) > 0
 		await writeFailed(e, track.name, reload)
 	}
 }
 
 async function onIncrement(track: Track, date: string, delta: number): Promise<void> {
+	const key = tickKey(track.id, date)
 	try {
-		tickValues.value[tickKey(track.id, date)] = await incrementCounter(track.id, date, delta)
+		tickValues.value[key] = await tickWrites.run(key, () => incrementCounter(track.id, date, delta))
 	} catch (e) {
 		await writeFailed(e, track.name, reload)
 	}
 }
 
 async function onSaveNote(track: Track, date: string, text: string): Promise<boolean> {
+	const key = tickKey(track.id, date)
 	try {
-		if (text === '') {
-			await deleteNote(track.id, date)
-			notes.value[tickKey(track.id, date)] = ''
-		} else {
-			notes.value[tickKey(track.id, date)] = await setNote(track.id, date, text)
-		}
+		notes.value[key] = await noteWrites.run(key, () => text === ''
+			? deleteNote(track.id, date).then(() => '')
+			: setNote(track.id, date, text))
 		return true
 	} catch (e) {
 		await writeFailed(e, track.name, reload, 'Could not save the note')
