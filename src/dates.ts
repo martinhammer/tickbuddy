@@ -153,3 +153,21 @@ export function dayHeading(day: string, today: string, locale: string = userLoca
 		line: new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date),
 	}
 }
+
+/**
+ * The ISO 8601 week of a date, as "YYYY-Wnn": weeks start on Monday and
+ * belong to the year their Thursday is in. Counted on UTC calendar days,
+ * which are all 24 hours long: dividing the time between two local midnights
+ * by a day's length would be an hour off across a DST change, and put every
+ * week after it in the wrong bucket where January is summer time (Sydney).
+ *
+ * @param ds the date as YYYY-MM-DD
+ */
+export function isoWeek(ds: string): string {
+	const [y, m, d] = ds.split('-').map(Number)
+	const thursday = new Date(Date.UTC(y, m - 1, d))
+	thursday.setUTCDate(thursday.getUTCDate() + 4 - (thursday.getUTCDay() || 7))
+	const year = thursday.getUTCFullYear()
+	const dayOfYear = (thursday.getTime() - Date.UTC(year, 0, 1)) / 86400000
+	return `${year}-W${String(Math.floor(dayOfYear / 7) + 1).padStart(2, '0')}`
+}

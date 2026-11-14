@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { addDays, dayHeading, parseDateStr, squaresEnd, toDateStr } from './dates.ts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { addDays, dayHeading, isoWeek, parseDateStr, squaresEnd, toDateStr } from './dates.ts'
 
 describe('addDays', () => {
 	it('crosses month and year ends', () => {
@@ -87,4 +87,47 @@ describe('squaresEnd', () => {
 			end = next
 		}
 	})
+})
+
+describe('isoWeek', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs()
+	})
+
+	it('puts each day in its ISO week, across year ends', () => {
+		expect(isoWeek('2021-01-03')).toBe('2020-W53')
+		expect(isoWeek('2021-01-04')).toBe('2021-W01')
+		expect(isoWeek('2021-04-05')).toBe('2021-W14')
+		expect(isoWeek('2024-12-30')).toBe('2025-W01')
+		expect(isoWeek('2026-12-31')).toBe('2026-W53')
+		expect(isoWeek('2027-01-01')).toBe('2026-W53')
+		expect(isoWeek('2027-01-04')).toBe('2027-W01')
+	})
+
+	it('runs in the zone it is given', () => {
+		// Otherwise the walks below would all run in Berlin and prove nothing
+		vi.stubEnv('TZ', 'Australia/Sydney')
+		expect(new Date(2021, 0, 1).getTimezoneOffset()).toBe(-660)
+	})
+
+	// Sydney, Auckland and Santiago are on summer time in January: a local
+	// count of days moved every later week one bucket up in 2016, 2021 and 2027
+	for (const zone of ['Australia/Sydney', 'Pacific/Auckland', 'America/Santiago', 'Europe/Berlin', 'America/New_York']) {
+		it(`starts every week on a Monday and skips none, in ${zone}`, () => {
+			vi.stubEnv('TZ', zone)
+			expect(isoWeek('2021-04-05')).toBe('2021-W14')
+			let previous = isoWeek('2014-12-31')
+			for (let day = '2015-01-01'; day <= '2032-12-31'; day = addDays(day, 1)) {
+				const week = isoWeek(day)
+				const monday = parseDateStr(day).getDay() === 1
+				expect(week !== previous, day).toBe(monday)
+				if (monday) {
+					const [py, pw] = previous.split('-W').map(Number)
+					const [y, w] = week.split('-W').map(Number)
+					expect(y === py ? w === pw + 1 : y === py + 1 && w === 1, day).toBe(true)
+				}
+				previous = week
+			}
+		})
+	}
 })
