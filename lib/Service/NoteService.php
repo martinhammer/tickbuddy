@@ -67,12 +67,10 @@ class NoteService {
 	 * date range, both ends inclusive, newest first.
 	 *
 	 * @return Note[]
-	 * @throws InvalidValueException if from or to is not YYYY-MM-DD
+	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
 	 */
 	public function findByDateRange(string $userId, string $from, string $to): array {
-		if (!TrackService::isValidDate($from) || !TrackService::isValidDate($to)) {
-			throw new InvalidValueException('From and to must be dates as YYYY-MM-DD');
-		}
+		TrackService::checkDateRange($from, $to);
 		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to);
 	}
 

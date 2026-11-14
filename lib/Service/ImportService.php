@@ -12,12 +12,15 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IDBConnection;
+use Psr\Log\LoggerInterface;
 
 class ImportService {
 	public const MODE_REPLACE = 'replace';
 	public const MODE_MERGE = 'merge';
 	/** Added in Merge to an imported track whose name is already taken */
 	private const IMPORTED_SUFFIX = ' (imported)';
+	/** For a write that failed in the database; the driver's text goes to the log only */
+	private const FAILED_MESSAGE = 'The import failed, so nothing was imported';
 
 	public function __construct(
 		private TrackMapper $trackMapper,
@@ -25,6 +28,7 @@ class ImportService {
 		private NoteMapper $noteMapper,
 		private IDBConnection $db,
 		private ITimeFactory $timeFactory,
+		private LoggerInterface $logger,
 	) {
 	}
 
@@ -70,7 +74,7 @@ class ImportService {
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
-			throw new ImportException('Import failed: ' . $e->getMessage());
+			throw $this->failed($e);
 		}
 
 		// Tickmate has no notes
@@ -145,7 +149,7 @@ class ImportService {
 				'name' => $name,
 				'type' => $type,
 				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
-				'private' => (bool)($t['private'] ?? false),
+				'private' => self::jsonPrivate($name, $t['private'] ?? null),
 				'archivedAt' => $archivedAt,
 			];
 			$positionsByName[$name][] = $i;
@@ -164,10 +168,7 @@ class ImportService {
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
-			if ($e instanceof ImportException) {
-				throw $e;
-			}
-			throw new ImportException('Import failed: ' . $e->getMessage());
+			throw $this->failed($e);
 		}
 
 		return ['tracks' => count($trackIds), 'ticks' => $tickCount, 'notes' => $noteCount];
@@ -223,6 +224,19 @@ class ImportService {
 	/**
 	 * A value from a backup, quoted in a message as it was written.
 	 */
+	/**
+	 * What a failure inside the write transaction answers, after the rollback:
+	 * the import's own refusals (the track limit) as they are, anything else
+	 * logged and answered with a fixed sentence.
+	 */
+	private function failed(\Throwable $e): ImportException {
+		if ($e instanceof ImportException) {
+			return $e;
+		}
+		$this->logger->error('Import failed', ['exception' => $e]);
+		return new ImportException(self::FAILED_MESSAGE);
+	}
+
 	private static function shown(mixed $value): string {
 		return is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR);
 	}
@@ -285,7 +299,8 @@ class ImportService {
 
 	/**
 	 * A tick value from a backup: yes/no tracks take what `set` takes (true
-	 * is 1, false 0), counters a whole number from 0 up. 0 means no tick.
+	 * is 1, false 0), counters a whole number from 0 to the counter limit.
+	 * 0 means no tick.
 	 *
 	 * @return ?int Null when the track can't take the value
 	 */
@@ -294,7 +309,21 @@ class ImportService {
 			$ticked = TickService::parseYesNo($value);
 			return $ticked === null ? null : (int)$ticked;
 		}
-		return is_int($value) && $value >= 0 ? $value : null;
+		return is_int($value) && $value >= 0 && $value <= TickService::MAX_VALUE ? $value : null;
+	}
+
+	/**
+	 * A track's `private` from a backup, read as the API reads the flag;
+	 * missing or null is false.
+	 *
+	 * @throws ImportException if it can't be read
+	 */
+	private static function jsonPrivate(string $name, mixed $value): bool {
+		$private = $value === null ? false : TickService::parseYesNo($value);
+		if ($private === null) {
+			throw new ImportException("Track \"{$name}\" has invalid private value \"" . self::shown($value) . '"');
+		}
+		return $private;
 	}
 
 	/**

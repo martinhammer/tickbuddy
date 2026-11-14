@@ -97,8 +97,33 @@ final class PreferencesControllerTest extends TestCase {
 		$this->assertSame([], $this->stored);
 	}
 
+	public function testShowPrivateReadsTheYesNoWords(): void {
+		// The parameter is a union, so Nextcloud passes the form's text as it is
+		$controller = $this->controller();
+		$controller->update(showPrivateDesktop: 'no', showPrivateMobile: ' On ');
+		$this->assertSame(['show_private_desktop' => false, 'show_private_mobile' => true], $this->stored);
+	}
+
+	public static function unreadableFlagProvider(): array {
+		return [
+			'empty' => [''],
+			'"2"' => ['2'],
+			'"maybe"' => ['maybe'],
+			'integer 2' => [2],
+		];
+	}
+
+	/**
+	 * @dataProvider unreadableFlagProvider
+	 */
+	public function testShowPrivateThatIsNotYesOrNoSavesNothing(string|int $value): void {
+		$response = $this->controller()->update(journalLayoutDesktop: 'tracksDown', showPrivateDesktop: true, showPrivateMobile: $value);
+		$this->assertSame(400, $response->getStatus());
+		$this->assertSame(['message' => 'showPrivateMobile must be true or false', 'reason' => 'invalidValue'], $response->getData());
+		$this->assertSame([], $this->stored);
+	}
+
 	public function testShowPrivateStoresTheBool(): void {
-		// Nextcloud casts the form values true and 1 to true, false to false
 		$controller = $this->controller();
 		$controller->update(showPrivateMobile: true);
 		$this->assertSame(['show_private_mobile' => true], $this->stored);

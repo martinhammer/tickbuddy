@@ -13,14 +13,17 @@ use OCA\Tickbuddy\Db\TrackMapper;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\DB\Exception as DbException;
 use OCP\IDBConnection;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 final class ImportServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
 	private TrackMapper $trackMapper;
 	private IDBConnection $db;
+	private LoggerInterface $logger;
 	private ImportService $service;
 	private string $userId = 'testuser';
 	private ?string $file = null;
@@ -37,7 +40,8 @@ final class ImportServiceTest extends TestCase {
 		$this->db = $this->createMock(IDBConnection::class);
 		$timeFactory = $this->createMock(ITimeFactory::class);
 		$timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-20 09:00:00'));
-		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db, $timeFactory);
+		$this->logger = $this->createMock(LoggerInterface::class);
+		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db, $timeFactory, $this->logger);
 
 		$this->trackMapper->method('insert')->willReturnCallback(function (Track $track): Track {
 			$track->setId(101 + count($this->insertedTracks));
@@ -470,6 +474,10 @@ final class ImportServiceTest extends TestCase {
 				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => -3],
 				'Tick on 2026-10-13 has an invalid value "-3"',
 			],
+			'counter past the limit' => [
+				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => 2147483648],
+				'Tick on 2026-10-13 has an invalid value "2147483648"',
+			],
 			'fractional counter' => [
 				['track' => 'Coffee', 'date' => '2026-10-13', 'value' => 2.7],
 				'Tick on 2026-10-13 has an invalid value "2.7"',
@@ -529,6 +537,63 @@ final class ImportServiceTest extends TestCase {
 		$this->expectException(ImportException::class);
 		$this->expectExceptionMessage($message);
 		$this->import($data);
+	}
+
+	public function testCounterValueAtTheLimitImports(): void {
+		$this->import($this->ticksBackup([['track' => 'Coffee', 'date' => '2026-10-13', 'value' => 2147483647]]));
+
+		$this->assertSame([[101, '2026-10-13', 2147483647]], $this->insertedTicks);
+	}
+
+	public static function privateProvider(): array {
+		return [
+			'true' => [['private' => true], 1],
+			'"false"' => [['private' => 'false'], 0],
+			'1' => [['private' => 1], 1],
+			'"no"' => [['private' => 'no'], 0],
+			'missing' => [[], 0],
+			'null' => [['private' => null], 0],
+		];
+	}
+
+	/**
+	 * @dataProvider privateProvider
+	 */
+	public function testPrivateIsReadAsTheApiReadsIt(array $private, int $stored): void {
+		$this->import(['version' => 1, 'tracks' => [['name' => 'Smoking', 'type' => 'boolean'] + $private]]);
+
+		$this->assertSame($stored, $this->insertedTracks[0]->getPrivate());
+	}
+
+	public function testUnreadablePrivateFails(): void {
+		$this->expectNoWrites();
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage('Track "Smoking" has invalid private value "maybe"');
+		$this->import(['version' => 1, 'tracks' => [['name' => 'Smoking', 'type' => 'boolean', 'private' => 'maybe']]]);
+	}
+
+	public function testDatabaseFailureIsLoggedAndAnsweredWithAFixedSentence(): void {
+		$e = new DbException('SQLSTATE[08006]: connection to "db.internal" lost');
+		$this->trackMapper->method('deleteAllByUser')->willThrowException($e);
+		$this->db->expects($this->once())->method('rollBack');
+		$this->logger->expects($this->once())->method('error')->with('Import failed', ['exception' => $e]);
+
+		try {
+			$this->import(['version' => 1, 'tracks' => [['name' => 'Smoking', 'type' => 'boolean']]]);
+			$this->fail('The import must fail');
+		} catch (ImportException $failure) {
+			$this->assertSame('The import failed, so nothing was imported', $failure->getMessage());
+		}
+	}
+
+	public function testTickmateDatabaseFailureIsAnsweredWithAFixedSentence(): void {
+		$this->tickmateFile("(1, 'Exercise', 1, 1)", '(1, 1, 2026, 9, 17)');
+		$this->trackMapper->method('deleteAllByUser')->willThrowException(new DbException('SQLSTATE[08006]'));
+		$this->logger->expects($this->once())->method('error');
+
+		$this->expectExceptionMessage('The import failed, so nothing was imported');
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
 	}
 
 	public function testTickValuesThatImport(): void {
@@ -684,6 +749,26 @@ final class ImportServiceTest extends TestCase {
 		$this->expectException(ImportException::class);
 		$this->expectExceptionMessage('Import would exceed the 99 track limit. You have 98 tracks and the backup contains 2.');
 		$this->service->importTickmate($this->file, ImportService::MODE_MERGE, $this->userId);
+	}
+
+	public function testTickmateTrackLimitMessageHasNoPrefix(): void {
+		$existing = [];
+		for ($i = 1; $i <= 98; $i++) {
+			$track = new Track();
+			$track->setId($i);
+			$track->setName("Track {$i}");
+			$existing[] = $track;
+		}
+		$this->trackMapper->method('findAllByUser')->willReturn($existing);
+		$this->tickmateFile("(1, 'Exercise', 1, 1), (2, 'Smoking', 1, 2)", '(1, 1, 2026, 9, 17)');
+		$this->logger->expects($this->never())->method('error');
+
+		try {
+			$this->service->importTickmate($this->file, ImportService::MODE_MERGE, $this->userId);
+			$this->fail('The import must fail');
+		} catch (ImportException $e) {
+			$this->assertSame('Import would exceed the 99 track limit. You have 98 tracks and the backup contains 2.', $e->getMessage());
+		}
 	}
 
 	private function existingTrack(string $name): void {

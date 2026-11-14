@@ -320,13 +320,86 @@ final class TickServiceTest extends TestCase {
 		$this->service->set($this->userId, 2, '2026-10-17', 5);
 	}
 
-	public function testSetCounterBelowZeroIsZero(): void {
+	public static function acceptedCounterValueProvider(): array {
+		return [
+			'integer' => [5, 5],
+			'digits' => ['5', 5],
+			'digits with spaces' => [' 5 ', 5],
+			'leading zeros' => ['007', 7],
+			'the limit' => [2147483647, 2147483647],
+			'the limit as digits' => ['2147483647', 2147483647],
+		];
+	}
+
+	/**
+	 * @dataProvider acceptedCounterValueProvider
+	 */
+	public function testSetCounterAcceptsAWholeNumber(mixed $value, int $stored): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Tick $t) => $t->getValue() === $stored));
+
+		$this->assertSame(['value' => $stored], $this->service->set($this->userId, 2, '2026-10-17', $value));
+	}
+
+	public function testSetCounterZeroDeletesTheTick(): void {
 		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
 		$tick = $this->makeTick(4);
 		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
 		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
 
-		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-17', -3));
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-17', '0'));
+	}
+
+	public static function refusedCounterValueProvider(): array {
+		$notANumber = 'Counter tracks take a whole number, 0 or more';
+		$tooLarge = 'Counter values can be at most 2147483647';
+		return [
+			'missing' => [null, $notANumber],
+			'empty' => ['', $notANumber],
+			'true' => [true, $notANumber],
+			'false' => [false, $notANumber],
+			'"true"' => ['true', $notANumber],
+			'trailing text' => ['5abc', $notANumber],
+			'negative digits' => ['-5', $notANumber],
+			'negative integer' => [-5, $notANumber],
+			'plus sign' => ['+5', $notANumber],
+			'decimal digits' => ['5.0', $notANumber],
+			'exponent' => ['1e3', $notANumber],
+			'float' => [5.5, $notANumber],
+			'whole float' => [5.0, $notANumber],
+			'one past the limit' => [2147483648, $tooLarge],
+			'one past the limit as digits' => ['2147483648', $tooLarge],
+			'beyond PHP integers' => ['99999999999999999999', $tooLarge],
+		];
+	}
+
+	/**
+	 * @dataProvider refusedCounterValueProvider
+	 */
+	public function testSetCounterRefusesAnythingElse(mixed $value, string $message): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->expectNoTickWrites();
+		$this->noteService->expects($this->never())->method('writeForTick');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->set($this->userId, 2, '2026-10-17', $value, 'a note');
+	}
+
+	public function testSetCounterReportsTheValueBeforeTheDate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+
+		$this->expectExceptionMessage('Counter tracks take a whole number, 0 or more');
+		$this->service->set($this->userId, 2, '2026-02-30', 'x');
+	}
+
+	public function testSetCounterOnArchivedTrackStillRejectsAnInvalidValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->archive($this->makeCounterTrack()));
+
+		$this->expectExceptionMessage('Counter tracks take a whole number, 0 or more');
+		$this->service->set($this->userId, 2, '2026-10-17', -1);
 	}
 
 	public function testSetCounterReadsAStringValue(): void {
@@ -336,15 +409,6 @@ final class TickServiceTest extends TestCase {
 			->with($this->callback(fn (Tick $t) => $t->getValue() === 5));
 
 		$this->assertSame(['value' => 5], $this->service->set($this->userId, 2, '2026-10-17', '5'));
-	}
-
-	public function testSetCounterWithoutValueIsZero(): void {
-		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
-		$tick = $this->makeTick(3);
-		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
-		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
-
-		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-10-17', null));
 	}
 
 	public function testSetOnArchivedYesNoTrackAnswersTheStoredState(): void {
@@ -505,6 +569,7 @@ final class TickServiceTest extends TestCase {
 	public function testIncrementRacingAnInsertAlreadyDeletedInsertsAgain(): void {
 		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
 		// Our insert lost to another request's, whose row a decrement then deleted
+		$this->noTick();
 		$this->tickMapper->expects($this->exactly(2))->method('addToValue')->willReturn(0);
 		$this->tickMapper->expects($this->exactly(2))->method('insert')->willReturnOnConsecutiveCalls(
 			$this->throwException($this->uniqueViolation()),
@@ -516,12 +581,133 @@ final class TickServiceTest extends TestCase {
 
 	public function testIncrementGivesUpAfterThreeLostRacesRatherThanAnswerZero(): void {
 		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->noTick();
 		$this->tickMapper->expects($this->exactly(3))->method('addToValue')->willReturn(0);
 		$e = $this->uniqueViolation();
 		$this->tickMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
 
 		$this->expectExceptionObject($e);
 		$this->service->increment($this->userId, 2, '2026-10-17', 3);
+	}
+
+	public static function wholeNumberProvider(): array {
+		return [
+			'integer' => [1, true, 1],
+			'negative integer' => [-3, true, -3],
+			'digits' => ['1', true, 1],
+			'negative digits' => [' -3 ', true, -3],
+			'leading zeros' => ['007', true, 7],
+			'minus zero' => ['-0', true, 0],
+			'beyond PHP integers' => ['99999999999999999999', true, PHP_INT_MAX],
+			'below PHP integers' => ['-99999999999999999999', true, PHP_INT_MIN],
+			'negative, unsigned' => [-3, false, null],
+			'negative digits, unsigned' => ['-3', false, null],
+			'empty' => ['', true, null],
+			'plus sign' => ['+1', true, null],
+			'two minus signs' => ['--1', true, null],
+			'decimal digits' => ['1.0', true, null],
+			'exponent' => ['1e3', true, null],
+			'trailing text' => ['5abc', true, null],
+			'float' => [1.9, true, null],
+			'boolean' => [true, true, null],
+			'null' => [null, true, null],
+		];
+	}
+
+	/**
+	 * @dataProvider wholeNumberProvider
+	 */
+	public function testParseWholeNumber(mixed $value, bool $signed, ?int $expected): void {
+		$this->assertSame($expected, TickService::parseWholeNumber($value, $signed));
+	}
+
+	public function testIncrementWithoutAReadableDeltaWritesNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->never())->method('addToValue');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Delta must be a whole number other than 0');
+		$this->service->increment($this->userId, 2, '2026-10-17', null);
+	}
+
+	public function testIncrementPassesTheLimitToTheUpdate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->once())->method('addToValue')
+			->with($this->userId, 2, '2026-10-17', 3, 2147483647)->willReturn(1);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(2147483647));
+
+		// The row held 2147483644: the update reached the limit itself
+		$this->assertSame(2147483647, $this->service->increment($this->userId, 2, '2026-10-17', 3)['value']);
+	}
+
+	public function testIncrementByMoreThanTheLimitWritesNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->never())->method('addToValue');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('The value would be more than 2147483647');
+		$this->service->increment($this->userId, 2, '2026-10-17', 2147483648);
+	}
+
+	public function testIncrementOfARowTooLargeToTakeItWritesNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		// The update's bound left the row alone, and the insert met it
+		$this->tickMapper->expects($this->once())->method('addToValue')->willReturn(0);
+		$this->tickMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(2147483645));
+		$this->tickMapper->expects($this->never())->method('update');
+		$this->tickMapper->expects($this->never())->method('delete');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('The value would be more than 2147483647');
+		$this->service->increment($this->userId, 2, '2026-10-17', 3);
+	}
+
+	public function testIncrementRacingAnInsertThatCanStillTakeItAddsToIt(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->exactly(2))->method('addToValue')->willReturnOnConsecutiveCalls(0, 1);
+		$this->tickMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+		$this->tickMapper->method('findByUserTrackDate')->willReturnOnConsecutiveCalls($this->makeTick(2), $this->makeTick(5));
+
+		$this->assertSame(5, $this->service->increment($this->userId, 2, '2026-10-17', 3)['value']);
+	}
+
+	public function testDecrementBelowTheLimitCountsAsTheLimitAndDeletesTheTick(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$this->tickMapper->expects($this->once())->method('addToValue')
+			->with($this->userId, 2, '2026-10-17', -2147483647, 2147483647)->willReturn(1);
+		$this->tickMapper->expects($this->once())->method('deleteIfNotPositive')->willReturn(1);
+
+		$this->assertSame(0, $this->service->increment($this->userId, 2, '2026-10-17', PHP_INT_MIN)['value']);
+	}
+
+	// --- reading a range ---
+
+	public static function invalidRangeProvider(): array {
+		return [
+			'from missing' => ['', '2026-10-17', 'From and to must be dates as YYYY-MM-DD'],
+			'to missing' => ['2026-10-17', '', 'From and to must be dates as YYYY-MM-DD'],
+			'not a date' => ['2026-10-17', '2026-02-30', 'From and to must be dates as YYYY-MM-DD'],
+			'reversed' => ['2026-11-10', '2026-11-01', 'From must be on or before to'],
+		];
+	}
+
+	/**
+	 * @dataProvider invalidRangeProvider
+	 */
+	public function testFindByDateRangeRefusesAnInvalidRange(string $from, string $to, string $message): void {
+		$this->tickMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->findByDateRange($this->userId, $from, $to);
+	}
+
+	public function testFindByDateRangeReadsOneDay(): void {
+		$this->tickMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-01')->willReturn([]);
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-01'));
 	}
 
 	public function testIncrementOnArchivedCounterAnswersTheStoredValue(): void {

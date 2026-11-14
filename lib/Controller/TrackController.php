@@ -7,10 +7,12 @@ namespace OCA\Tickbuddy\Controller;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ErrorReason;
+use OCA\Tickbuddy\Service\Flags;
 use OCA\Tickbuddy\Service\IdempotencyService;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
+use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackOrderConflictException;
@@ -23,6 +25,7 @@ use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
 use OCP\DB\Exception as DbException;
 use OCP\IRequest;
+use Psr\Log\LoggerInterface;
 
 /**
  * @psalm-import-type TickbuddyError from ResponseDefinitions
@@ -37,6 +40,7 @@ class TrackController extends OCSController {
 		private TrackService $trackService,
 		private IdempotencyService $idempotency,
 		private string $userId,
+		private LoggerInterface $logger,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -62,14 +66,21 @@ class TrackController extends OCSController {
 	/**
 	 * List the tracks of the current user
 	 *
-	 * @param bool $includeArchived Whether to include archived tracks
-	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>
+	 * @param string|int|float|bool|null $includeArchived Whether to include archived tracks: true or false (also 1/0, on/off, yes/no)
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTrack>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
 	 *
 	 * 200: Tracks returned
+	 * 400: includeArchived isn't true or false
 	 */
+	// Flags are unions for the framework: typed bool, Nextcloud would read "no" as true
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/tracks')]
-	public function index(bool $includeArchived = false): DataResponse {
+	public function index(string|int|float|bool|null $includeArchived = false): DataResponse {
+		try {
+			$includeArchived = Flags::read('includeArchived', $includeArchived, false);
+		} catch (InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
+		}
 		$tracks = $this->trackService->findAll($this->userId, $includeArchived);
 		return new DataResponse(array_values(array_map(fn (Track $t) => $this->serializeTrack($t), $tracks)));
 	}
@@ -157,36 +168,45 @@ class TrackController extends OCSController {
 	 * @param int $id Track ID
 	 * @param ?string $name New track name
 	 * @param ?int $sortOrder New sort order
-	 * @param ?bool $private Whether the track is private
-	 * @param ?bool $archived Archive (true) or restore (false) the track. A restored track goes to the end of the list. Archiving an archived track is refused (423) for clients that send Prefer: handling=strict
+	 * @param string|int|float|bool|null $private Whether the track is private: true or false (also 1/0, on/off, yes/no)
+	 * @param string|int|float|bool|null $archived Archive (true) or restore (false) the track, read as `private` is. A restored track goes to the end of the list. Archiving an archived track is refused (423) for clients that send Prefer: handling=strict
 	 * @param ?string $archivedAt Archive date (YYYY-MM-DD), the client's today; the server's date if omitted
 	 * @return DataResponse<Http::STATUS_OK, TickbuddyTrack, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
 	 * 200: Track updated. On an archived track, anything but a restore without Prefer: handling=strict: nothing changed, the unchanged track
-	 * 400: Invalid name or archive date
+	 * 400: Invalid name or archive date, or `private` or `archived` isn't true or false; nothing changed
 	 * 404: Track not found
-	 * 409: Database conflict
+	 * 409: Another change took the track's place in the list meanwhile (a sortOrder another track holds); nothing changed, try again
 	 * 423: The track is archived and this isn't a restore; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
+	// Flags as in index(); null leaves the field as it is
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/tracks/{id}', requirements: ['id' => '\d+'])]
 	public function update(
 		int $id,
 		?string $name = null,
 		?int $sortOrder = null,
-		?bool $private = null,
-		?bool $archived = null,
+		string|int|float|bool|null $private = null,
+		string|int|float|bool|null $archived = null,
 		?string $archivedAt = null,
 	): DataResponse {
 		try {
+			$private = Flags::readOptional('private', $private);
+			$archived = Flags::readOptional('archived', $archived);
 			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private, $archived, $archivedAt);
 			return new DataResponse($this->serializeTrack($track));
-		} catch (InvalidTrackNameException|InvalidArchiveDateException $e) {
+		} catch (InvalidTrackNameException|InvalidArchiveDateException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (DoesNotExistException) {
 			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
 		} catch (DbException $e) {
-			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::DATABASE_CONFLICT], Http::STATUS_CONFLICT);
+			// Only the unique index on the list's order is a conflict to try again;
+			// anything else is the server's error. The driver's text stays in the log.
+			if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+				throw $e;
+			}
+			$this->logger->info('A track update lost to another change', ['exception' => $e]);
+			return new DataResponse(['message' => 'The tracks changed while saving; try again', 'reason' => ErrorReason::DATABASE_CONFLICT], Http::STATUS_CONFLICT);
 		} catch (ReadOnlyTrackException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}

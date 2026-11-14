@@ -117,6 +117,16 @@ final class IdempotencyServiceTest extends TestCase {
 		$this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $this->fingerprint());
 	}
 
+	public function testFingerprintRecipeIsUnchanged(): void {
+		// Tickdroid's increment, as fingerprinted since the key was introduced.
+		// A stored key holds this hash for 30 days: a change here answers 422
+		// to the retries of every key stored before it.
+		$this->assertSame(
+			'9dd1bee581f2c71a916c060bf86a8122deb1c7a54b271bb0ec08cb1554208044',
+			IdempotencyService::fingerprint('ticks.increment', [5, '2026-11-14', 1, null, null, false]),
+		);
+	}
+
 	public function testFingerprintDiffersWhenAnyParameterDiffers(): void {
 		$base = [2, '2026-10-23', 1, null, null, false];
 		$variants = [

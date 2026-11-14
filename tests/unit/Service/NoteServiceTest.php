@@ -556,6 +556,21 @@ final class NoteServiceTest extends TestCase {
 		$this->service->findByDateRange($this->userId, $from, $to);
 	}
 
+	public function testFindByDateRangeRefusesAReversedRange(): void {
+		$this->noteMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From must be on or before to');
+		$this->service->findByDateRange($this->userId, '2026-11-10', '2026-11-01');
+	}
+
+	public function testFindByDateRangeReadsOneDay(): void {
+		$this->noteMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-01')->willReturn([]);
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-01'));
+	}
+
 	public function testFindByDateRange(): void {
 		$notes = [$this->note('a')];
 		$this->noteMapper->expects($this->once())->method('findByUserAndDateRange')

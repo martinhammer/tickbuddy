@@ -7,6 +7,7 @@ namespace OCA\Tickbuddy\Controller;
 use OCA\Tickbuddy\Db\Note;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ErrorReason;
+use OCA\Tickbuddy\Service\Flags;
 use OCA\Tickbuddy\Service\IdempotencyService;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
@@ -54,11 +55,11 @@ class NoteController extends OCSController {
 	 * Includes the notes of private and archived tracks.
 	 *
 	 * @param string $from Start date (YYYY-MM-DD), inclusive
-	 * @param string $to End date (YYYY-MM-DD), inclusive
+	 * @param string $to End date (YYYY-MM-DD), inclusive; the same as `from` for one day
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyNote>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
 	 *
 	 * 200: Notes returned, newest first
-	 * 400: From or to is missing or not a date
+	 * 400: From or to is missing or not a date, or from is after to
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/notes')]
@@ -121,23 +122,26 @@ class NoteController extends OCSController {
 	 * @param int $trackId Track ID
 	 * @param string $date Date (YYYY-MM-DD)
 	 * @param string|int|float|bool|null $text Plain text to add
-	 * @param bool $allowDuplicate Append the text even if the note already holds it
+	 * @param string|int|float|bool|null $allowDuplicate Append the text even if the note already holds it: true or false (also 1/0, on/off, yes/no)
 	 * @return DataResponse<Http::STATUS_OK, array{text: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
 	 * 200: Text appended, or already there; `text` is the whole stored note, empty if none. On an archived track, without Prefer: handling=strict: nothing written, the stored note. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing
-	 * 400: Date or text invalid, the note would be longer than 500 characters, or `Idempotency-Key` is not a UUID
+	 * 400: Date or text invalid, the note would be longer than 500 characters, `allowDuplicate` isn't true or false, or `Idempotency-Key` is not a UUID
 	 * 404: Track not found
 	 * 409: The note kept changing while appending; nothing was written, try again, or a request with the same `Idempotency-Key` is still being handled; try again shortly
 	 * 422: This `Idempotency-Key` was used for another request; nothing written
 	 * 423: The track is archived; nothing written. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above
 	 */
-	// $text is a union for the framework, as in set()
+	// $text is a union for the framework, as in set(). $allowDuplicate too: typed
+	// bool, Nextcloud would read "no" as true. Its fingerprint holds the flag as
+	// read, as it did when it was typed bool.
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'POST', url: '/api/notes/append')]
-	public function append(int $trackId = 0, string $date = '', string|int|float|bool|null $text = '', bool $allowDuplicate = false): DataResponse {
-		return $this->idempotency->run($this->userId, 'notes.append', [$trackId, $date, $text, $allowDuplicate], function () use ($trackId, $date, $text, $allowDuplicate): DataResponse {
+	public function append(int $trackId = 0, string $date = '', string|int|float|bool|null $text = '', string|int|float|bool|null $allowDuplicate = false): DataResponse {
+		$parsed = Flags::parse($allowDuplicate, false);
+		return $this->idempotency->run($this->userId, 'notes.append', [$trackId, $date, $text, $parsed], function () use ($trackId, $date, $text, $parsed): DataResponse {
 			try {
-				return new DataResponse(['text' => $this->noteService->append($this->userId, $trackId, $date, $text, $allowDuplicate)]);
+				return new DataResponse(['text' => $this->noteService->append($this->userId, $trackId, $date, $text, Flags::check('allowDuplicate', $parsed))]);
 			} catch (DoesNotExistException) {
 				return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
 			} catch (InvalidValueException $e) {

@@ -7,6 +7,8 @@ namespace OCA\Tickbuddy\Controller;
 use OCA\Tickbuddy\AppInfo\Application;
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ErrorReason;
+use OCA\Tickbuddy\Service\Flags;
+use OCA\Tickbuddy\Service\InvalidValueException;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\ApiRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
@@ -76,8 +78,8 @@ class PreferencesController extends OCSController {
 	 *
 	 * @param ?string $journalLayoutDesktop Journal layout on desktop: "daysDown" or "tracksDown"
 	 * @param ?string $journalLayoutMobile Journal layout on mobile: "daysDown" or "tracksDown"
-	 * @param ?bool $showPrivateDesktop Whether private tracks are shown on desktop
-	 * @param ?bool $showPrivateMobile Whether private tracks are shown on mobile
+	 * @param string|int|float|bool|null $showPrivateDesktop Whether private tracks are shown on desktop: true or false (also 1/0, on/off, yes/no)
+	 * @param string|int|float|bool|null $showPrivateMobile Whether private tracks are shown on mobile: true or false, as `showPrivateDesktop`
 	 * @param ?string $editableDaysDesktop Days a click can change on desktop: "activeDay", "activeAndPrevious", "oneWeek" or "allDays"
 	 * @param ?string $editableDaysMobile Days a click can change on mobile: "activeDay", "activeAndPrevious", "oneWeek" or "allDays"
 	 * @return DataResponse<Http::STATUS_OK, TickbuddyPreferences, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
@@ -85,13 +87,14 @@ class PreferencesController extends OCSController {
 	 * 200: Preferences updated, all of them returned
 	 * 400: A value isn't one of the allowed ones; nothing saved
 	 */
+	// The flags are unions for the framework: typed bool, Nextcloud would read "no" as true
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'PUT', url: '/api/preferences')]
 	public function update(
 		?string $journalLayoutDesktop = null,
 		?string $journalLayoutMobile = null,
-		?bool $showPrivateDesktop = null,
-		?bool $showPrivateMobile = null,
+		string|int|float|bool|null $showPrivateDesktop = null,
+		string|int|float|bool|null $showPrivateMobile = null,
 		?string $editableDaysDesktop = null,
 		?string $editableDaysMobile = null,
 	): DataResponse {
@@ -101,10 +104,14 @@ class PreferencesController extends OCSController {
 			'editableDaysDesktop' => $editableDaysDesktop,
 			'editableDaysMobile' => $editableDaysMobile,
 		];
-		$bools = [
-			'showPrivateDesktop' => $showPrivateDesktop,
-			'showPrivateMobile' => $showPrivateMobile,
-		];
+		try {
+			$bools = [
+				'showPrivateDesktop' => Flags::readOptional('showPrivateDesktop', $showPrivateDesktop),
+				'showPrivateMobile' => Flags::readOptional('showPrivateMobile', $showPrivateMobile),
+			];
+		} catch (InvalidValueException $e) {
+			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
+		}
 
 		foreach ($strings as $field => $value) {
 			if ($value !== null && !in_array($value, self::STRING_FIELDS[$field][1], true)) {

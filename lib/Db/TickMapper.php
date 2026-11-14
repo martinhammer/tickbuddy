@@ -136,16 +136,24 @@ class TickMapper extends QBMapper {
 	/**
 	 * Add a signed delta to one tick's value in a single UPDATE, which the
 	 * database applies atomically, so concurrent calls never lose one another.
+	 * A positive delta is added only if the result stays at most `$max`, a
+	 * condition of the same UPDATE, so two calls can't pass it together (and
+	 * SQLite, whose integers are 64-bit, never raises an overflow of its own).
 	 *
-	 * @return int The number of rows updated: 0 when the day has no tick yet
+	 * @param int $delta Not below -$max, so the sum always fits the column
+	 * @return int The number of rows updated: 0 when the day has no tick yet,
+	 *             or its value can't take a positive delta
 	 */
-	public function addToValue(string $userId, int $trackId, string $date, int $delta): int {
+	public function addToValue(string $userId, int $trackId, string $date, int $delta, int $max): int {
 		$qb = $this->db->getQueryBuilder();
 		$qb->update($this->getTableName())
 			->set('value', $qb->func()->add('value', $qb->createNamedParameter($delta, IQueryBuilder::PARAM_INT)))
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
 			->andWhere($qb->expr()->eq('track_id', $qb->createNamedParameter($trackId, IQueryBuilder::PARAM_INT)))
 			->andWhere($qb->expr()->eq('date', $qb->createNamedParameter($date)));
+		if ($delta > 0) {
+			$qb->andWhere($qb->expr()->lte('value', $qb->createNamedParameter($max - $delta, IQueryBuilder::PARAM_INT)));
+		}
 		return $qb->executeStatement();
 	}
 

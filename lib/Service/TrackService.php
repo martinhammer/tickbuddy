@@ -44,6 +44,21 @@ class TrackService {
 	}
 
 	/**
+	 * Check a date range sent to a list endpoint, both ends required. One day
+	 * (from = to) is a range.
+	 *
+	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
+	 */
+	public static function checkDateRange(string $from, string $to): void {
+		if (!self::isValidDate($from) || !self::isValidDate($to)) {
+			throw new InvalidValueException('From and to must be dates as YYYY-MM-DD');
+		}
+		if ($from > $to) {
+			throw new InvalidValueException('From must be on or before to');
+		}
+	}
+
+	/**
 	 * A track name trimmed, refused when blank or longer than the column.
 	 *
 	 * @throws InvalidTrackNameException

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- API: boolean flags (`includeArchived`, `includeRuns`, `includePrivate`, `private`, `archived`, `allowDuplicate`, `allowDuplicateNote`, `showPrivateDesktop`, `showPrivateMobile`) take `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`; anything else is http 400 (previously `no` and `off` meant true)
+- API: a counter's `value` on `POST /api/ticks/set` must be a whole number from 0 to 2147483647; a negative, missing or non-whole value is http 400 (previously it deleted the tick or was cut to a number)
+- API: `delta` on `POST /api/ticks/increment` must be a whole number; an increment past 2147483647 is http 400, with nothing written
+- API: `GET /api/ticks` needs both `from` and `to` as dates, and `GET /api/ticks` and `GET /api/notes` answer http 400 when `from` is after `to`
+- Import: a backup's `private` is read as the API reads it (`"false"` was imported as private); a counter value above 2147483647 fails the import
+
+### Fixed
+- API: database errors no longer send the database's own text to the client: a track update that loses to another change answers `The tracks changed while saving; try again`, a failed import `The import failed, so nothing was imported`, and any other database error on a track update is an http 500
+- Import: Tickmate's track limit message no longer starts with "Import failed: "
+
 ## [3.0.0] - 2026-10-30
 
 ### Added
