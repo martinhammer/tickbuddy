@@ -6,18 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- API: `GET /api/ticks` and `GET /api/notes` take `trackId` to read one track's ticks or notes (flag `trackFilter`)
+- API: `GET /api/notes/bounds`, the first and last note date per track (flag `notesBounds`)
+
 ### Changed
-- API: boolean flags (`includeArchived`, `includeRuns`, `includePrivate`, `private`, `archived`, `allowDuplicate`, `allowDuplicateNote`, `showPrivateDesktop`, `showPrivateMobile`) take `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`; anything else is http 400 (previously `no` and `off` meant true)
-- API: a counter's `value` on `POST /api/ticks/set` must be a whole number from 0 to 2147483647; a negative, missing or non-whole value is http 400 (previously it deleted the tick or was cut to a number)
+- Analytics reads only the selected track's ticks instead of every track's whole history
+- API: boolean flags (`includeArchived`, `includeRuns`, `includePrivate`, `private`, `archived`, `allowDuplicate`, `allowDuplicateNote`, `showPrivateDesktop`, `showPrivateMobile`) take `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`; anything else is http 400
+- API: a counter's `value` on `POST /api/ticks/set` must be a whole number from 0 to 2147483647; a negative, missing or non-whole value is http 400
 - API: `delta` on `POST /api/ticks/increment` must be a whole number; an increment past 2147483647 is http 400, with nothing written
 - API: `GET /api/ticks` needs both `from` and `to` as dates, and `GET /api/ticks` and `GET /api/notes` answer http 400 when `from` is after `to`
-- Import: a backup's `private` is read as the API reads it (`"false"` was imported as private); a counter value above 2147483647 fails the import
+- Import: a backup's `private` is read as the API reads it; a counter value above 2147483647 fails the import
 - Import: at most 10 imports per user in 10 minutes, and at most 200,000 ticks in a Tickmate backup
 
 ### Fixed
-- API: database errors no longer send the database's own text to the client: a track update that loses to another change answers `The tracks changed while saving; try again`, a failed import `The import failed, so nothing was imported`, and any other database error on a track update is an http 500
-- Import: Tickmate's track limit message no longer starts with "Import failed: "
-- Import: a file that isn't a Tickmate backup answers http 400 instead of 500, and a crafted backup can no longer make the server allocate up to 1 GB while reading it
+- API: database errors no longer send the database's own text to the client
+- Import: miscellaneous fixes for Tickmate files
 
 ## [3.0.0] - 2026-10-30
 

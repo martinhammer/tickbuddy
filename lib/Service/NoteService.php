@@ -63,15 +63,35 @@ class NoteService {
 	}
 
 	/**
-	 * Notes of every track of the user (private and archived included) in a
-	 * date range, both ends inclusive, newest first.
+	 * Notes of every track of the user (private and archived included), or of
+	 * one, in a date range, both ends inclusive, newest first.
 	 *
+	 * The range is checked first, then the track, as on stats.
+	 *
+	 * @param ?int $trackId One track only (also an archived one), or null for every track
 	 * @return Note[]
 	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
+	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to): array {
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
 		TrackService::checkDateRange($from, $to);
-		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to);
+		if ($trackId !== null) {
+			$this->trackMapper->findByIdAndUser($trackId, $userId);
+		}
+		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
+	}
+
+	/**
+	 * First and last note date per track. Tracks with no notes are omitted.
+	 *
+	 * Private and archived tracks are included, as for
+	 * {@see findByDateRange}: `private` hides tracks in the UI, it is not an
+	 * authorization boundary.
+	 *
+	 * @return list<array{trackId: int, oldest: string, newest: string}>
+	 */
+	public function findBounds(string $userId): array {
+		return $this->noteMapper->findBoundsByUser($userId);
 	}
 
 	/**

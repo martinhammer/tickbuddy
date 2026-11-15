@@ -57,18 +57,22 @@ class TickController extends OCSController {
 	 *
 	 * @param string $from Start date (YYYY-MM-DD), inclusive
 	 * @param string $to End date (YYYY-MM-DD), inclusive; the same as `from` for one day
-	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTick>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
+	 * @param int $trackId One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyTick>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
-	 * 200: Ticks returned
+	 * 200: Ticks returned, newest first
 	 * 400: From or to is missing or not a date, or from is after to
+	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/ticks')]
-	public function index(string $from = '', string $to = ''): DataResponse {
+	public function index(string $from = '', string $to = '', int $trackId = 0): DataResponse {
 		try {
-			$ticks = $this->tickService->findByDateRange($this->userId, $from, $to);
+			$ticks = $this->tickService->findByDateRange($this->userId, $from, $to, $trackId !== 0 ? $trackId : null);
 		} catch (InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
+		} catch (DoesNotExistException) {
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
 		}
 		return new DataResponse(array_values(array_map(fn (Tick $t) => $this->serializeTick($t), $ticks)));
 	}

@@ -172,6 +172,15 @@ final class ErrorReasonTest extends TestCase {
 		$this->assertError($controller->index('2026-11-10', '2026-11-01'), 400, 'From must be on or before to', 'invalidValue');
 	}
 
+	public function testListsOfAnUnknownTrack(): void {
+		$ticks = $this->createMock(TickService::class);
+		$ticks->method('findByDateRange')->willThrowException(new DoesNotExistException(''));
+		$controller = new TickController('tickbuddy', $this->request, $ticks, $this->idempotency(), 'testuser');
+		$this->assertError($controller->index('2026-11-01', '2026-11-14', 999999), 404, 'Track not found', 'trackNotFound');
+
+		$this->assertError($this->notes(new DoesNotExistException(''))->index('2026-11-01', '2026-11-14', 999999), 404, 'Track not found', 'trackNotFound');
+	}
+
 	public function testReorderErrors(): void {
 		$this->assertError($this->tracks($this->readOnly())->reorder([]), 400, 'trackIds is required', 'invalidValue');
 		$this->assertError($this->tracks($this->readOnly())->reorder([1, 2]), 423, 'Exercise is archived, so nothing was changed', 'archived');

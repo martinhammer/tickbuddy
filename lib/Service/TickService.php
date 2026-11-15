@@ -26,14 +26,22 @@ class TickService {
 	}
 
 	/**
-	 * Ticks of every track of the user in a date range, both ends inclusive.
+	 * Ticks of every track of the user, or of one, in a date range, both ends
+	 * inclusive, newest first.
 	 *
+	 * The range is checked first, then the track, as on stats.
+	 *
+	 * @param ?int $trackId One track only (also an archived one), or null for every track
 	 * @return Tick[]
 	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
+	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to): array {
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
 		TrackService::checkDateRange($from, $to);
-		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to);
+		if ($trackId !== null) {
+			$this->trackMapper->findByIdAndUser($trackId, $userId);
+		}
+		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
 	}
 
 	/**

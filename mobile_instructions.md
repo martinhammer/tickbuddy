@@ -190,14 +190,16 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "notes": true,
     "statsPeriod": true,
     "notesAppend": true,
-    "idempotencyKey": true
+    "idempotencyKey": true,
+    "trackFilter": true,
+    "notesBounds": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), `trackFilter` (`GET /api/ticks` and `GET /api/notes` take `trackId` — see §3; an older server ignores it and answers every track, so **never assume the answer holds only the track asked for without this flag**), `notesBounds` (`GET /api/notes/bounds` exists — see §3 Notes; absent on older servers, where that route 404s), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -327,8 +329,12 @@ Delete a track and all its ticks. `204` on success, `404` if not found.
 
 ### Ticks
 
-#### `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD`
-Fetch all ticks for the current user with `date` in `[from, to]` inclusive. Both params required: a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`, and `from` after `to` answers `400` `From must be on or before to` (`from` = `to` reads one day). No pagination — keep ranges sensible (the web client uses 30-day windows, with infinite scroll extending ~30 days at a time).
+#### `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD[&trackId=n]`
+Fetch all ticks for the current user with `date` in `[from, to]` inclusive. Both dates required: a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`, and `from` after `to` answers `400` `From must be on or before to` (`from` = `to` reads one day). No pagination — keep ranges sensible (the web client uses 30-day windows, with infinite scroll extending ~30 days at a time).
+
+- `trackId` (int, optional, requires `features.trackFilter`): that track's ticks only, also an archived track's. Missing or `0` is every track. A track that isn't yours answers `404` `trackNotFound` (`Track not found`), after the date checks. **Without `features.trackFilter` the server ignores `trackId` and answers every track**: always filter the answer by `trackId` yourself, and use the flag to decide whether a long range for one track is cheap.
+
+**One track's whole history** (for per-track stats): `from` = the track's first day (`firstTick` from `GET /api/stats` with `trackId`, or `oldest` from `GET /api/ticks/bounds`), `to` = today, `trackId` = the track. Nothing to read if it has no first tick.
 
 Response `data`:
 ```json
@@ -355,7 +361,7 @@ Response `data`:
 
 Notes:
 - **Tracks with no ticks are omitted** — same sparse convention as the tick list. Don't expect one entry per track, and don't treat a missing entry as an error.
-- Covers **all** tracks in one response; there is no per-track variant. The payload is bounded by the 99-track limit, so it's safe to fetch whole.
+- Covers **all** tracks in one response; there is no per-track variant. The payload is bounded by the 99-track limit, so it's safe to fetch whole. For one track's whole history, see `GET /api/ticks` above.
 - **Private tracks are included.** As everywhere else in this API, `private` is a display hint, not an access control — filter client-side if the user has private tracks hidden.
 - Cheap: a single indexed aggregate query, no row scan of tick history.
 
@@ -430,7 +436,7 @@ Checks on a note's text, wherever it is written (here, `note` on tick calls, and
 
 A JSON number is stored as its digits; a JSON `true` or `false` answers `400` `Notes must be UTF-8 text` (send `""` to delete).
 
-#### `GET /api/notes?from=YYYY-MM-DD&to=YYYY-MM-DD`
+#### `GET /api/notes?from=YYYY-MM-DD&to=YYYY-MM-DD[&trackId=n]`
 Notes of every track (private and archived included) in the range, inclusive on both ends, newest first:
 
 ```json
@@ -438,6 +444,20 @@ Notes of every track (private and archived included) in the range, inclusive on 
 ```
 
 Both dates are required; a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`, and `from` after `to` answers `400` `From must be on or before to`.
+
+`trackId` (int, optional, requires `features.trackFilter`) works as on `GET /api/ticks`: one track's notes (also an archived track's), missing or `0` every track, `404` `trackNotFound` for a track that isn't yours. An older server ignores it, so filter by `trackId` yourself unless the flag is set.
+
+#### `GET /api/notes/bounds`
+> Requires `features.notesBounds` (§1). On servers without it this route returns `404`.
+
+The first and last note date for each track, as `GET /api/ticks/bounds` does for ticks. No params.
+
+```json
+[{"trackId": 3, "oldest": "2026-09-02", "newest": "2026-10-18"}]
+```
+
+- **Tracks with no notes are omitted.** Private and archived tracks are included.
+- **Independent of the ticks bounds**: a note can sit on a day without a tick, so a track can appear here and not there, or the other way round, and the dates can differ.
 
 #### `POST /api/notes/set`
 Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string; empty deletes the note).
@@ -679,6 +699,16 @@ curl -u "$USER:$APP_PASS" \
 curl -u "$USER:$APP_PASS" \
   -H "OCS-APIRequest: true" -H "Accept: application/json" \
   "$NC/ocs/v2.php/apps/tickbuddy/api/ticks/bounds"
+
+# One track's ticks (features.trackFilter; an older server answers every track)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-01-01&to=2026-11-15&trackId=1"
+
+# First and last note per track (404 = server predates features.notesBounds)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/apps/tickbuddy/api/notes/bounds"
 ```
 
 If any of those return HTML, you forgot `OCS-APIRequest: true`.
@@ -702,7 +732,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
 - [ ] Archive/restore only when `features.archivedTracks` is set; send the device's today as `archivedAt`
-- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `notesAppend` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
+- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `notesAppend` / `trackFilter` / `notesBounds` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

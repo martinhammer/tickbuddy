@@ -30,16 +30,23 @@ class TickMapper extends QBMapper {
 	}
 
 	/**
+	 * The user's ticks from `$from` to `$to`, newest first.
+	 *
+	 * @param ?int $trackId One track's only, or null for every track's; served by
+	 *                      the (user_id, track_id, date) unique index either way
 	 * @return Tick[]
 	 */
-	public function findByUserAndDateRange(string $userId, string $from, string $to): array {
+	public function findByUserAndDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')
 			->from($this->getTableName())
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
 			->andWhere($qb->expr()->gte('date', $qb->createNamedParameter($from)))
-			->andWhere($qb->expr()->lte('date', $qb->createNamedParameter($to)))
-			->orderBy('date', 'DESC');
+			->andWhere($qb->expr()->lte('date', $qb->createNamedParameter($to)));
+		if ($trackId !== null) {
+			$qb->andWhere($qb->expr()->eq('track_id', $qb->createNamedParameter($trackId, IQueryBuilder::PARAM_INT)));
+		}
+		$qb->orderBy('date', 'DESC');
 		return $this->findEntities($qb);
 	}
 

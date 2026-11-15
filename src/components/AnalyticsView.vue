@@ -20,7 +20,7 @@ import {
 	Tooltip,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
-import { fetchAllTicks, fetchStats, fetchTracks } from '../api.ts'
+import { fetchStats, fetchTicks, fetchTracks } from '../api.ts'
 import { fmtDate, isoWeek, parseDateStr, toDateStr, userLocale } from '../dates.ts'
 import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
 import { loadPreferences, showPrivate } from '../preferences.ts'
@@ -43,6 +43,7 @@ const emit = defineEmits<{
 // names it.
 const allTracks = ref<Track[]>([])
 const tracks = computed(() => allTracks.value.filter(t => t.archivedAt === null))
+// The selected track's ticks, from its first tick to today (GET /api/ticks with trackId)
 const allTicks = ref<Tick[]>([])
 // The selected track's stats, with runs, from GET /api/stats.
 const trackStats = ref<TrackStats | null>(null)
@@ -785,14 +786,17 @@ async function loadTicks(mode: 'show' | 'quiet' = 'show') {
 		trackStats.value = null
 	}
 	try {
-		const [ticks, stats] = await Promise.all([
-			fetchAllTicks(),
-			fetchStats(today.value, { trackId: track.id, includeRuns: true }),
-		])
+		// The stats say where the track's history starts, so its ticks are read
+		// from there to today, one track only. No first tick: nothing to read.
+		const [entry] = await fetchStats(today.value, { trackId: track.id, includeRuns: true })
 		// The selection changed meanwhile: its own load has the last word.
 		if (seq !== loadSeq) return
+		const firstTick = entry?.firstTick ?? null
+		const ticks = firstTick === null ? [] : await fetchTicks(firstTick, today.value, track.id)
+		if (seq !== loadSeq) return
+		// Together, so one track's tiles never sit beside another's charts
 		allTicks.value = ticks
-		trackStats.value = stats[0] ?? null
+		trackStats.value = entry ?? null
 		loadError.value = null
 		loaded()
 	} catch {

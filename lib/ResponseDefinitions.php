@@ -35,6 +35,12 @@ namespace OCA\Tickbuddy;
  *     newest: string,
  * }
  *
+ * @psalm-type TickbuddyNoteBounds = array{
+ *     trackId: int,
+ *     oldest: string,
+ *     newest: string,
+ * }
+ *
  * @psalm-type TickbuddyNote = array{
  *     trackId: int,
  *     date: string,

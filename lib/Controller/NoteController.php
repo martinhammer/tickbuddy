@@ -24,6 +24,7 @@ use OCP\IRequest;
 /**
  * @psalm-import-type TickbuddyError from ResponseDefinitions
  * @psalm-import-type TickbuddyNote from ResponseDefinitions
+ * @psalm-import-type TickbuddyNoteBounds from ResponseDefinitions
  *
  * @psalm-suppress UnusedClass
  */
@@ -56,20 +57,42 @@ class NoteController extends OCSController {
 	 *
 	 * @param string $from Start date (YYYY-MM-DD), inclusive
 	 * @param string $to End date (YYYY-MM-DD), inclusive; the same as `from` for one day
-	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyNote>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
+	 * @param int $trackId One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyNote>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
 	 * 200: Notes returned, newest first
 	 * 400: From or to is missing or not a date, or from is after to
+	 * 404: Track not found
 	 */
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/notes')]
-	public function index(string $from = '', string $to = ''): DataResponse {
+	public function index(string $from = '', string $to = '', int $trackId = 0): DataResponse {
 		try {
-			$notes = $this->noteService->findByDateRange($this->userId, $from, $to);
+			$notes = $this->noteService->findByDateRange($this->userId, $from, $to, $trackId !== 0 ? $trackId : null);
 			return new DataResponse(array_values(array_map(fn (Note $n) => $this->serializeNote($n), $notes)));
 		} catch (InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
+		} catch (DoesNotExistException) {
+			return new DataResponse(['message' => 'Track not found', 'reason' => ErrorReason::TRACK_NOT_FOUND], Http::STATUS_NOT_FOUND);
 		}
+	}
+
+	/**
+	 * List the first and last note date for each track
+	 *
+	 * Tracks that have no notes are omitted. Includes private and archived
+	 * tracks; filter them client-side as with the note list. Independent of
+	 * GET /api/ticks/bounds: a note can sit on a day without a tick. Check the
+	 * `notesBounds` capability: older servers 404 this route.
+	 *
+	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyNoteBounds>, array{}>
+	 *
+	 * 200: Bounds returned
+	 */
+	#[NoAdminRequired]
+	#[ApiRoute(verb: 'GET', url: '/api/notes/bounds')]
+	public function bounds(): DataResponse {
+		return new DataResponse($this->noteService->findBounds($this->userId));
 	}
 
 	/**

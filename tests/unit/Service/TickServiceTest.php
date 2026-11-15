@@ -719,6 +719,39 @@ final class TickServiceTest extends TestCase {
 		$this->assertSame(3, $this->service->increment($this->userId, 2, '2026-10-14', 2)['value']);
 	}
 
+	public function testFindByDateRangeOfOneTrackLooksItUpForTheUser(): void {
+		$this->trackMapper->expects($this->once())->method('findByIdAndUser')->with(3, $this->userId);
+		$this->tickMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-14', 3)->willReturn([]);
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14', 3));
+	}
+
+	public function testFindByDateRangeOfAnotherUsersTrackReadsNothing(): void {
+		// findByIdAndUser throws alike for an unknown id and for another user's track
+		$this->trackMapper->method('findByIdAndUser')->willThrowException(new DoesNotExistException(''));
+		$this->tickMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->expectException(DoesNotExistException::class);
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14', 999999);
+	}
+
+	public function testFindByDateRangeOfEveryTrackLooksNothingUp(): void {
+		$this->trackMapper->expects($this->never())->method('findByIdAndUser');
+		$this->tickMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-14', null)->willReturn([]);
+
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14');
+	}
+
+	public function testFindByDateRangeReportsTheRangeBeforeTheTrack(): void {
+		$this->trackMapper->expects($this->never())->method('findByIdAndUser');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From must be on or before to');
+		$this->service->findByDateRange($this->userId, '2026-11-14', '2026-11-01', 999999);
+	}
+
 	public function testFindBoundsIsScopedToTheUser(): void {
 		$bounds = [
 			['trackId' => 1, 'oldest' => '2026-03-07', 'newest' => '2026-07-28'],
