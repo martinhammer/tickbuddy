@@ -20,11 +20,12 @@ import {
 	Tooltip,
 } from 'chart.js'
 import zoomPlugin from 'chartjs-plugin-zoom'
-import { fetchAllTicks, fetchStats, fetchTracks } from '../api.ts'
-import { fmtDate, parseDateStr, toDateStr, todayStr, userLocale } from '../dates.ts'
+import { fetchStats, fetchTicks, fetchTracks } from '../api.ts'
+import { fmtDate, isoWeek, parseDateStr, toDateStr, userLocale } from '../dates.ts'
 import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
 import { loadPreferences, showPrivate } from '../preferences.ts'
 import type { Tick, Track, TrackStats } from '../types.ts'
+import { useToday } from '../useToday.ts'
 
 ChartJS.register(CategoryScale, LinearScale, RadialLinearScale, PointElement, LineElement, ArcElement, Filler, Legend, SubTitle, Tooltip, zoomPlugin)
 
@@ -42,11 +43,18 @@ const emit = defineEmits<{
 // names it.
 const allTracks = ref<Track[]>([])
 const tracks = computed(() => allTracks.value.filter(t => t.archivedAt === null))
+// The selected track's ticks, from its first tick to today (GET /api/ticks with trackId)
 const allTicks = ref<Tick[]>([])
 // The selected track's stats, with runs, from GET /api/stats.
 const trackStats = ref<TrackStats | null>(null)
 const selectedTrack = ref<{ id: number; label: string } | null>(null)
 const loading = ref(false)
+// What failed to load: the tracks (nothing to show), or the selected track's ticks and stats
+const loadError = ref<'tracks' | 'track' | null>(null)
+
+// The stats are asked for as of today and the charts end today, so both move
+// on at midnight; data older than 5 minutes is reloaded quietly on focus.
+const { today, loaded } = useToday(() => { loadTicks('quiet') })
 
 const trackOptions = computed(() => {
 	const list = showPrivate.value ? tracks.value : tracks.value.filter(t => !t.private)
@@ -100,11 +108,16 @@ const archivedLine = computed(() => archivedAt.value === null
 	? null
 	: `Archived on ${new Intl.DateTimeFormat(userLocale, { day: 'numeric', month: 'long', year: 'numeric' }).format(parseDateStr(archivedAt.value))}`)
 
+// The selected track's ticks up to the day its charts end on, as the heatmap
+// and the server's stats do: today, or an archived track's archive date.
+// Ticks dated later (from an import or another client) count nowhere.
+const chartsEnd = computed(() => archivedAt.value ?? today.value)
+
 const trackTicks = computed(() => {
 	if (!selectedTrack.value) return []
-	const end = archivedAt.value
+	const end = chartsEnd.value
 	return allTicks.value
-		.filter(t => t.trackId === selectedTrack.value!.id && (end === null || t.date <= end))
+		.filter(t => t.trackId === selectedTrack.value!.id && t.date <= end)
 		.sort((a, b) => a.date.localeCompare(b.date))
 })
 
@@ -545,17 +558,6 @@ const weekdayShortNames: string[] = (() => {
 	return names
 })()
 
-// ISO 8601 week: returns "YYYY-Wnn" (weeks start on Monday)
-function isoWeek(dateStr: string): string {
-	const d = new Date(dateStr + 'T00:00:00')
-	const dayNum = d.getDay() || 7 // convert Sun=0 to 7
-	d.setDate(d.getDate() + 4 - dayNum) // nearest Thursday
-	const year = d.getFullYear()
-	const jan1 = new Date(year, 0, 1)
-	const weekNo = Math.ceil((((d.getTime() - jan1.getTime()) / 86400000) + 1) / 7)
-	return `${year}-W${String(weekNo).padStart(2, '0')}`
-}
-
 const weeksChart = computed(() => buildTimeSeries(
 	(date) => isoWeek(date),
 	(key) => {
@@ -626,11 +628,10 @@ const heatmapData = computed(() => {
 	for (const t of ticks) byDate.set(t.date, t.value)
 
 	// Ends today, or on an archived track's archive date
-	const today = archivedAt.value === null ? new Date() : parseDateStr(archivedAt.value)
-	today.setHours(0, 0, 0, 0)
+	const lastDay = parseDateStr(chartsEnd.value)
 
 	// Trailing 365 days, extended back to the first tick if history is longer.
-	const windowStart = new Date(today)
+	const windowStart = new Date(lastDay)
 	windowStart.setDate(windowStart.getDate() - 364)
 	const firstTick = parseDateStr(ticks[0].date)
 	const start = firstTick < windowStart ? new Date(firstTick) : new Date(windowStart)
@@ -650,7 +651,7 @@ const heatmapData = computed(() => {
 	let lastMonthLabelWeek = -99
 	let offset = 0
 
-	for (const d = new Date(start); d <= today; d.setDate(d.getDate() + 1), offset++) {
+	for (const d = new Date(start); d <= lastDay; d.setDate(d.getDate() + 1), offset++) {
 		const week = Math.floor(offset / 7)
 		const row = offset % 7
 		const ds = toDateStr(d)
@@ -746,11 +747,17 @@ function hideHeatmapTooltip() {
 }
 
 // --- Data fetching ---
-async function loadTracks() {
+/** Load the tracks; false when that failed, which the error view says. */
+async function loadTracks(): Promise<boolean> {
 	loading.value = true
+	loadError.value = null
 	try {
 		const [t] = await Promise.all([fetchTracks(true), loadPreferences()])
 		allTracks.value = t
+		return true
+	} catch {
+		loadError.value = 'tracks'
+		return false
 	} finally {
 		loading.value = false
 	}
@@ -758,7 +765,12 @@ async function loadTracks() {
 
 let loadSeq = 0
 
-async function loadTicks() {
+// The selected track's ticks and stats. 'show' (a new track, or Try again)
+// shows the spinner and an error view if it fails; 'quiet' (midnight, or
+// focus on old data) keeps what is on screen, failed or not.
+async function loadTicks(mode: 'show' | 'quiet' = 'show') {
+	// A quiet reload never competes with a load already running
+	if (mode === 'quiet' && (loading.value || loadError.value === 'tracks')) return
 	const seq = ++loadSeq
 	const track = selectedTrack.value
 	if (!track) {
@@ -767,16 +779,29 @@ async function loadTicks() {
 		loading.value = false
 		return
 	}
-	loading.value = true
+	if (mode === 'show') {
+		loading.value = true
+		loadError.value = null
+		// Never the previous track's totals beside this one's charts
+		trackStats.value = null
+	}
 	try {
-		const [ticks, stats] = await Promise.all([
-			fetchAllTicks(),
-			fetchStats(todayStr(), { trackId: track.id, includeRuns: true }),
-		])
+		// The stats say where the track's history starts, so its ticks are read
+		// from there to today, one track only. No first tick: nothing to read.
+		const [entry] = await fetchStats(today.value, { trackId: track.id, includeRuns: true })
 		// The selection changed meanwhile: its own load has the last word.
 		if (seq !== loadSeq) return
+		const firstTick = entry?.firstTick ?? null
+		const ticks = firstTick === null ? [] : await fetchTicks(firstTick, today.value, track.id)
+		if (seq !== loadSeq) return
+		// Together, so one track's tiles never sit beside another's charts
 		allTicks.value = ticks
-		trackStats.value = stats[0] ?? null
+		trackStats.value = entry ?? null
+		loadError.value = null
+		loaded()
+	} catch {
+		if (seq !== loadSeq) return
+		if (mode === 'show') loadError.value = 'track'
 	} finally {
 		if (seq === loadSeq) loading.value = false
 	}
@@ -787,14 +812,24 @@ watch(selectedTrack, (track) => {
 	loadTicks()
 })
 
-onMounted(async () => {
-	await loadTracks()
-	selectedTrack.value = resolveTrack(trackOptions.value)
-})
+async function start(): Promise<void> {
+	if (await loadTracks()) selectedTrack.value = resolveTrack(trackOptions.value)
+}
+
+onMounted(start)
 </script>
 
 <template>
-	<NcEmptyContent v-if="!loading && tracks.length === 0 && !namedOption" name="No tracks yet">
+	<NcEmptyContent v-if="loadError === 'tracks'"
+		name="Couldn't load your tracks"
+		description="Check your connection, then try again.">
+		<template #action>
+			<NcButton @click="start">
+				Try again
+			</NcButton>
+		</template>
+	</NcEmptyContent>
+	<NcEmptyContent v-else-if="!loading && tracks.length === 0 && !namedOption" name="No tracks yet">
 		<template #description>
 			Add one in <a href="#tracks" :class="$style.link">Tracks</a>.
 		</template>
@@ -811,7 +846,16 @@ onMounted(async () => {
 				:class="$style.trackSelect" />
 		</div>
 
-		<template v-if="selectedTrack && !loading">
+		<NcEmptyContent v-if="selectedTrack && !loading && loadError === 'track'"
+			name="Couldn't load this track"
+			description="Check your connection, then try again.">
+			<template #action>
+				<NcButton @click="loadTicks()">
+					Try again
+				</NcButton>
+			</template>
+		</NcEmptyContent>
+		<template v-else-if="selectedTrack && !loading">
 			<div v-if="archivedLine" :class="$style.archivedLine">
 				{{ archivedLine }}
 			</div>

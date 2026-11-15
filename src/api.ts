@@ -3,11 +3,6 @@ import { generateOcsUrl } from '@nextcloud/router'
 import { isTickbuddyApiUrl, PREFER_STRICT } from './strictHandling.ts'
 import type { Note, Preferences, Tick, Track, TrackStats } from './types.ts'
 
-// "Everything": the range Analytics fetches to get a track's whole history
-// for its charts.
-export const ALL_TICKS_FROM = '2000-01-01'
-export const ALL_TICKS_TO = '2099-12-31'
-
 let strictRegistered = false
 
 /**
@@ -40,21 +35,18 @@ export async function fetchTracks(includeArchived = false): Promise<Track[]> {
 }
 
 /**
- * Every tick of every track in a date range, private ones included (callers filter).
+ * Every tick of every track in a date range, private ones included (callers
+ * filter), or of one track.
  *
  * @param from first day, YYYY-MM-DD
  * @param to last day, YYYY-MM-DD, inclusive
+ * @param trackId one track only (also an archived one)
  */
-export async function fetchTicks(from: string, to: string): Promise<Tick[]> {
+export async function fetchTicks(from: string, to: string, trackId?: number): Promise<Tick[]> {
 	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/ticks'), {
-		params: { from, to },
+		params: trackId === undefined ? { from, to } : { from, to, trackId },
 	})
 	return response.data.ocs.data
-}
-
-/** Every tick of every track, private ones included (callers filter). */
-export function fetchAllTicks(): Promise<Tick[]> {
-	return fetchTicks(ALL_TICKS_FROM, ALL_TICKS_TO)
 }
 
 /**

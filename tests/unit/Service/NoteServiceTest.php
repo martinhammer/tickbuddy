@@ -230,13 +230,35 @@ final class NoteServiceTest extends TestCase {
 		$this->assertSame('mine', $this->service->set($this->userId, 1, '2026-10-18', 'mine'));
 	}
 
-	// --- append ---
+	public function testSetRacingInsertAlreadyDeletedInsertsAgain(): void {
+		$this->track();
+		$this->noNote();
+		$this->noteMapper->expects($this->exactly(2))->method('insert')->willReturnOnConsecutiveCalls(
+			$this->throwException($this->uniqueViolation()),
+			$this->returnArgument(0),
+		);
+		$this->noteMapper->expects($this->never())->method('update');
+
+		$this->assertSame('mine', $this->service->set($this->userId, 1, '2026-10-18', 'mine'));
+	}
+
+	public function testSetGivesUpAfterThreeLostRaces(): void {
+		$this->track();
+		$this->noNote();
+		$e = $this->uniqueViolation();
+		$this->noteMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->set($this->userId, 1, '2026-10-18', 'mine');
+	}
 
 	private function uniqueViolation(): DbException {
 		$e = $this->createMock(DbException::class);
 		$e->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
 		return $e;
 	}
+
+	// --- append ---
 
 	public function testAppendToNoNoteStoresTheText(): void {
 		$this->track();
@@ -532,6 +554,64 @@ final class NoteServiceTest extends TestCase {
 		$this->expectException(InvalidValueException::class);
 		$this->expectExceptionMessage('From and to must be dates as YYYY-MM-DD');
 		$this->service->findByDateRange($this->userId, $from, $to);
+	}
+
+	public function testFindByDateRangeRefusesAReversedRange(): void {
+		$this->noteMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From must be on or before to');
+		$this->service->findByDateRange($this->userId, '2026-11-10', '2026-11-01');
+	}
+
+	public function testFindByDateRangeReadsOneDay(): void {
+		$this->noteMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-01')->willReturn([]);
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-01'));
+	}
+
+	public function testFindByDateRangeOfOneTrackLooksItUpForTheUser(): void {
+		$this->trackMapper->expects($this->once())->method('findByIdAndUser')->with(3, $this->userId);
+		$this->noteMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-14', 3)->willReturn([]);
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14', 3));
+	}
+
+	public function testFindByDateRangeOfAnotherUsersTrackReadsNothing(): void {
+		// findByIdAndUser throws alike for an unknown id and for another user's track
+		$this->trackMapper->method('findByIdAndUser')->willThrowException(new DoesNotExistException(''));
+		$this->noteMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->expectException(DoesNotExistException::class);
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14', 999999);
+	}
+
+	public function testFindByDateRangeOfEveryTrackLooksNothingUp(): void {
+		$this->trackMapper->expects($this->never())->method('findByIdAndUser');
+		$this->noteMapper->expects($this->once())->method('findByUserAndDateRange')
+			->with($this->userId, '2026-11-01', '2026-11-14', null)->willReturn([]);
+
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-14');
+	}
+
+	public function testFindByDateRangeReportsTheRangeBeforeTheTrack(): void {
+		$this->trackMapper->expects($this->never())->method('findByIdAndUser');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('From must be on or before to');
+		$this->service->findByDateRange($this->userId, '2026-11-14', '2026-11-01', 999999);
+	}
+
+	public function testFindBoundsPassesTheMappersAnswerThrough(): void {
+		$bounds = [
+			['trackId' => 1, 'oldest' => '2026-03-07', 'newest' => '2026-07-28'],
+			['trackId' => 4, 'oldest' => '2026-05-01', 'newest' => '2026-05-01'],
+		];
+		$this->noteMapper->expects($this->once())->method('findBoundsByUser')->with($this->userId)->willReturn($bounds);
+
+		$this->assertSame($bounds, $this->service->findBounds($this->userId));
 	}
 
 	public function testFindByDateRange(): void {

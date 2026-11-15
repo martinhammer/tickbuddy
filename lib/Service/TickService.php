@@ -12,6 +12,11 @@ use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
 
 class TickService {
+	/** The highest counter value: the value column is a 32-bit signed integer on MySQL, PostgreSQL and Oracle */
+	public const MAX_VALUE = 2147483647;
+	/** Write attempts before a write that keeps losing to other requests gives up */
+	private const WRITE_ATTEMPTS = 3;
+
 	public function __construct(
 		private TickMapper $tickMapper,
 		private TrackMapper $trackMapper,
@@ -21,10 +26,22 @@ class TickService {
 	}
 
 	/**
+	 * Ticks of every track of the user, or of one, in a date range, both ends
+	 * inclusive, newest first.
+	 *
+	 * The range is checked first, then the track, as on stats.
+	 *
+	 * @param ?int $trackId One track only (also an archived one), or null for every track
 	 * @return Tick[]
+	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
+	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to): array {
-		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to);
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
+		TrackService::checkDateRange($from, $to);
+		if ($trackId !== null) {
+			$this->trackMapper->findByIdAndUser($trackId, $userId);
+		}
+		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
 	}
 
 	/**
@@ -79,8 +96,18 @@ class TickService {
 			$this->tickMapper->delete($tick);
 			$ticked = false;
 		} catch (DoesNotExistException) {
-			$this->insertTick($userId, $trackId, $date, 1);
-			$ticked = true;
+			try {
+				$this->insertTick($userId, $trackId, $date, 1);
+				$ticked = true;
+			} catch (DbException $e) {
+				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
+					throw $e;
+				}
+				// Another request ticked the day in between: this toggle undoes
+				// it, as a second toggle does
+				$this->deleteTick($userId, $trackId, $date);
+				$ticked = false;
+			}
 		}
 		return ['ticked' => $ticked, 'value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
@@ -95,13 +122,14 @@ class TickService {
 	 * On an archived track nothing changes: a client that asked for strict handling
 	 * is refused, any other gets the stored state.
 	 *
-	 * @param mixed $value Counter: a number. Yes/no: true/false, 1/0, on/off or yes/no.
+	 * @param mixed $value Counter: a whole number from 0 to MAX_VALUE, as an integer or a string
+	 *                     of digits; 0 deletes the tick. Yes/no: true/false, 1/0, on/off or yes/no.
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
 	 * @param bool $allowDuplicateNote Append `$appendNote` even if the note already holds it
 	 * @return array{value: int, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
-	 * @throws InvalidValueException if a yes/no value, the date or the note is not valid, or both notes were sent
+	 * @throws InvalidValueException if the value, the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
 	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
@@ -111,8 +139,7 @@ class TickService {
 			return $this->setYesNo($track, $userId, $date, $value, $note, $appendNote, $allowDuplicateNote);
 		}
 
-		// Read as before this accepted yes/no values: a missing value is 0
-		$value = is_scalar($value) ? (int)$value : 0;
+		$value = self::counterValue($value);
 		self::checkDate($date);
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		if ($track->getArchivedAt() !== null) {
@@ -122,22 +149,7 @@ class TickService {
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
 
-		try {
-			$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
-			if ($value <= 0) {
-				$this->tickMapper->delete($tick);
-				$value = 0;
-			} else {
-				$tick->setValue($value);
-				$this->tickMapper->update($tick);
-			}
-		} catch (DoesNotExistException) {
-			if ($value <= 0) {
-				$value = 0;
-			} else {
-				$this->insertTick($userId, $trackId, $date, $value);
-			}
-		}
+		$this->writeCounter($userId, $trackId, $date, $value);
 		return ['value' => $value] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
@@ -165,6 +177,40 @@ class TickService {
 		return ['value' => $ticked ? 1 : 0] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
+	/**
+	 * Store a counter's absolute value, 0 deleting the row. Last write wins: if
+	 * another request inserted the day's row in between, this value replaces
+	 * its value; if that row is gone again by the time it is read, insert again.
+	 *
+	 * @throws DbException if other requests kept inserting and deleting the row
+	 */
+	private function writeCounter(string $userId, int $trackId, string $date, int $value): void {
+		for ($attempt = 1; ; $attempt++) {
+			try {
+				$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
+				if ($value === 0) {
+					$this->tickMapper->delete($tick);
+				} else {
+					$tick->setValue($value);
+					$this->tickMapper->update($tick);
+				}
+				return;
+			} catch (DoesNotExistException) {
+				if ($value === 0) {
+					return;
+				}
+				try {
+					$this->insertTick($userId, $trackId, $date, $value);
+					return;
+				} catch (DbException $e) {
+					if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::WRITE_ATTEMPTS) {
+						throw $e;
+					}
+				}
+			}
+		}
+	}
+
 	private function writeYesNo(string $userId, int $trackId, string $date, bool $ticked): void {
 
 		try {
@@ -185,6 +231,49 @@ class TickService {
 				}
 			}
 		}
+	}
+
+	/**
+	 * A counter value sent to set().
+	 *
+	 * @throws InvalidValueException if it isn't a whole number from 0 to MAX_VALUE
+	 */
+	private static function counterValue(mixed $value): int {
+		$value = self::parseWholeNumber($value, false);
+		if ($value === null) {
+			throw new InvalidValueException('Counter tracks take a whole number, 0 or more');
+		}
+		if ($value > self::MAX_VALUE) {
+			throw new InvalidValueException('Counter values can be at most ' . self::MAX_VALUE);
+		}
+		return $value;
+	}
+
+	/**
+	 * Read a whole number: a JSON integer, or a string that is digits once
+	 * trimmed ("007" is 7), with a leading minus when `$signed`. Null for
+	 * anything else: floats, booleans, "+5", "5.0", "1e3", "5abc", empty.
+	 * A number beyond PHP's integers reads as PHP_INT_MAX or PHP_INT_MIN,
+	 * which every caller refuses or limits anyway.
+	 *
+	 * @internal Public for the controllers, which fingerprint the number read
+	 */
+	public static function parseWholeNumber(mixed $value, bool $signed): ?int {
+		if (is_int($value)) {
+			return $signed || $value >= 0 ? $value : null;
+		}
+		if (!is_string($value)) {
+			return null;
+		}
+		if (preg_match($signed ? '/^(-?)(\d+)$/D' : '/^()(\d+)$/D', trim($value), $m) !== 1) {
+			return null;
+		}
+		$digits = ltrim($m[2], '0');
+		// Eighteen digits always fit a 64-bit integer
+		if (strlen($digits) > 18) {
+			return $m[1] === '-' ? PHP_INT_MIN : PHP_INT_MAX;
+		}
+		return $m[1] === '-' ? -(int)$digits : (int)$digits;
 	}
 
 	/**
@@ -224,33 +313,45 @@ class TickService {
 	 * exists, and `value = value + delta` is applied atomically per row by every
 	 * database. Only when nothing was updated is a row inserted; if another
 	 * request inserted it in between, the unique index refuses ours and the
-	 * UPDATE is retried once, which now lands.
+	 * UPDATE is tried again. That row can be gone again by then (a decrement
+	 * to 0, or a set of 0), so the two are tried in turn, a few times.
 	 *
 	 * No explicit transaction: each statement is atomic on its own, and on
 	 * PostgreSQL a unique violation aborts the whole transaction, which would
 	 * make that retry impossible.
 	 *
+	 * The value never goes above MAX_VALUE either: a delta that would take it
+	 * there is refused, with nothing written. The bound is part of the UPDATE,
+	 * so two increments can't pass it together.
+	 *
 	 * On an archived track nothing changes: a client that asked for strict handling
 	 * is refused, any other gets the stored value.
 	 *
+	 * @param ?int $delta Read with {@see parseWholeNumber}, null if it couldn't be; below
+	 *                    -MAX_VALUE counts as -MAX_VALUE, which empties any day
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
 	 * @param bool $allowDuplicateNote Append `$appendNote` even if the note already holds it
 	 * @return array{value: int, note?: string} `note` only when one was sent
 	 * @throws DoesNotExistException if track not found
 	 * @throws InvalidTrackTypeException if track is not counter
-	 * @throws InvalidValueException if delta is 0, or the date or the note is not valid, or both notes were sent
+	 * @throws InvalidValueException if delta is missing, not a whole number or 0, the result would pass
+	 *                               MAX_VALUE, or the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
 	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
-	public function increment(string $userId, int $trackId, string $date, int $delta, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
+	public function increment(string $userId, int $trackId, string $date, ?int $delta, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
 		if ($track->getType() !== 'counter') {
 			throw new InvalidTrackTypeException('Increment is only available for counter tracks');
 		}
-		if ($delta === 0) {
+		if ($delta === null || $delta === 0) {
 			throw new InvalidValueException('Delta must be a whole number other than 0');
 		}
+		if ($delta > self::MAX_VALUE) {
+			throw self::tooLarge();
+		}
+		$delta = max($delta, -self::MAX_VALUE);
 		self::checkDate($date);
 		[$note, $appendNote] = self::checkNotes($note, $appendNote);
 		if ($track->getArchivedAt() !== null) {
@@ -264,11 +365,20 @@ class TickService {
 	}
 
 	/**
+	 * An UPDATE that changes nothing means either no row, or (for a positive
+	 * delta) a row too large to take it. The insert tells them apart: the
+	 * unique index refuses it when there is a row, which is then read.
+	 *
 	 * @return int The value after this request's write
+	 * @throws InvalidValueException if the stored value can't take the delta
+	 * @throws DbException if other requests kept inserting and deleting the row,
+	 *                     with the delta not stored
 	 */
 	private function addDelta(string $userId, int $trackId, string $date, int $delta): int {
-		$updated = $this->tickMapper->addToValue($userId, $trackId, $date, $delta);
-		if ($updated === 0) {
+		for ($attempt = 1; ; $attempt++) {
+			if ($this->tickMapper->addToValue($userId, $trackId, $date, $delta, self::MAX_VALUE) > 0) {
+				break;
+			}
 			if ($delta < 0) {
 				// Nothing to take away from
 				return 0;
@@ -280,8 +390,13 @@ class TickService {
 				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
 					throw $e;
 				}
+				if ($this->currentValue($userId, $trackId, $date) > self::MAX_VALUE - $delta) {
+					throw self::tooLarge();
+				}
+				if ($attempt >= self::WRITE_ATTEMPTS) {
+					throw $e;
+				}
 				// Another request inserted the day's row meanwhile: add to it
-				$this->tickMapper->addToValue($userId, $trackId, $date, $delta);
 			}
 		}
 
@@ -289,6 +404,10 @@ class TickService {
 			return 0;
 		}
 		return $this->currentValue($userId, $trackId, $date);
+	}
+
+	private static function tooLarge(): InvalidValueException {
+		return new InvalidValueException('The value would be more than ' . self::MAX_VALUE);
 	}
 
 	/**
@@ -367,6 +486,14 @@ class TickService {
 		$tick->setDate($date);
 		$tick->setValue($value);
 		$this->tickMapper->insert($tick);
+	}
+
+	private function deleteTick(string $userId, int $trackId, string $date): void {
+		try {
+			$this->tickMapper->delete($this->tickMapper->findByUserTrackDate($userId, $trackId, $date));
+		} catch (DoesNotExistException) {
+			// Already gone
+		}
 	}
 
 	/**

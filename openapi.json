@@ -57,7 +57,9 @@
                                     "notes",
                                     "statsPeriod",
                                     "notesAppend",
-                                    "idempotencyKey"
+                                    "idempotencyKey",
+                                    "trackFilter",
+                                    "notesBounds"
                                 ],
                                 "properties": {
                                     "import": {
@@ -100,6 +102,12 @@
                                         "type": "boolean"
                                     },
                                     "idempotencyKey": {
+                                        "type": "boolean"
+                                    },
+                                    "trackFilter": {
+                                        "type": "boolean"
+                                    },
+                                    "notesBounds": {
                                         "type": "boolean"
                                     }
                                 }
@@ -206,6 +214,26 @@
                         "type": "string"
                     },
                     "text": {
+                        "type": "string"
+                    }
+                }
+            },
+            "NoteBounds": {
+                "type": "object",
+                "required": [
+                    "trackId",
+                    "oldest",
+                    "newest"
+                ],
+                "properties": {
+                    "trackId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "oldest": {
+                        "type": "string"
+                    },
+                    "newest": {
                         "type": "string"
                     }
                 }
@@ -485,10 +513,10 @@
                     {
                         "name": "includePrivate",
                         "in": "query",
-                        "description": "Whether to include tracks marked as private",
+                        "description": "Whether to include tracks marked as private: true or false (also 1/0, on/off, yes/no)",
                         "schema": {
-                            "type": "boolean",
-                            "default": false
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
@@ -525,6 +553,36 @@
                                                 },
                                                 "data": {
                                                     "$ref": "#/components/schemas/Export"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "includePrivate isn't true or false",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -669,6 +727,34 @@
                             }
                         }
                     },
+                    "429": {
+                        "description": "More than 10 Tickmate imports in 10 minutes; Nextcloud's own answer: an empty body, not OCS JSON",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "401": {
                         "description": "Current user is not logged in",
                         "content": {
@@ -805,6 +891,34 @@
                             }
                         }
                     },
+                    "429": {
+                        "description": "More than 10 JSON imports in 10 minutes; Nextcloud's own answer: an empty body, not OCS JSON",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "401": {
                         "description": "Current user is not logged in",
                         "content": {
@@ -865,10 +979,20 @@
                     {
                         "name": "to",
                         "in": "query",
-                        "description": "End date (YYYY-MM-DD), inclusive",
+                        "description": "End date (YYYY-MM-DD), inclusive; the same as `from` for one day",
                         "schema": {
                             "type": "string",
                             "default": ""
+                        }
+                    },
+                    {
+                        "name": "trackId",
+                        "in": "query",
+                        "description": "One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64",
+                            "default": 0
                         }
                     },
                     {
@@ -917,7 +1041,37 @@
                         }
                     },
                     "400": {
-                        "description": "From or to is missing or not a date",
+                        "description": "From or to is missing or not a date, or from is after to",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1108,6 +1262,99 @@
                                                 },
                                                 "data": {
                                                     "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/notes/bounds": {
+            "get": {
+                "operationId": "note-bounds",
+                "summary": "List the first and last note date for each track",
+                "description": "Tracks that have no notes are omitted. Includes private and archived tracks; filter them client-side as with the note list. Independent of GET /api/ticks/bounds: a note can sit on a day without a tick. Check the `notesBounds` capability: older servers 404 this route.",
+                "tags": [
+                    "note"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Bounds returned",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/components/schemas/NoteBounds"
+                                                    }
                                                 }
                                             }
                                         }
@@ -1435,9 +1682,25 @@
                                         ]
                                     },
                                     "allowDuplicate": {
-                                        "type": "boolean",
+                                        "nullable": true,
                                         "default": false,
-                                        "description": "Append the text even if the note already holds it"
+                                        "description": "Append the text even if the note already holds it: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -1496,7 +1759,7 @@
                         }
                     },
                     "400": {
-                        "description": "Date or text invalid, the note would be longer than 500 characters, or `Idempotency-Key` is not a UUID",
+                        "description": "Date or text invalid, the note would be longer than 500 characters, `allowDuplicate` isn't true or false, or `Idempotency-Key` is not a UUID",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -1799,16 +2062,46 @@
                                         "description": "Journal layout on mobile: \"daysDown\" or \"tracksDown\""
                                     },
                                     "showPrivateDesktop": {
-                                        "type": "boolean",
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Whether private tracks are shown on desktop"
+                                        "description": "Whether private tracks are shown on desktop: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     },
                                     "showPrivateMobile": {
-                                        "type": "boolean",
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Whether private tracks are shown on mobile"
+                                        "description": "Whether private tracks are shown on mobile: true or false, as `showPrivateDesktop`",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     },
                                     "editableDaysDesktop": {
                                         "type": "string",
@@ -1988,19 +2281,19 @@
                     {
                         "name": "includeRuns",
                         "in": "query",
-                        "description": "Add every streak and break to each entry",
+                        "description": "Add every streak and break to each entry: true or false (also 1/0, on/off, yes/no)",
                         "schema": {
-                            "type": "boolean",
-                            "default": false
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
                         "name": "includeArchived",
                         "in": "query",
-                        "description": "With all tracks, include archived ones",
+                        "description": "With all tracks, include archived ones: true or false, as `includeRuns`",
                         "schema": {
-                            "type": "boolean",
-                            "default": false
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
@@ -2049,7 +2342,7 @@
                         }
                     },
                     "400": {
-                        "description": "Today, from or to is not a valid date, or from is after to",
+                        "description": "Today, from or to is not a valid date, or from is after to, or a flag isn't true or false",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2167,10 +2460,20 @@
                     {
                         "name": "to",
                         "in": "query",
-                        "description": "End date (YYYY-MM-DD), inclusive",
+                        "description": "End date (YYYY-MM-DD), inclusive; the same as `from` for one day",
                         "schema": {
                             "type": "string",
                             "default": ""
+                        }
+                    },
+                    {
+                        "name": "trackId",
+                        "in": "query",
+                        "description": "One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64",
+                            "default": 0
                         }
                     },
                     {
@@ -2186,7 +2489,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Ticks returned",
+                        "description": "Ticks returned, newest first",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2210,6 +2513,66 @@
                                                     "items": {
                                                         "$ref": "#/components/schemas/Tick"
                                                     }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "From or to is missing or not a date, or from is after to",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -2419,9 +2782,25 @@
                                         ]
                                     },
                                     "allowDuplicateNote": {
-                                        "type": "boolean",
+                                        "nullable": true,
                                         "default": false,
-                                        "description": "Append `appendNote` even if the note already holds it"
+                                        "description": "Append `appendNote` even if the note already holds it: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -2488,7 +2867,7 @@
                         }
                     },
                     "400": {
-                        "description": "Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
+                        "description": "Track is not a boolean track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, `allowDuplicateNote` isn't true or false, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2705,11 +3084,15 @@
                                     "value": {
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Counter: the new value (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)",
-                                        "oneOf": [
+                                        "description": "Counter: the new value, a whole number from 0 to 2147483647 (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
                                             {
                                                 "type": "integer",
                                                 "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
                                             },
                                             {
                                                 "type": "boolean"
@@ -2762,9 +3145,25 @@
                                         ]
                                     },
                                     "allowDuplicateNote": {
-                                        "type": "boolean",
+                                        "nullable": true,
                                         "default": false,
-                                        "description": "Append `appendNote` even if the note already holds it"
+                                        "description": "Append `appendNote` even if the note already holds it: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -2827,7 +3226,7 @@
                         }
                     },
                     "400": {
-                        "description": "Value not valid for a yes/no track, the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
+                        "description": "Value not valid for the track (counter: a whole number from 0 to 2147483647; yes/no: true or false), the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, `allowDuplicateNote` isn't true or false, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3042,10 +3441,25 @@
                                         "description": "Date (YYYY-MM-DD)"
                                     },
                                     "delta": {
-                                        "type": "integer",
-                                        "format": "int64",
+                                        "nullable": true,
                                         "default": 0,
-                                        "description": "Amount to add, not 0; negative to take away"
+                                        "description": "Amount to add, a whole number other than 0; negative to take away",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     },
                                     "note": {
                                         "nullable": true,
@@ -3090,9 +3504,25 @@
                                         ]
                                     },
                                     "allowDuplicateNote": {
-                                        "type": "boolean",
+                                        "nullable": true,
                                         "default": false,
-                                        "description": "Append `appendNote` even if the note already holds it"
+                                        "description": "Append `appendNote` even if the note already holds it: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -3155,7 +3585,7 @@
                         }
                     },
                     "400": {
-                        "description": "Not a counter track, delta, date or note invalid, the note would be too long, or both `note` and `appendNote` were sent, or `Idempotency-Key` is not a UUID; nothing written",
+                        "description": "Not a counter track, delta, date or note invalid, the value would be more than 2147483647, the note would be too long, or both `note` and `appendNote` were sent, `allowDuplicateNote` isn't true or false, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -3354,10 +3784,10 @@
                     {
                         "name": "includeArchived",
                         "in": "query",
-                        "description": "Whether to include archived tracks",
+                        "description": "Whether to include archived tracks: true or false (also 1/0, on/off, yes/no)",
                         "schema": {
-                            "type": "boolean",
-                            "default": false
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
@@ -3397,6 +3827,36 @@
                                                     "items": {
                                                         "$ref": "#/components/schemas/Track"
                                                     }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "includeArchived isn't true or false",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
                                                 }
                                             }
                                         }
@@ -3779,6 +4239,36 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "Tracks kept being created or restored elsewhere while reordering; nothing changed, try again",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "423": {
                         "description": "An archived track is listed; nothing changed. Only for requests sent with Prefer: handling=strict, which otherwise get the 200 above",
                         "content": {
@@ -3877,16 +4367,46 @@
                                         "description": "New sort order"
                                     },
                                     "private": {
-                                        "type": "boolean",
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Whether the track is private"
+                                        "description": "Whether the track is private: true or false (also 1/0, on/off, yes/no)",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     },
                                     "archived": {
-                                        "type": "boolean",
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Archive (true) or restore (false) the track. A restored track goes to the end of the list. Archiving an archived track is refused (423) for clients that send Prefer: handling=strict"
+                                        "description": "Archive (true) or restore (false) the track, read as `private` is. A restored track goes to the end of the list. Archiving an archived track is refused (423) for clients that send Prefer: handling=strict",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     },
                                     "archivedAt": {
                                         "type": "string",
@@ -3953,7 +4473,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid name or archive date",
+                        "description": "Invalid name or archive date, or `private` or `archived` isn't true or false; nothing changed",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4013,7 +4533,7 @@
                         }
                     },
                     "409": {
-                        "description": "Database conflict",
+                        "description": "Another change took the track's place in the list meanwhile (a sortOrder another track holds); nothing changed, try again",
                         "content": {
                             "application/json": {
                                 "schema": {

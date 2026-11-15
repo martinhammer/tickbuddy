@@ -58,6 +58,8 @@ class Capabilities implements ICapability {
 	 *             statsPeriod: bool,
 	 *             notesAppend: bool,
 	 *             idempotencyKey: bool,
+	 *             trackFilter: bool,
+	 *             notesBounds: bool,
 	 *         },
 	 *     },
 	 * }
@@ -106,6 +108,13 @@ class Capabilities implements ICapability {
 					// set, increment, POST /api/notes/append) honour `Idempotency-Key`;
 					// see mobile_instructions.md. Older servers ignore the header.
 					'idempotencyKey' => true,
+					// GET /api/ticks and GET /api/notes take `trackId` (one track's rows).
+					// Older servers ignore it and answer every track, so check this
+					// before relying on the answer holding one track only.
+					'trackFilter' => true,
+					// GET /api/notes/bounds — first/last note date per track.
+					// Absent on older servers, where the route 404s.
+					'notesBounds' => true,
 				],
 			],
 		];

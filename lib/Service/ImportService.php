@@ -12,12 +12,22 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IDBConnection;
+use Psr\Log\LoggerInterface;
 
 class ImportService {
 	public const MODE_REPLACE = 'replace';
 	public const MODE_MERGE = 'merge';
 	/** Added in Merge to an imported track whose name is already taken */
 	private const IMPORTED_SUFFIX = ' (imported)';
+	/** For a write that failed in the database; the driver's text goes to the log only */
+	private const FAILED_MESSAGE = 'The import failed, so nothing was imported';
+	/**
+	 * Tickmate ticks one import reads. Each takes about 700 bytes of PHP memory
+	 * while it is read, so this keeps a Tickmate import near 140 MB, well under
+	 * the 512 MB Nextcloud asks for, while a 20 MB file could hold a million.
+	 * It is 99 tracks ticked daily for five years.
+	 */
+	public const MAX_TICKMATE_TICKS = 200000;
 
 	public function __construct(
 		private TrackMapper $trackMapper,
@@ -25,6 +35,7 @@ class ImportService {
 		private NoteMapper $noteMapper,
 		private IDBConnection $db,
 		private ITimeFactory $timeFactory,
+		private LoggerInterface $logger,
 	) {
 	}
 
@@ -46,15 +57,7 @@ class ImportService {
 			throw new ImportException('Upload file not found');
 		}
 
-		$sqlite = new \SQLite3($filePath, SQLITE3_OPEN_READONLY);
-
-		try {
-			$this->validateTickmateDb($sqlite);
-			$tmTracks = $this->readTickmateTracks($sqlite);
-			$tmTicks = $this->readTickmateTicks($sqlite, $tmTracks);
-		} finally {
-			$sqlite->close();
-		}
+		[$tmTracks, $tmTicks] = $this->readTickmateFile($filePath);
 
 		if (empty($tmTracks)) {
 			throw new ImportException('No tracks found in the backup file');
@@ -70,7 +73,7 @@ class ImportService {
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
-			throw new ImportException('Import failed: ' . $e->getMessage());
+			throw $this->failed($e);
 		}
 
 		// Tickmate has no notes
@@ -145,7 +148,7 @@ class ImportService {
 				'name' => $name,
 				'type' => $type,
 				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
-				'private' => (bool)($t['private'] ?? false),
+				'private' => self::jsonPrivate($name, $t['private'] ?? null),
 				'archivedAt' => $archivedAt,
 			];
 			$positionsByName[$name][] = $i;
@@ -164,10 +167,7 @@ class ImportService {
 			$this->db->commit();
 		} catch (\Throwable $e) {
 			$this->db->rollBack();
-			if ($e instanceof ImportException) {
-				throw $e;
-			}
-			throw new ImportException('Import failed: ' . $e->getMessage());
+			throw $this->failed($e);
 		}
 
 		return ['tracks' => count($trackIds), 'ticks' => $tickCount, 'notes' => $noteCount];
@@ -223,6 +223,19 @@ class ImportService {
 	/**
 	 * A value from a backup, quoted in a message as it was written.
 	 */
+	/**
+	 * What a failure inside the write transaction answers, after the rollback:
+	 * the import's own refusals (the track limit) as they are, anything else
+	 * logged and answered with a fixed sentence.
+	 */
+	private function failed(\Throwable $e): ImportException {
+		if ($e instanceof ImportException) {
+			return $e;
+		}
+		$this->logger->error('Import failed', ['exception' => $e]);
+		return new ImportException(self::FAILED_MESSAGE);
+	}
+
 	private static function shown(mixed $value): string {
 		return is_string($value) ? $value : json_encode($value, JSON_THROW_ON_ERROR);
 	}
@@ -285,7 +298,8 @@ class ImportService {
 
 	/**
 	 * A tick value from a backup: yes/no tracks take what `set` takes (true
-	 * is 1, false 0), counters a whole number from 0 up. 0 means no tick.
+	 * is 1, false 0), counters a whole number from 0 to the counter limit.
+	 * 0 means no tick.
 	 *
 	 * @return ?int Null when the track can't take the value
 	 */
@@ -294,7 +308,21 @@ class ImportService {
 			$ticked = TickService::parseYesNo($value);
 			return $ticked === null ? null : (int)$ticked;
 		}
-		return is_int($value) && $value >= 0 ? $value : null;
+		return is_int($value) && $value >= 0 && $value <= TickService::MAX_VALUE ? $value : null;
+	}
+
+	/**
+	 * A track's `private` from a backup, read as the API reads the flag;
+	 * missing or null is false.
+	 *
+	 * @throws ImportException if it can't be read
+	 */
+	private static function jsonPrivate(string $name, mixed $value): bool {
+		$private = $value === null ? false : TickService::parseYesNo($value);
+		if ($private === null) {
+			throw new ImportException("Track \"{$name}\" has invalid private value \"" . self::shown($value) . '"');
+		}
+		return $private;
 	}
 
 	/**
@@ -491,15 +519,67 @@ class ImportService {
 		return $noteCount;
 	}
 
+	/**
+	 * Read a Tickmate backup's tracks and ticks. The file is the user's upload,
+	 * so treated as hostile (https://www.sqlite.org/security.html): opened
+	 * read-only, without trusting functions its schema names, and checked
+	 * before any row is read. Any SQLite error is a 400, never a 500.
+	 *
+	 * @return array{0: array<int, array{id: int, name: string, order: int, counter: bool, enabled: bool}>, 1: array<int, list<array{date: string, trackId: int}>>}
+	 * @throws ImportException
+	 */
+	private function readTickmateFile(string $filePath): array {
+		$sqlite = null;
+		try {
+			$sqlite = new \SQLite3($filePath, SQLITE3_OPEN_READONLY);
+			$sqlite->enableExceptions(true);
+			$sqlite->exec('PRAGMA trusted_schema = OFF');
+			$this->validateTickmateDb($sqlite);
+			$tmTracks = $this->readTickmateTracks($sqlite);
+			$tmTicks = $this->readTickmateTicks($sqlite, $tmTracks);
+			return [$tmTracks, $tmTicks];
+		} catch (ImportException $e) {
+			throw $e;
+		} catch (\Exception $e) {
+			// Not an SQLite file, or a damaged one
+			$this->logger->info('A Tickmate backup could not be read', ['exception' => $e]);
+			throw new ImportException('Not a valid Tickmate backup: the file could not be read');
+		} finally {
+			$sqlite?->close();
+		}
+	}
+
+	/**
+	 * The two tables must be plain ones with stored columns only. A virtual
+	 * generated column is worked out each time it is read, so a file of a few
+	 * kilobytes can hold `zeroblob(1000000000)` and make SQLite allocate that
+	 * much on the first read, outside PHP's memory_limit (substr() or CAST
+	 * expand it all the same). Virtual tables run module code. Tickmate makes
+	 * neither; with both refused, everything read comes from the file's own
+	 * bytes, which the upload limit bounds.
+	 *
+	 * @throws ImportException
+	 */
 	private function validateTickmateDb(\SQLite3 $sqlite): void {
-		// Check that required tables exist
-		$result = $sqlite->query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('tracks', 'ticks')");
+		$result = $sqlite->query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name IN ('tracks', 'ticks')");
 		$tables = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
-			$tables[] = (string)$row['name'];
+			$tables[(string)$row['name']] = (string)$row['sql'];
 		}
-		if (!in_array('tracks', $tables, true) || !in_array('ticks', $tables, true)) {
+		if (!isset($tables['tracks'], $tables['ticks'])) {
 			throw new ImportException('Not a valid Tickmate backup: missing tracks or ticks table');
+		}
+		foreach ($tables as $name => $sql) {
+			if (preg_match('/^\s*CREATE\s+VIRTUAL\s/i', $sql) === 1) {
+				throw new ImportException('Not a valid Tickmate backup: unexpected table structure');
+			}
+			// table_xinfo lists generated columns (hidden 2 or 3) without working them out
+			$columns = $sqlite->query("PRAGMA table_xinfo({$name})");
+			while ($column = $columns->fetchArray(SQLITE3_ASSOC)) {
+				if ((int)$column['hidden'] !== 0) {
+					throw new ImportException('Not a valid Tickmate backup: unexpected table structure');
+				}
+			}
 		}
 	}
 
@@ -518,7 +598,11 @@ class ImportService {
 
 		$orderCol = isset($columns['order']) ? '"order"' : '_id';
 		$counterCol = isset($columns['multiple_entries_per_day']) ? 'multiple_entries_per_day' : '0';
-		$result = $sqlite->query("SELECT _id, name, enabled, {$orderCol} AS sort_col, {$counterCol} AS counter FROM tracks ORDER BY sort_col ASC, _id ASC");
+		// SQLite columns take any value: read numbers as numbers and no more of
+		// a name than the length check needs, so a long value never reaches PHP
+		$result = $sqlite->query('SELECT CAST(_id AS INTEGER) AS _id, substr(name, 1, ' . (TrackService::MAX_NAME_LENGTH + 1) . ') AS name, '
+			. "CAST(enabled AS INTEGER) AS enabled, CAST({$orderCol} AS INTEGER) AS sort_col, CAST({$counterCol} AS INTEGER) AS counter "
+			. 'FROM tracks ORDER BY sort_col ASC, _id ASC');
 
 		$tracks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
@@ -549,7 +633,15 @@ class ImportService {
 		}
 
 		$placeholders = implode(',', $trackIds);
-		$result = $sqlite->query("SELECT _track_id, year, month, day FROM ticks WHERE _track_id IN ({$placeholders}) ORDER BY _track_id, year, month, day");
+		$count = $sqlite->querySingle("SELECT count(*) FROM ticks WHERE _track_id IN ({$placeholders})");
+		if (!is_int($count)) {
+			throw new ImportException('Not a valid Tickmate backup: the file could not be read');
+		}
+		if ($count > self::MAX_TICKMATE_TICKS) {
+			throw new ImportException("The backup contains {$count} ticks, which exceeds the limit of " . self::MAX_TICKMATE_TICKS . '.');
+		}
+		$result = $sqlite->query('SELECT CAST(_track_id AS INTEGER) AS _track_id, CAST(year AS INTEGER) AS year, CAST(month AS INTEGER) AS month, CAST(day AS INTEGER) AS day '
+			. "FROM ticks WHERE _track_id IN ({$placeholders}) ORDER BY _track_id, year, month, day");
 
 		$ticks = [];
 		while ($row = $result->fetchArray(SQLITE3_ASSOC)) {

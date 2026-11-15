@@ -18,8 +18,8 @@ class NoteService {
 	/** In Unicode code points. The column is TEXT, so this can change without a migration. */
 	public const MAX_LENGTH = 500;
 
-	/** How often append() reads and writes again after losing a race, before giving up with 409. */
-	private const APPEND_ATTEMPTS = 3;
+	/** How often a write reads and writes again after losing a race, before giving up (append: with 409). */
+	private const WRITE_ATTEMPTS = 3;
 
 	public function __construct(
 		private NoteMapper $noteMapper,
@@ -63,17 +63,35 @@ class NoteService {
 	}
 
 	/**
-	 * Notes of every track of the user (private and archived included) in a
-	 * date range, both ends inclusive, newest first.
+	 * Notes of every track of the user (private and archived included), or of
+	 * one, in a date range, both ends inclusive, newest first.
 	 *
+	 * The range is checked first, then the track, as on stats.
+	 *
+	 * @param ?int $trackId One track only (also an archived one), or null for every track
 	 * @return Note[]
-	 * @throws InvalidValueException if from or to is not YYYY-MM-DD
+	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
+	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to): array {
-		if (!TrackService::isValidDate($from) || !TrackService::isValidDate($to)) {
-			throw new InvalidValueException('From and to must be dates as YYYY-MM-DD');
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
+		TrackService::checkDateRange($from, $to);
+		if ($trackId !== null) {
+			$this->trackMapper->findByIdAndUser($trackId, $userId);
 		}
-		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to);
+		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
+	}
+
+	/**
+	 * First and last note date per track. Tracks with no notes are omitted.
+	 *
+	 * Private and archived tracks are included, as for
+	 * {@see findByDateRange}: `private` hides tracks in the UI, it is not an
+	 * authorization boundary.
+	 *
+	 * @return list<array{trackId: int, oldest: string, newest: string}>
+	 */
+	public function findBounds(string $userId): array {
+		return $this->noteMapper->findBoundsByUser($userId);
 	}
 
 	/**
@@ -156,7 +174,7 @@ class NoteService {
 			return $this->stored($userId, $trackId, $date);
 		}
 
-		for ($attempt = 0; $attempt < self::APPEND_ATTEMPTS; $attempt++) {
+		for ($attempt = 0; $attempt < self::WRITE_ATTEMPTS; $attempt++) {
 			try {
 				$note = $this->noteMapper->findByUserTrackDate($userId, $trackId, $date);
 			} catch (DoesNotExistException) {
@@ -251,6 +269,7 @@ class NoteService {
 	 *
 	 * @param string $normalisedText Text from {@see normalise}
 	 * @return string The stored text, '' if none
+	 * @throws DbException if other requests kept inserting and deleting the note
 	 */
 	public function writeForTick(string $userId, int $trackId, string $date, string $normalisedText): string {
 		if ($normalisedText === '') {
@@ -258,29 +277,30 @@ class NoteService {
 			return '';
 		}
 
-		try {
-			$note = $this->noteMapper->findByUserTrackDate($userId, $trackId, $date);
-		} catch (DoesNotExistException) {
-			$note = new Note();
-			$note->setUserId($userId);
-			$note->setTrackId($trackId);
-			$note->setDate($date);
-			$note->setText($normalisedText);
+		for ($attempt = 1; ; $attempt++) {
 			try {
-				$this->noteMapper->insert($note);
-				return $normalisedText;
-			} catch (DbException $e) {
-				if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION) {
-					throw $e;
-				}
-				// Another request noted the day in between: replace its note (last write wins)
 				$note = $this->noteMapper->findByUserTrackDate($userId, $trackId, $date);
+				$note->setText($normalisedText);
+				$this->noteMapper->update($note);
+				return $normalisedText;
+			} catch (DoesNotExistException) {
+				$note = new Note();
+				$note->setUserId($userId);
+				$note->setTrackId($trackId);
+				$note->setDate($date);
+				$note->setText($normalisedText);
+				try {
+					$this->noteMapper->insert($note);
+					return $normalisedText;
+				} catch (DbException $e) {
+					if ($e->getReason() !== DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION || $attempt >= self::WRITE_ATTEMPTS) {
+						throw $e;
+					}
+					// Another request noted the day in between: replace its note (last
+					// write wins), or insert again if it is already deleted
+				}
 			}
 		}
-
-		$note->setText($normalisedText);
-		$this->noteMapper->update($note);
-		return $normalisedText;
 	}
 
 	/**

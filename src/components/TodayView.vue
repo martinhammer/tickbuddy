@@ -6,6 +6,7 @@ import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
+import { cellWrites, keepCells, replaceDays, tickKey } from '../cellWrites.ts'
 import { addDays, dayHeading, squaresEnd } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { fillFor, getPrimaryColor, levelFor } from '../heatmap.ts'
@@ -37,6 +38,8 @@ const stats = ref<TrackStats[]>([])
 const tickValues = ref<Record<string, number>>({})
 const notes = ref<Record<string, string>>({})
 const primaryColor = ref(getPrimaryColor())
+const tickWrites = cellWrites()
+const noteWrites = cellWrites()
 let loadSeq = 0
 let daySeq = 0
 let inFlight = 0
@@ -44,10 +47,6 @@ let inFlight = 0
 const { today, loaded } = useToday(() => load('quiet'))
 
 const shownDay = computed(() => props.day ?? today.value)
-
-function tickKey(trackId: number, date: string): string {
-	return `${trackId}|${date}`
-}
 
 const visibleTracks = computed(() => showPrivate.value ? tracks.value : tracks.value.filter(t => !t.private))
 
@@ -115,6 +114,8 @@ async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
 	const now = today.value
 	const day = shownDay.value
 	const range = squaresRange(day)
+	const tickMark = tickWrites.mark()
+	const noteMark = noteWrites.mark()
 	try {
 		const [t, k, dayTicks, s, n] = await Promise.all([
 			fetchTracks(),
@@ -130,10 +131,11 @@ async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
 		stats.value = s
 		const values: Record<string, number> = {}
 		for (const tick of [...k, ...dayTicks]) values[tickKey(tick.trackId, tick.date)] = tick.value
-		tickValues.value = values
+		// A cell written since this load started keeps what the write left
+		tickValues.value = keepCells(values, tickValues.value, tickWrites.changedSince(tickMark))
 		const dayNotes: Record<string, string> = {}
 		for (const note of n) dayNotes[tickKey(note.trackId, note.date)] = note.text
-		notes.value = dayNotes
+		notes.value = keepCells(dayNotes, notes.value, noteWrites.changedSince(noteMark))
 		status.value = 'ready'
 		loaded()
 		// The day shown changed while this ran
@@ -151,23 +153,23 @@ async function load(mode: 'initial' | 'quiet' | 'retry'): Promise<void> {
 async function loadDay(day: string): Promise<void> {
 	const seq = ++daySeq
 	const range = squaresRange(day)
+	const tickMark = tickWrites.mark()
+	const noteMark = noteWrites.mark()
 	try {
 		const [dayTicks, n] = await Promise.all([
 			range ? fetchTicks(...range) : Promise.resolve(null),
 			fetchNotes(day, day),
 		])
 		if (seq !== daySeq || day !== shownDay.value) return
+		// Sparse: a day's cell the answer doesn't have is removed
 		if (range && dayTicks) {
-			const values = { ...tickValues.value }
-			for (let date = range[0]; date <= range[1]; date = addDays(date, 1)) {
-				for (const track of tracks.value) delete values[tickKey(track.id, date)]
-			}
-			for (const tick of dayTicks) values[tickKey(tick.trackId, tick.date)] = tick.value
-			tickValues.value = values
+			const fresh: Record<string, number> = {}
+			for (const tick of dayTicks) fresh[tickKey(tick.trackId, tick.date)] = tick.value
+			tickValues.value = keepCells(replaceDays(tickValues.value, fresh, range[0], range[1]), tickValues.value, tickWrites.changedSince(tickMark))
 		}
-		const dayNotes = { ...notes.value }
-		for (const note of n) dayNotes[tickKey(note.trackId, note.date)] = note.text
-		notes.value = dayNotes
+		const fresh: Record<string, string> = {}
+		for (const note of n) fresh[tickKey(note.trackId, note.date)] = note.text
+		notes.value = keepCells(replaceDays(notes.value, fresh, day, day), notes.value, noteWrites.changedSince(noteMark))
 	} catch {
 		if (seq !== daySeq) return
 		showError('Could not load the day')
@@ -184,7 +186,8 @@ function reload(): Promise<void> {
 }
 
 // --- Writes ---
-// The control shows the server's answer, not an optimistic guess.
+// The control shows the server's answer, not an optimistic guess. A cell's
+// writes go one at a time, so its last answer is its value.
 async function refreshStats(trackId: number): Promise<void> {
 	try {
 		const [entry] = await fetchStats(today.value, { trackId })
@@ -200,9 +203,9 @@ function lockedClick(): void {
 
 async function onSetYesNo(track: Track, value: boolean): Promise<void> {
 	const day = shownDay.value
+	const key = tickKey(track.id, day)
 	try {
-		const stored = await setYesNo(track.id, day, value)
-		tickValues.value[tickKey(track.id, day)] = stored
+		tickValues.value[key] = await tickWrites.run(key, () => setYesNo(track.id, day, value))
 	} catch (e) {
 		await writeFailed(e, track.name, reload)
 		return
@@ -212,9 +215,9 @@ async function onSetYesNo(track: Track, value: boolean): Promise<void> {
 
 async function onIncrement(track: Track, delta: number): Promise<void> {
 	const day = shownDay.value
+	const key = tickKey(track.id, day)
 	try {
-		const stored = await incrementCounter(track.id, day, delta)
-		tickValues.value[tickKey(track.id, day)] = stored
+		tickValues.value[key] = await tickWrites.run(key, () => incrementCounter(track.id, day, delta))
 	} catch (e) {
 		await writeFailed(e, track.name, reload)
 		return
@@ -224,14 +227,12 @@ async function onIncrement(track: Track, delta: number): Promise<void> {
 
 function noteSaver(track: Track): (text: string) => Promise<boolean> {
 	const day = shownDay.value
+	const key = tickKey(track.id, day)
 	return async (text: string) => {
 		try {
-			if (text === '') {
-				await deleteNote(track.id, day)
-				notes.value[tickKey(track.id, day)] = ''
-			} else {
-				notes.value[tickKey(track.id, day)] = await setNote(track.id, day, text)
-			}
+			notes.value[key] = await noteWrites.run(key, () => text === ''
+				? deleteNote(track.id, day).then(() => '')
+				: setNote(track.id, day, text))
 			return true
 		} catch (e) {
 			await writeFailed(e, track.name, reload, 'Could not save the note')

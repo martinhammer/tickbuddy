@@ -6,6 +6,7 @@ namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\ResponseDefinitions;
 use OCA\Tickbuddy\Service\ErrorReason;
+use OCA\Tickbuddy\Service\Flags;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\StatsService;
 use OCP\AppFramework\Db\DoesNotExistException;
@@ -47,18 +48,21 @@ class StatsController extends OCSController {
 	 * @param string $from The period's first day (YYYY-MM-DD); from the first tick if omitted
 	 * @param string $to The period's last day (YYYY-MM-DD); up to today if omitted
 	 * @param int $trackId One track only (also an archived one); 0 for all tracks
-	 * @param bool $includeRuns Add every streak and break to each entry
-	 * @param bool $includeArchived With all tracks, include archived ones
+	 * @param string|int|float|bool|null $includeRuns Add every streak and break to each entry: true or false (also 1/0, on/off, yes/no)
+	 * @param string|int|float|bool|null $includeArchived With all tracks, include archived ones: true or false, as `includeRuns`
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyStats>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
 	 * 200: Stats returned
-	 * 400: Today, from or to is not a valid date, or from is after to
+	 * 400: Today, from or to is not a valid date, or from is after to, or a flag isn't true or false
 	 * 404: Track not found
 	 */
+	// Flags are unions for the framework: typed bool, Nextcloud would read "no" as true
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/stats')]
-	public function index(string $today = '', string $from = '', string $to = '', int $trackId = 0, bool $includeRuns = false, bool $includeArchived = false): DataResponse {
+	public function index(string $today = '', string $from = '', string $to = '', int $trackId = 0, string|int|float|bool|null $includeRuns = false, string|int|float|bool|null $includeArchived = false): DataResponse {
 		try {
+			$includeRuns = Flags::read('includeRuns', $includeRuns, false);
+			$includeArchived = Flags::read('includeArchived', $includeArchived, false);
 			$stats = $this->statsService->forUser($this->userId, $today, $trackId !== 0 ? $trackId : null, $includeRuns, $includeArchived, $from, $to);
 			return new DataResponse($stats);
 		} catch (InvalidValueException $e) {

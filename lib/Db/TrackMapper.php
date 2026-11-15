@@ -17,14 +17,19 @@ class TrackMapper extends QBMapper {
 	}
 
 	/**
+	 * @param bool $forUpdate Lock the rows until the transaction ends (ignored on SQLite,
+	 *                        which locks the whole database for a write transaction)
 	 * @return Track[]
 	 */
-	public function findAllByUser(string $userId): array {
+	public function findAllByUser(string $userId, bool $forUpdate = false): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')
 			->from($this->getTableName())
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
 			->orderBy('sort_order', 'ASC');
+		if ($forUpdate) {
+			$qb->forUpdate();
+		}
 		return $this->findEntities($qb);
 	}
 
@@ -68,17 +73,45 @@ class TrackMapper extends QBMapper {
 
 	/**
 	 * Number the given tracks 1..n in the order given. Pass every track of the
-	 * user ({@see \OCA\Tickbuddy\Service\TrackService::reorder} does): one left
-	 * out keeps the negative placeholder below.
+	 * user ({@see \OCA\Tickbuddy\Service\TrackService::reorder} does), in a
+	 * transaction: a failure halfway leaves the tracks moved below 1.
+	 *
+	 * Two steps, each keeping every value unique at every row, as MySQL and
+	 * SQLite check the unique index row by row rather than at the end of the
+	 * statement: first move the tracks below both 1 and their lowest value,
+	 * keeping their order, then number them. Any starting values work, even
+	 * a mix of positive and negative ones, so an order an older version left
+	 * halfway done is repaired too.
 	 *
 	 * @param int[] $trackIds Ordered list of track IDs
 	 */
 	public function reorder(string $userId, array $trackIds): void {
-		// Use negative sort_order first to avoid unique constraint violations
+		if ($trackIds === []) {
+			return;
+		}
+
+		$qb = $this->db->getQueryBuilder();
+		$qb->selectAlias($qb->func()->min('sort_order'), 'lowest')
+			->selectAlias($qb->func()->max('sort_order'), 'highest')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->in('id', $qb->createNamedParameter($trackIds, IQueryBuilder::PARAM_INT_ARRAY)));
+		$result = $qb->executeQuery();
+		/** @var array{lowest: int|string|null, highest: int|string|null}|false $row */
+		$row = $result->fetch();
+		$result->closeCursor();
+		if ($row === false || $row['lowest'] === null || $row['highest'] === null) {
+			return;
+		}
+		// Every moved value ends up below min(lowest, 1), so it meets neither a
+		// row still to move nor a number the second step hands out
+		$shift = (int)$row['highest'] - min((int)$row['lowest'], 1) + 1;
+
 		$qb = $this->db->getQueryBuilder();
 		$qb->update($this->getTableName())
-			->set('sort_order', $qb->createFunction('-(' . $qb->getColumnName('sort_order') . ' + 1)'))
-			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+			->set('sort_order', $qb->createFunction($qb->getColumnName('sort_order') . ' - ' . $qb->createNamedParameter($shift, IQueryBuilder::PARAM_INT)))
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
+			->andWhere($qb->expr()->in('id', $qb->createNamedParameter($trackIds, IQueryBuilder::PARAM_INT_ARRAY)));
 		$qb->executeStatement();
 
 		foreach ($trackIds as $index => $trackId) {

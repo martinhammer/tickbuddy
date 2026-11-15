@@ -95,7 +95,7 @@ Every error answer of Tickbuddy's own carries `{message, reason}` in `ocs.data`:
 | 400 | `importFailed` | the import file was read and refused; nothing imported |
 | 403 | `trackLimitReached` | 99 tracks already |
 | 409 | `noteConflict` | other writers kept changing the note while appending |
-| 409 | `databaseConflict` | the database refused a track change (in practice a `sortOrder` another track holds) |
+| 409 | `databaseConflict` | the database refused a track change (in practice a `sortOrder` another track holds): `The tracks changed while saving; try again` |
 | 409 | `requestInProgress` | a request with the same `Idempotency-Key` is still being handled; try again shortly |
 | 422 | `idempotencyKeyReused` | the `Idempotency-Key` was already used for another request; nothing written |
 | 423 | `archived` | the track is archived (only with `Prefer: handling=strict`) |
@@ -190,14 +190,16 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "notes": true,
     "statsPeriod": true,
     "notesAppend": true,
-    "idempotencyKey": true
+    "idempotencyKey": true,
+    "trackFilter": true,
+    "notesBounds": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), `trackFilter` (`GET /api/ticks` and `GET /api/notes` take `trackId` — see §3; an older server ignores it and answers every track, so **never assume the answer holds only the track asked for without this flag**), `notesBounds` (`GET /api/notes/bounds` exists — see §3 Notes; absent on older servers, where that route 404s), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -270,7 +272,7 @@ All paths below are relative to `{nextcloudBaseUrl}/ocs/v2.php/apps/tickbuddy`. 
 List the current user's tracks. Returns tracks in `sortOrder` ascending, then `id`.
 
 Query params:
-- `includeArchived` (boolean, default `false`). Without it, **archived tracks are left out** — which is what keeps clients that predate archiving working: an archived track simply disappears for them. With `true`, archived tracks are included in the same `sortOrder` order; split and sort them client-side.
+- `includeArchived` (boolean, default `false`; read as every flag is, see §5 Boolean encoding: anything but a yes/no word is `400`). Without it, **archived tracks are left out** — which is what keeps clients that predate archiving working: an archived track simply disappears for them. With `true`, archived tracks are included in the same `sortOrder` order; split and sort them client-side.
 
 Response `data`:
 ```json
@@ -302,7 +304,7 @@ Update an existing track. All fields optional; omitted fields untouched.
 Form params (any subset):
 - `name` (string, trimmed, non-empty if provided, at most 255 characters)
 - `sortOrder` (int) — usually set via `/reorder` instead
-- `private` (boolean; accepts `true`/`false`/`1`/`0`/`yes`/`no` via PHP `FILTER_VALIDATE_BOOLEAN`)
+- `private` (boolean: `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no`, any case; anything else, empty included, is `400` `private must be true or false`)
 - `archived` (boolean) — requires `features.archivedTracks`. `true` archives the track; `false` restores it, moving it to the **end of the list** (restoring an active track does nothing). Archiving an archived track changes nothing: the first date stands (`423` with `Prefer: handling=strict`; then treat it as done, since the track is archived as asked).
 - `archivedAt` (string, `YYYY-MM-DD`) — only read with `archived=true`. **Send the device's local today**, as for ticks. If omitted the server uses its own date (its default time zone, usually UTC), which can be a day off for the user.
 
@@ -318,7 +320,7 @@ Bulk reorder. Send the desired order of track IDs. The listed tracks come first,
 Form params:
 - `trackIds[]` (array of ints, required, non-empty). In form-encoded bodies this is `trackIds[]=1&trackIds[]=5&trackIds[]=3`.
 
-Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`).
+Response: `200` + the user's **active** tracks in the new order (the same list as `GET /api/tracks`), or `409` (`databaseConflict`) when tracks kept being created or restored elsewhere while it ran: nothing changed, pull the tracks and try again.
 
 If `trackIds` lists **any** archived track, nothing changes: `423` with `Prefer: handling=strict` (the message names the first archived track listed; pull and try again), otherwise `200` with the active tracks in their current order. Unlisted archived tracks are fine.
 
@@ -327,8 +329,12 @@ Delete a track and all its ticks. `204` on success, `404` if not found.
 
 ### Ticks
 
-#### `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD`
-Fetch all ticks for the current user with `date` in `[from, to]` inclusive. Both params required. No pagination — keep ranges sensible (the web client uses 30-day windows, with infinite scroll extending ~30 days at a time).
+#### `GET /api/ticks?from=YYYY-MM-DD&to=YYYY-MM-DD[&trackId=n]`
+Fetch all ticks for the current user with `date` in `[from, to]` inclusive. Both dates required: a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`, and `from` after `to` answers `400` `From must be on or before to` (`from` = `to` reads one day). No pagination — keep ranges sensible (the web client uses 30-day windows, with infinite scroll extending ~30 days at a time).
+
+- `trackId` (int, optional, requires `features.trackFilter`): that track's ticks only, also an archived track's. Missing or `0` is every track. A track that isn't yours answers `404` `trackNotFound` (`Track not found`), after the date checks. **Without `features.trackFilter` the server ignores `trackId` and answers every track**: always filter the answer by `trackId` yourself, and use the flag to decide whether a long range for one track is cheap.
+
+**One track's whole history** (for per-track stats): `from` = the track's first day (`firstTick` from `GET /api/stats` with `trackId`, or `oldest` from `GET /api/ticks/bounds`), `to` = today, `trackId` = the track. Nothing to read if it has no first tick.
 
 Response `data`:
 ```json
@@ -355,7 +361,7 @@ Response `data`:
 
 Notes:
 - **Tracks with no ticks are omitted** — same sparse convention as the tick list. Don't expect one entry per track, and don't treat a missing entry as an error.
-- Covers **all** tracks in one response; there is no per-track variant. The payload is bounded by the 99-track limit, so it's safe to fetch whole.
+- Covers **all** tracks in one response; there is no per-track variant. The payload is bounded by the 99-track limit, so it's safe to fetch whole. For one track's whole history, see `GET /api/ticks` above.
 - **Private tracks are included.** As everywhere else in this API, `private` is a display hint, not an access control — filter client-side if the user has private tracks hidden.
 - Cheap: a single indexed aggregate query, no row scan of tick history.
 
@@ -384,7 +390,7 @@ Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
 - `value`:
-  - **Counter**: int. `<= 0` deletes the tick; `> 0` creates or updates it. Missing counts as `0`.
+  - **Counter**: a whole number from `0` to `2147483647`, as a JSON integer or a string of digits. `0` deletes the tick; more creates or updates it. A negative, missing or non-whole value (`-1`, `5abc`, `5.0`, `true`) answers `400` `Counter tracks take a whole number, 0 or more`; above the limit, `400` `Counter values can be at most 2147483647`.
   - **Yes/no** (requires `features.booleanSet`): `true` or `false`; also `1`/`0`, `on`/`off`, `yes`/`no`, in any letter case, and in a JSON body a JSON boolean or the numbers 1 and 0. Anything else, or no value, answers `400` `Yes/no tracks take a value of true or false`.
 - `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the whole stored note after the call (`""` if none).
 - `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
@@ -392,7 +398,7 @@ Form params:
 
 Response: counter `{"value": <stored value>}` (`0` means no row exists); yes/no `{"value": 1}` or `{"value": 0}`. Setting the state a day already has changes nothing and gives the same answer, so a retried request is always safe. Both answers are a number, as in `GET /api/ticks`: a counter's count, or 1/0 for a yes/no day, so one parser reads either; the track's type says what the number means.
 
-Errors, in this order: `404` unknown track; `400` bad yes/no value; `400` `Date must be a date as YYYY-MM-DD`. On a server without `booleanSet`, a yes/no track answers `400` `Set is only available for counter tracks`.
+Errors, in this order: `400` `allowDuplicateNote must be true or false`; `404` unknown track; `400` bad value (yes/no or counter); `400` `Date must be a date as YYYY-MM-DD`. On a server without `booleanSet`, a yes/no track answers `400` `Set is only available for counter tracks`.
 
 On an **archived** track nothing changes and the response carries the state already stored (`0`/`false` if none), with `200`, as for `toggle`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written. A bad value or date still answers `400`.
 
@@ -406,14 +412,14 @@ Add a signed delta to a counter tick. Atomic: concurrent increments of the same 
 Form params:
 - `trackId` (int, required)
 - `date` (string, required, `YYYY-MM-DD`)
-- `delta` (int, required, not 0; negative to take away)
+- `delta` (int, required, not 0; negative to take away): a JSON integer or a string of digits with an optional minus. A result above `2147483647` answers `400` `The value would be more than 2147483647`, with nothing written; a delta below `-2147483647` counts as `-2147483647`.
 - `note` (string, optional, requires `features.notes`): the day's note. Missing leaves it alone; sent, it replaces it and an empty value deletes it (see Notes below). When sent, the response also carries `"note"`, the whole stored note after the call (`""` if none).
 - `appendNote` (string, optional, requires `features.notesAppend`): text to add to the day's note on a new line, as `POST /api/notes/append` (see Notes below). Not together with `note` (`400` `Send note or appendNote, not both`). When sent, the response carries `"note"` too.
 - `allowDuplicateNote` (bool, optional, default `false`): append `appendNote` even if the note already holds it.
 
 Response: `{"value": n}`, the value right after this request's write (under concurrency it may already include another device's delta). The value never goes below 0: a result of 0 or less deletes the tick and answers `{"value": 0}`. So a decrement that hits 0 isn't undone by a later increment of the same size (−3 on 2 gives 0, then +3 gives 3).
 
-Errors, in this order: `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
+Errors, in this order: `400` `allowDuplicateNote must be true or false`; `404` unknown track; `400` `Increment is only available for counter tracks`; `400` `Delta must be a whole number other than 0` (also for `5abc`, `1.9` or a missing delta); `400` `The value would be more than 2147483647`; `400` `Date must be a date as YYYY-MM-DD`. On an archived counter nothing changes and the stored value comes back with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
 
 **An increment isn't safe to repeat**: if the server counted it and the answer was lost, a retry counts twice. Send an `Idempotency-Key` (with `features.idempotencyKey`) whenever the request may be retried: see §1, Retrying writes safely. Without that flag, don't retry an increment whose answer was lost.
 
@@ -430,14 +436,28 @@ Checks on a note's text, wherever it is written (here, `note` on tick calls, and
 
 A JSON number is stored as its digits; a JSON `true` or `false` answers `400` `Notes must be UTF-8 text` (send `""` to delete).
 
-#### `GET /api/notes?from=YYYY-MM-DD&to=YYYY-MM-DD`
+#### `GET /api/notes?from=YYYY-MM-DD&to=YYYY-MM-DD[&trackId=n]`
 Notes of every track (private and archived included) in the range, inclusive on both ends, newest first:
 
 ```json
 [{"trackId": 3, "date": "2026-10-18", "text": "backup 03:14"}]
 ```
 
-Both dates are required; a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`.
+Both dates are required; a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`, and `from` after `to` answers `400` `From must be on or before to`.
+
+`trackId` (int, optional, requires `features.trackFilter`) works as on `GET /api/ticks`: one track's notes (also an archived track's), missing or `0` every track, `404` `trackNotFound` for a track that isn't yours. An older server ignores it, so filter by `trackId` yourself unless the flag is set.
+
+#### `GET /api/notes/bounds`
+> Requires `features.notesBounds` (§1). On servers without it this route returns `404`.
+
+The first and last note date for each track, as `GET /api/ticks/bounds` does for ticks. No params.
+
+```json
+[{"trackId": 3, "oldest": "2026-09-02", "newest": "2026-10-18"}]
+```
+
+- **Tracks with no notes are omitted.** Private and archived tracks are included.
+- **Independent of the ticks bounds**: a note can sit on a day without a tick, so a track can appear here and not there, or the other way round, and the dates can differ.
 
 #### `POST /api/notes/set`
 Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string; empty deletes the note).
@@ -447,7 +467,7 @@ Response: `{"text": "…"}`, the stored text after trimming (`""` when deleted).
 #### `POST /api/notes/append`
 > Requires `features.notesAppend` (§1). On servers without it this route returns `404`.
 
-Add text to the day's note without overwriting what another device or script wrote meanwhile — for example an agent logging each new activity's link on the day it ticks Exercise. Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string), `allowDuplicate` (bool, optional, default `false`).
+Add text to the day's note without overwriting what another device or script wrote meanwhile — for example an agent logging each new activity's link on the day it ticks Exercise. Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string), `allowDuplicate` (bool, optional, default `false`; anything but a yes/no word is `400` `allowDuplicate must be true or false`).
 
 - **No note yet:** the text is stored.
 - **A note exists:** the result is the note, a line break (`\n`), and the text.
@@ -550,11 +570,12 @@ Multipart form:
 - `file` — the JSON file
 - `mode` — `"replace"` (wipe all existing tracks, ticks and notes first) or `"merge"` (add non-conflicting)
 - Max 20 MB
+- At most 10 imports in 10 minutes per user (and the same again for `POST /api/import`); over that, Nextcloud answers `429` itself, with an empty body that isn't OCS JSON (`Content-Type: text/html`), so read the status, not the body. Wait, then try again.
 
 Likely out of scope for a mobile client; mention only if you want to offer "restore from backup".
 
 #### `POST /api/import`  (multipart)
-Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Also probably out of scope for mobile unless you want to offer Tickmate migration.
+Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Also probably out of scope for mobile unless you want to offer Tickmate migration. Same form and limits as the JSON import, plus at most 200,000 ticks (`400` `The backup contains N ticks, which exceeds the limit of 200000.`). A file that isn't an SQLite database, or whose `tracks` and `ticks` tables aren't plain tables of stored columns (Tickmate never makes others), answers `400` `importFailed` with nothing imported.
 
 ---
 
@@ -617,7 +638,7 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 ## 5. Gotchas and non-obvious behaviors
 
 - **`OCS-APIRequest: true` is not optional.** Without it, Nextcloud's router may return HTML login pages or 404s instead of JSON, and the error will be cryptic. Hardcode this in your HTTP client.
-- **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
+- **Boolean encoding.** Every boolean flag (`includeArchived`, `includeRuns`, `includePrivate`, `private`, `archived`, `allowDuplicate`, `allowDuplicateNote`) takes `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no` in any case, or a JSON boolean. Anything else, an empty value included, answers `400` `<name> must be true or false`, checked before anything else. Older servers read every non-empty string but `false` as true, so send `true`/`false`.
 - **Reorder puts unlisted tracks last.** `PUT /api/tracks/reorder` numbers the listed tracks `1..n` and the rest (archived ones, or ones you didn't know about) after them, in their previous order. Send the tracks you show, which should be active ones only: a list naming an archived track changes nothing (`423` with `Prefer: handling=strict`).
 - **An older server ignores `note` on tick calls without an error.** It drops the unknown parameter and answers `200`, so the note is lost. Check `features.notes` before sending one.
 - **Missing `note` and empty `note` differ.** Leave the parameter out to keep the day's note; send it empty to delete it.
@@ -678,6 +699,16 @@ curl -u "$USER:$APP_PASS" \
 curl -u "$USER:$APP_PASS" \
   -H "OCS-APIRequest: true" -H "Accept: application/json" \
   "$NC/ocs/v2.php/apps/tickbuddy/api/ticks/bounds"
+
+# One track's ticks (features.trackFilter; an older server answers every track)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-01-01&to=2026-11-15&trackId=1"
+
+# First and last note per track (404 = server predates features.notesBounds)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/apps/tickbuddy/api/notes/bounds"
 ```
 
 If any of those return HTML, you forgot `OCS-APIRequest: true`.
@@ -701,7 +732,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
 - [ ] Show installed backend `version` in an About/server-info screen
 - [ ] Archive/restore only when `features.archivedTracks` is set; send the device's today as `archivedAt`
-- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `notesAppend` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
+- [ ] Gate `tickBounds` / `counterIncrement` / `booleanSet` / `stats` / `notes` / `notesAppend` / `trackFilter` / `notesBounds` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends, with a working fallback when each is `false`
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

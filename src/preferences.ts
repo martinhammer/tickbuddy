@@ -19,21 +19,28 @@ const STARTING: Preferences = {
 	editableDaysMobile: 'activeDay',
 }
 
+type Field = keyof Preferences
+
 const stored = reactive<Preferences>({ ...STARTING })
 const isMobile = useIsMobile()
 let loaded: Promise<void> | null = null
+// Fields changed on this page. The toolbar shows before the load answers, and
+// a value chosen meanwhile is newer than what the load read.
+const changed = new Set<Field>()
 
 /** Load the saved values, once per page; later calls wait for the same load. */
 export function loadPreferences(): Promise<void> {
 	loaded ??= fetchPreferences()
-		.then((prefs) => { Object.assign(stored, prefs) })
+		.then((prefs) => {
+			for (const field of Object.keys(STARTING) as Field[]) {
+				if (!changed.has(field)) (stored as Record<Field, Preferences[Field]>)[field] = prefs[field]
+			}
+		})
 		.catch(() => {
 			// The starting values apply
 		})
 	return loaded
 }
-
-type Field = keyof Preferences
 
 // The value for the current device class. The UI changes at once; a failed
 // save keeps the new value for this page.
@@ -43,6 +50,7 @@ function choice<T extends Preferences[Field]>(desktop: Field, mobile: Field) {
 		set: (value) => {
 			const field = isMobile.value ? mobile : desktop
 			if (stored[field] === value) return
+			changed.add(field)
 			;(stored as Record<Field, T>)[field] = value
 			savePreference(field, value).catch(() => {
 				showError('Could not save the setting')

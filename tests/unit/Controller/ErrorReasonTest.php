@@ -24,6 +24,7 @@ use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\StatsService;
 use OCA\Tickbuddy\Service\TickService;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
+use OCA\Tickbuddy\Service\TrackOrderConflictException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http\DataResponse;
@@ -131,7 +132,7 @@ final class ErrorReasonTest extends TestCase {
 		$service->method('update')->willThrowException($e);
 		$service->method('reorder')->willThrowException($e);
 		$service->method('delete')->willThrowException($e);
-		return new TrackController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser');
+		return new TrackController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser', $this->createMock(LoggerInterface::class));
 	}
 
 	public function testCreateErrors(): void {
@@ -150,14 +151,41 @@ final class ErrorReasonTest extends TestCase {
 			400, 'Track name cannot be empty', 'invalidValue');
 		$this->assertError($this->tracks(new InvalidArchiveDateException('Archive date must be a date as YYYY-MM-DD'))->update(1, archived: true, archivedAt: 'x'),
 			400, 'Archive date must be a date as YYYY-MM-DD', 'invalidValue');
-		$this->assertError($this->tracks(new DbException('Unique constraint'))->update(1, sortOrder: 1),
-			409, 'Unique constraint', 'databaseConflict');
+		$unique = $this->createMock(DbException::class);
+		$unique->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+		$this->assertError($this->tracks($unique)->update(1, sortOrder: 1),
+			409, 'The tracks changed while saving; try again', 'databaseConflict');
 		$this->assertError($this->tracks($this->readOnly())->update(1, 'A'), 423, 'Exercise is archived, so nothing was changed', 'archived');
+	}
+
+	public function testUpdateLetsOtherDatabaseErrorsThrough(): void {
+		$e = new DbException('SQLSTATE[08006]: connection lost');
+		$this->expectExceptionObject($e);
+		$this->tracks($e)->update(1, sortOrder: 1);
+	}
+
+	public function testTickListErrors(): void {
+		$service = $this->createMock(TickService::class);
+		$service->method('findByDateRange')->willThrowException(new InvalidValueException('From must be on or before to'));
+		$controller = new TickController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser');
+
+		$this->assertError($controller->index('2026-11-10', '2026-11-01'), 400, 'From must be on or before to', 'invalidValue');
+	}
+
+	public function testListsOfAnUnknownTrack(): void {
+		$ticks = $this->createMock(TickService::class);
+		$ticks->method('findByDateRange')->willThrowException(new DoesNotExistException(''));
+		$controller = new TickController('tickbuddy', $this->request, $ticks, $this->idempotency(), 'testuser');
+		$this->assertError($controller->index('2026-11-01', '2026-11-14', 999999), 404, 'Track not found', 'trackNotFound');
+
+		$this->assertError($this->notes(new DoesNotExistException(''))->index('2026-11-01', '2026-11-14', 999999), 404, 'Track not found', 'trackNotFound');
 	}
 
 	public function testReorderErrors(): void {
 		$this->assertError($this->tracks($this->readOnly())->reorder([]), 400, 'trackIds is required', 'invalidValue');
 		$this->assertError($this->tracks($this->readOnly())->reorder([1, 2]), 423, 'Exercise is archived, so nothing was changed', 'archived');
+		$this->assertError($this->tracks(new TrackOrderConflictException('The tracks changed while reordering; try again'))->reorder([1, 2]),
+			409, 'The tracks changed while reordering; try again', 'databaseConflict');
 	}
 
 	public function testDestroyErrors(): void {

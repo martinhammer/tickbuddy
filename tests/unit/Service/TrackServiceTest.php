@@ -14,8 +14,11 @@ use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\StrictHandling;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
+use OCA\Tickbuddy\Service\TrackOrderConflictException;
 use OCA\Tickbuddy\Service\TrackService;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\DB\Exception as DbException;
+use OCP\IDBConnection;
 use PHPUnit\Framework\TestCase;
 
 final class TrackServiceTest extends TestCase {
@@ -24,6 +27,7 @@ final class TrackServiceTest extends TestCase {
 	private NoteMapper $noteMapper;
 	private ITimeFactory $timeFactory;
 	private StrictHandling $strictHandling;
+	private IDBConnection $db;
 	private TrackService $service;
 	private string $userId = 'testuser';
 
@@ -35,7 +39,8 @@ final class TrackServiceTest extends TestCase {
 		$this->timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-15 01:30:00'));
 		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
 		$this->strictHandling = $this->createMock(StrictHandling::class);
-		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory, $this->strictHandling);
+		$this->db = $this->createMock(IDBConnection::class);
+		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory, $this->strictHandling, $this->db);
 	}
 
 	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
@@ -83,6 +88,52 @@ final class TrackServiceTest extends TestCase {
 		$this->assertEquals('Coffee', $track->getName());
 		$this->assertEquals('counter', $track->getType());
 		$this->assertEquals(4, $track->getSortOrder());
+	}
+
+	public function testCreateTakesTheNextEndWhenAnotherCreateTookIt(): void {
+		$this->trackMapper->method('countByUser')->willReturnOnConsecutiveCalls(3, 4);
+		$this->trackMapper->method('getMaxSortOrder')->willReturnOnConsecutiveCalls(3, 4);
+		$orders = [];
+		$this->trackMapper->expects($this->exactly(2))->method('insert')
+			->willReturnCallback(function (Track $t) use (&$orders): Track {
+				$orders[] = $t->getSortOrder();
+				if (count($orders) === 1) {
+					throw $this->uniqueViolation();
+				}
+				return $t;
+			});
+
+		$this->assertSame(5, $this->service->create('Coffee', 'counter', $this->userId)->getSortOrder());
+		$this->assertSame([4, 5], $orders);
+	}
+
+	public function testCreateChecksTheLimitAgainAfterLosingTheEnd(): void {
+		$this->trackMapper->method('countByUser')->willReturnOnConsecutiveCalls(98, 99);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(98);
+		$this->trackMapper->expects($this->once())->method('insert')->willThrowException($this->uniqueViolation());
+
+		$this->expectException(TrackLimitReachedException::class);
+		$this->service->create('Coffee', 'counter', $this->userId);
+	}
+
+	public function testCreateGivesUpAfterThreeLostRaces(): void {
+		$this->trackMapper->method('countByUser')->willReturn(3);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(3);
+		$e = $this->uniqueViolation();
+		$this->trackMapper->expects($this->exactly(3))->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->create('Coffee', 'counter', $this->userId);
+	}
+
+	public function testCreateDoesNotRetryOtherDatabaseErrors(): void {
+		$this->trackMapper->method('countByUser')->willReturn(3);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(3);
+		$e = new DbException('Connection lost');
+		$this->trackMapper->expects($this->once())->method('insert')->willThrowException($e);
+
+		$this->expectExceptionObject($e);
+		$this->service->create('Coffee', 'counter', $this->userId);
 	}
 
 	public function testCreateWithInvalidTypeThrows(): void {
@@ -207,6 +258,25 @@ final class TrackServiceTest extends TestCase {
 		$this->assertSame(10, $updated->getSortOrder());
 	}
 
+	public function testRestoreTakesTheNextEndWhenAnotherWriteTookIt(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturnOnConsecutiveCalls(9, 10);
+		$orders = [];
+		$this->trackMapper->expects($this->exactly(2))->method('update')
+			->willReturnCallback(function (Track $t) use (&$orders): Track {
+				$orders[] = $t->getSortOrder();
+				if (count($orders) === 1) {
+					throw $this->uniqueViolation();
+				}
+				return $t;
+			});
+
+		$updated = $this->service->update(7, $this->userId, archived: false);
+
+		$this->assertNull($updated->getArchivedAt());
+		$this->assertSame([10, 11], $orders);
+	}
+
 	public function testRestoreOfActiveTrackChangesNothing(): void {
 		$this->givenTrack($this->makeTrack(7));
 		$this->trackMapper->expects($this->never())->method('getMaxSortOrder');
@@ -278,6 +348,64 @@ final class TrackServiceTest extends TestCase {
 		$this->trackMapper->expects($this->once())->method('reorder')->with($this->userId, [3, 1, 2]);
 
 		$this->assertSame($active, $this->service->reorder([3, 1], $this->userId));
+	}
+
+	public function testReorderReadsLockedTracksInOneTransaction(): void {
+		$this->trackMapper->expects($this->once())->method('findAllByUser')->with($this->userId, true)
+			->willReturn([$this->makeTrack(1, null, 1), $this->makeTrack(2, null, 2)]);
+		$this->db->expects($this->once())->method('beginTransaction');
+		$this->db->expects($this->once())->method('commit');
+		$this->db->expects($this->never())->method('rollBack');
+
+		$this->service->reorder([2, 1], $this->userId);
+	}
+
+	private function uniqueViolation(): DbException {
+		$e = $this->createMock(DbException::class);
+		$e->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
+		return $e;
+	}
+
+	public function testReorderRollsBackAndRetriesWhenAnotherWriteTookANumber(): void {
+		// A track created elsewhere meanwhile is in the second read, and in the order sent
+		$this->trackMapper->expects($this->exactly(2))->method('findAllByUser')->willReturnOnConsecutiveCalls(
+			[$this->makeTrack(1, null, 1), $this->makeTrack(2, null, 2)],
+			[$this->makeTrack(1, null, 1), $this->makeTrack(2, null, 2), $this->makeTrack(3, null, 3)],
+		);
+		$calls = [];
+		$this->trackMapper->expects($this->exactly(2))->method('reorder')
+			->willReturnCallback(function (string $userId, array $ids) use (&$calls): void {
+				$calls[] = $ids;
+				if (count($calls) === 1) {
+					throw $this->uniqueViolation();
+				}
+			});
+		$this->db->expects($this->exactly(2))->method('beginTransaction');
+		$this->db->expects($this->once())->method('rollBack');
+		$this->db->expects($this->once())->method('commit');
+
+		$this->service->reorder([2, 1], $this->userId);
+		$this->assertSame([[2, 1], [2, 1, 3]], $calls);
+	}
+
+	public function testReorderGivesUpAfterThreeConflicts(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([$this->makeTrack(1, null, 1), $this->makeTrack(2, null, 2)]);
+		$this->trackMapper->expects($this->exactly(3))->method('reorder')->willThrowException($this->uniqueViolation());
+		$this->db->expects($this->exactly(3))->method('rollBack');
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(TrackOrderConflictException::class);
+		$this->service->reorder([2, 1], $this->userId);
+	}
+
+	public function testReorderRollsBackAndRethrowsOtherDatabaseErrors(): void {
+		$this->trackMapper->method('findAllByUser')->willReturn([$this->makeTrack(1, null, 1)]);
+		$e = new DbException('Connection lost');
+		$this->trackMapper->expects($this->once())->method('reorder')->willThrowException($e);
+		$this->db->expects($this->once())->method('rollBack');
+
+		$this->expectExceptionObject($e);
+		$this->service->reorder([1], $this->userId);
 	}
 
 	public function testDeleteRemovesTicksAndNotesToo(): void {
@@ -503,6 +631,8 @@ final class TrackServiceTest extends TestCase {
 		$this->strict();
 		$this->givenTracksWithOneArchived();
 		$this->trackMapper->expects($this->never())->method('reorder');
+		$this->db->expects($this->once())->method('rollBack');
+		$this->db->expects($this->never())->method('commit');
 
 		$this->expectException(ReadOnlyTrackException::class);
 		$this->service->reorder([3, 1, 2], $this->userId);
