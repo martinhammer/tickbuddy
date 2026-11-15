@@ -550,11 +550,12 @@ Multipart form:
 - `file` — the JSON file
 - `mode` — `"replace"` (wipe all existing tracks, ticks and notes first) or `"merge"` (add non-conflicting)
 - Max 20 MB
+- At most 10 imports in 10 minutes per user (and the same again for `POST /api/import`); over that, Nextcloud answers `429` itself, with an empty body that isn't OCS JSON (`Content-Type: text/html`), so read the status, not the body. Wait, then try again.
 
 Likely out of scope for a mobile client; mention only if you want to offer "restore from backup".
 
 #### `POST /api/import`  (multipart)
-Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Also probably out of scope for mobile unless you want to offer Tickmate migration.
+Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Also probably out of scope for mobile unless you want to offer Tickmate migration. Same form and limits as the JSON import, plus at most 200,000 ticks (`400` `The backup contains N ticks, which exceeds the limit of 200000.`). A file that isn't an SQLite database, or whose `tracks` and `ticks` tables aren't plain tables of stored columns (Tickmate never makes others), answers `400` `importFailed` with nothing imported.
 
 ---
 

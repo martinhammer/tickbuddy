@@ -8,6 +8,7 @@ import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwit
 import NcDialog from '@nextcloud/vue/components/NcDialog'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
 import { ocsErrorMessage } from '../ocsError.ts'
+import { httpStatus } from '../strictHandling.ts'
 
 const emit = defineEmits<{
 	close: []
@@ -70,7 +71,10 @@ async function runImport() {
 			: `Imported ${tracks} and ${ticks}.`)
 		emit('imported')
 	} catch (e) {
-		showError(ocsErrorMessage(e, 'Import failed'))
+		// Nextcloud's rate limit (ImportController) answers with no message of its own
+		showError(httpStatus(e) === 429
+			? 'Too many imports in a short time. Wait a few minutes, then try again.'
+			: ocsErrorMessage(e, 'Import failed'))
 	} finally {
 		importing.value = false
 	}

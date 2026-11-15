@@ -634,6 +634,106 @@ final class ImportServiceTest extends TestCase {
 		$sqlite->close();
 	}
 
+	/** A Tickmate file built from raw SQL, for structures tickmateFile() can't make */
+	private function tickmateFileFromSql(string ...$statements): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		$sqlite = new \SQLite3($this->file);
+		foreach ($statements as $sql) {
+			$sqlite->exec($sql);
+		}
+		$sqlite->close();
+	}
+
+	private function expectTickmateFailure(string $message): void {
+		$this->db->expects($this->never())->method('beginTransaction');
+		try {
+			$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+			$this->fail('The import must fail');
+		} catch (ImportException $e) {
+			$this->assertSame($message, $e->getMessage());
+		}
+	}
+
+	public function testTickmateGeneratedColumnIsRefusedUnread(): void {
+		// The size is what an attacker picks, up to SQLite's 1 GB limit, worked
+		// out on every read of `name`; the structure alone is refused
+		$this->tickmateFileFromSql(
+			'CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name BLOB GENERATED ALWAYS AS (zeroblob(1000)) VIRTUAL, enabled INTEGER, "order" INTEGER)',
+			'CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)',
+			'INSERT INTO tracks (_id, enabled, "order") VALUES (1, 1, 1)',
+		);
+
+		$this->expectTickmateFailure('Not a valid Tickmate backup: unexpected table structure');
+	}
+
+	public function testTickmateGeneratedColumnInTicksIsRefused(): void {
+		$this->tickmateFileFromSql(
+			'CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)',
+			'CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER, pad BLOB AS (zeroblob(100)) STORED)',
+			"INSERT INTO tracks VALUES (1, 'Exercise', 1, 1)",
+		);
+
+		$this->expectTickmateFailure('Not a valid Tickmate backup: unexpected table structure');
+	}
+
+	public function testTickmateVirtualTableIsRefused(): void {
+		$probe = new \SQLite3(':memory:');
+		$hasFts5 = @$probe->exec('CREATE VIRTUAL TABLE t USING fts5(a)');
+		$probe->close();
+		if (!$hasFts5) {
+			$this->markTestSkipped('This SQLite has no fts5 module to make a virtual table with');
+		}
+		$this->tickmateFileFromSql(
+			'CREATE VIRTUAL TABLE tracks USING fts5(_id, name, enabled, "order")',
+			'CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)',
+		);
+
+		$this->expectTickmateFailure('Not a valid Tickmate backup: unexpected table structure');
+	}
+
+	public function testTickmateFileThatIsNotSqliteIsA400(): void {
+		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
+		file_put_contents($this->file, str_repeat('not a database ', 100));
+
+		$this->expectTickmateFailure('Not a valid Tickmate backup: the file could not be read');
+	}
+
+	public function testTickmateTicksOverTheLimitAreRefusedBeforeReading(): void {
+		$this->tickmateFileFromSql(
+			'CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)',
+			'CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)',
+			"INSERT INTO tracks VALUES (1, 'Exercise', 1, 1)",
+			'WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n LIMIT ' . (ImportService::MAX_TICKMATE_TICKS + 1) . ')'
+				. ' INSERT INTO ticks SELECT i, 1, 2026, 0, 1 FROM n',
+		);
+
+		$this->expectTickmateFailure('The backup contains 200001 ticks, which exceeds the limit of 200000.');
+	}
+
+	public function testTickmateTicksAtTheLimitAreRead(): void {
+		$this->tickmateFileFromSql(
+			'CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)',
+			'CREATE TABLE ticks (_id INTEGER PRIMARY KEY, _track_id INTEGER, year INTEGER, month INTEGER, day INTEGER)',
+			"INSERT INTO tracks VALUES (1, 'Exercise', 1, 1)",
+			// Ticks for a track the backup doesn't have don't count
+			'WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n LIMIT ' . ImportService::MAX_TICKMATE_TICKS . ')'
+				. ' INSERT INTO ticks SELECT i, 1, 2026, 0, 1 FROM n',
+			'INSERT INTO ticks VALUES (999999, 7, 2026, 0, 1)',
+		);
+
+		$result = $this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+		// All on one day: one counter tick of 200000
+		$this->assertSame(['tracks' => 1, 'ticks' => 1, 'notes' => 0], $result);
+		$this->assertSame([[101, '2026-01-01', 200000]], $this->insertedTicks);
+	}
+
+	public function testTickmateNumbersStoredAsTextAreReadAsNumbers(): void {
+		$this->tickmateFile("('1', 'Exercise', '1', '1')", "(1, '1', '2026', '9', '17')");
+
+		$this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
+		$this->assertSame([[101, '2026-10-17', 1]], $this->insertedTicks);
+	}
+
 	public function testTickmateImpossibleDateFails(): void {
 		// Tickmate months are 0-based: 1 is February
 		$this->tickmateFile("(1, 'Exercise', 1, 1)", '(1, 1, 2026, 9, 17), (2, 1, 2026, 1, 30)');

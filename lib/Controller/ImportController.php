@@ -11,6 +11,7 @@ use OCA\Tickbuddy\Service\ImportService;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\ApiRoute;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\UserRateLimit;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
 use OCP\IRequest;
@@ -23,6 +24,12 @@ use OCP\IRequest;
  */
 class ImportController extends OCSController {
 	private const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+	// Imports a user may start in RATE_PERIOD seconds, per route. An import is
+	// the heaviest request there is (a 20 MB file read whole), and a person
+	// imports a handful of times at most, retries included. Over it, Nextcloud
+	// answers 429 itself, with an empty body that isn't OCS JSON.
+	private const RATE_LIMIT = 10;
+	private const RATE_PERIOD = 600;
 
 	public function __construct(
 		string $appName,
@@ -60,12 +67,14 @@ class ImportController extends OCSController {
 	 * Import data from a Tickmate .db file
 	 *
 	 * @param string $mode Import mode, either "replace" or "merge"
-	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>|DataResponse<Http::STATUS_TOO_MANY_REQUESTS, list<empty>, array{}>
 	 *
 	 * 200: Import succeeded
 	 * 400: Upload missing, too large, invalid mode, or import failed
+	 * 429: More than 10 Tickmate imports in 10 minutes; Nextcloud's own answer: an empty body, not OCS JSON
 	 */
 	#[NoAdminRequired]
+	#[UserRateLimit(limit: self::RATE_LIMIT, period: self::RATE_PERIOD)]
 	#[ApiRoute(verb: 'POST', url: '/api/import')]
 	public function import(string $mode = ''): DataResponse {
 		$validated = $this->validateUpload($mode);
@@ -85,12 +94,14 @@ class ImportController extends OCSController {
 	 * Import data from a Tickbuddy JSON export
 	 *
 	 * @param string $mode Import mode, either "replace" or "merge"
-	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_OK, TickbuddyImportResult, array{}>|DataResponse<Http::STATUS_BAD_REQUEST, TickbuddyError, array{}>|DataResponse<Http::STATUS_TOO_MANY_REQUESTS, list<empty>, array{}>
 	 *
 	 * 200: Import succeeded
 	 * 400: Upload missing, too large, invalid mode, or import failed
+	 * 429: More than 10 JSON imports in 10 minutes; Nextcloud's own answer: an empty body, not OCS JSON
 	 */
 	#[NoAdminRequired]
+	#[UserRateLimit(limit: self::RATE_LIMIT, period: self::RATE_PERIOD)]
 	#[ApiRoute(verb: 'POST', url: '/api/import/json')]
 	public function importJson(string $mode = ''): DataResponse {
 		$validated = $this->validateUpload($mode);
