@@ -6,6 +6,7 @@ namespace OCA\Tickbuddy\Service;
 
 use OCA\Tickbuddy\Db\Note;
 use OCA\Tickbuddy\Db\NoteMapper;
+use OCA\Tickbuddy\Db\PublicLinkMapper;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
@@ -33,6 +34,7 @@ class ImportService {
 		private TrackMapper $trackMapper,
 		private TickMapper $tickMapper,
 		private NoteMapper $noteMapper,
+		private PublicLinkMapper $publicLinkMapper,
 		private IDBConnection $db,
 		private ITimeFactory $timeFactory,
 		private LoggerInterface $logger,
@@ -424,6 +426,7 @@ class ImportService {
 		$existingNames = [];
 
 		if ($mode === self::MODE_REPLACE) {
+			$this->publicLinkMapper->deleteAllByUser($userId);
 			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);
@@ -710,6 +713,7 @@ class ImportService {
 		$existingNames = [];
 
 		if ($mode === self::MODE_REPLACE) {
+			$this->publicLinkMapper->deleteAllByUser($userId);
 			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);

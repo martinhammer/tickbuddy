@@ -2,10 +2,12 @@
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
 import NcNoteCard from '@nextcloud/vue/components/NcNoteCard'
+import { archiveLinksText } from '../publicLinks.ts'
 import type { Track } from '../types.ts'
 
 // The archive and delete confirms. Delete offers "Archive instead" for an
-// active track, with no second confirm.
+// active track, with no second confirm. Both say when the track's public links
+// will be revoked: either way, scripts lose their link.
 
 defineProps<{
 	archiving: Track | null
@@ -33,6 +35,9 @@ const emit = defineEmits<{
 		<p :class="$style.dialogText">
 			Archived tracks are no longer tracked or shown in the journal and widgets. All their ticks are kept, and you can restore them at any time.
 		</p>
+		<p v-if="archiving.publicLinkCount > 0" :class="$style.dialogText">
+			{{ archiveLinksText(archiving.publicLinkCount) }}
+		</p>
 	</NcDialog>
 
 	<!-- The actions slot replaces the `buttons` prop, which can't place a button on the left -->
@@ -44,6 +49,9 @@ const emit = defineEmits<{
 		<NcNoteCard type="warning">
 			This will permanently delete the track "{{ deleting.name }}" and all its ticks and notes. This action cannot be undone.
 		</NcNoteCard>
+		<p v-if="deleting.publicLinkCount > 0" :class="$style.dialogText">
+			{{ archiveLinksText(deleting.publicLinkCount) }}
+		</p>
 		<p v-if="deleting.archivedAt === null" :class="$style.dialogText">
 			To keep its history, archive it instead.
 		</p>

@@ -6,6 +6,7 @@ namespace OCA\Tickbuddy\Controller;
 
 use OCA\Tickbuddy\AppInfo\Application;
 use OCA\Tickbuddy\ResponseDefinitions;
+use OCA\Tickbuddy\Service\EditableDays;
 use OCA\Tickbuddy\Service\ErrorReason;
 use OCA\Tickbuddy\Service\Flags;
 use OCA\Tickbuddy\Service\InvalidValueException;
@@ -28,7 +29,7 @@ use OCP\IRequest;
  */
 class PreferencesController extends OCSController {
 	private const LAYOUTS = ['daysDown', 'tracksDown'];
-	private const EDITABLE_DAYS = ['activeDay', 'activeAndPrevious', 'oneWeek', 'allDays'];
+	private const EDITABLE_DAYS = EditableDays::VALUES;
 
 	/**
 	 * Each choice that takes a name: its API field, user config key, allowed

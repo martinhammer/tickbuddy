@@ -2,17 +2,21 @@
 import { nextTick, ref, watch } from 'vue'
 import NcAppSidebar from '@nextcloud/vue/components/NcAppSidebar'
 import NcAppSidebarHeader from '@nextcloud/vue/components/NcAppSidebarHeader'
+import NcAppSidebarTab from '@nextcloud/vue/components/NcAppSidebarTab'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
-import { MDI_ARCHIVE_OUTLINE, MDI_DELETE_OUTLINE, MDI_PENCIL_OUTLINE } from '../icons.ts'
+import { MDI_ARCHIVE_OUTLINE, MDI_DELETE_OUTLINE, MDI_FORMAT_LIST_CHECKS, MDI_LINK_VARIANT, MDI_PENCIL_OUTLINE } from '../icons.ts'
 import { typeName } from '../trackMenu.ts'
 import type { Track } from '../types.ts'
+import PublicLinksTab from './PublicLinksTab.vue'
 
 // A track's details in Nextcloud's sidebar: the name with a rename pencil after
-// it, the type, the Private switch, and Archive and Delete as buttons in the body
-// rather than behind a ⋯ menu (as on Tickdroid's track screen). No tabs until
-// there is a second one.
+// it and the type, then two tabs. Details holds the Private switch, and Archive
+// and Delete as buttons rather than behind a ⋯ menu (as on Tickdroid's track
+// screen); Public links holds the track's links. The sidebar opens on Details,
+// and keeps the tab shown when another track's sidebar replaces this one's, as
+// Files' sidebar does.
 //
 // NcAppSidebar has no slot after the name, so the name block is drawn in its info
 // slot, which replaces the built-in name, subname and actions but keeps the close
@@ -35,7 +39,13 @@ const emit = defineEmits<{
 	'set-private': [value: boolean]
 	archive: []
 	delete: []
+	/** A public link was created or revoked */
+	'links-changed': []
 }>()
+
+// Kept across a track change: this component stays mounted while the track
+// changes, and is mounted afresh (on Details) when the sidebar opens again
+const activeTab = ref('details')
 
 const editing = ref(false)
 const draft = ref(props.track.name)
@@ -90,7 +100,8 @@ async function finishWithKey(finish: () => void): Promise<void> {
 </script>
 
 <template>
-	<NcAppSidebar :name="track.name"
+	<NcAppSidebar v-model:active="activeTab"
+		:name="track.name"
 		:class="$style.sidebar"
 		@opened="opened = true"
 		@close="emit('close')">
@@ -132,31 +143,45 @@ async function finishWithKey(finish: () => void): Promise<void> {
 			</div>
 		</template>
 
-		<div :class="$style.body">
-			<NcCheckboxRadioSwitch :model-value="track.private"
-				:class="$style.switch"
-				type="switch"
-				@update:model-value="(value: boolean) => emit('set-private', value)">
-				Private
-			</NcCheckboxRadioSwitch>
-			<p :class="$style.help">
-				Hidden in the journal and widgets unless private tracks are shown.
-			</p>
-			<div :class="$style.buttons">
-				<NcButton variant="secondary" @click="emit('archive')">
-					<template #icon>
-						<NcIconSvgWrapper :path="MDI_ARCHIVE_OUTLINE" />
-					</template>
-					Archive track
-				</NcButton>
-				<NcButton variant="error" @click="emit('delete')">
-					<template #icon>
-						<NcIconSvgWrapper :path="MDI_DELETE_OUTLINE" />
-					</template>
-					Delete track
-				</NcButton>
+		<NcAppSidebarTab id="details" name="Details" :order="1">
+			<template #icon>
+				<NcIconSvgWrapper :path="MDI_FORMAT_LIST_CHECKS" :size="20" />
+			</template>
+			<div :class="$style.body">
+				<NcCheckboxRadioSwitch :model-value="track.private"
+					:class="$style.switch"
+					type="switch"
+					@update:model-value="(value: boolean) => emit('set-private', value)">
+					Private
+				</NcCheckboxRadioSwitch>
+				<p :class="$style.help">
+					Hidden in the journal and widgets unless private tracks are shown.
+				</p>
+				<div :class="$style.buttons">
+					<NcButton variant="secondary" @click="emit('archive')">
+						<template #icon>
+							<NcIconSvgWrapper :path="MDI_ARCHIVE_OUTLINE" />
+						</template>
+						Archive track
+					</NcButton>
+					<NcButton variant="error" @click="emit('delete')">
+						<template #icon>
+							<NcIconSvgWrapper :path="MDI_DELETE_OUTLINE" />
+						</template>
+						Delete track
+					</NcButton>
+				</div>
 			</div>
-		</div>
+		</NcAppSidebarTab>
+		<NcAppSidebarTab id="public-links" name="Public links" :order="2">
+			<template #icon>
+				<NcIconSvgWrapper :path="MDI_LINK_VARIANT" :size="20" />
+			</template>
+			<!-- Mounted each time the tab is shown, so it loads afresh -->
+			<PublicLinksTab v-if="activeTab === 'public-links'"
+				:track="track"
+				@changed="emit('links-changed')" />
+		</NcAppSidebarTab>
 	</NcAppSidebar>
 </template>
 

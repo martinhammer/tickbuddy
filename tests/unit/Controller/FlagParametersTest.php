@@ -15,6 +15,7 @@ use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Service\ExportService;
 use OCA\Tickbuddy\Service\IdempotencyService;
 use OCA\Tickbuddy\Service\NoteService;
+use OCA\Tickbuddy\Service\PublicLinkService;
 use OCA\Tickbuddy\Service\StatsService;
 use OCA\Tickbuddy\Service\TickService;
 use OCA\Tickbuddy\Service\TrackService;
@@ -73,7 +74,7 @@ final class FlagParametersTest extends TestCase {
 	// --- tracks ---
 
 	private function tracks(TrackService $service): TrackController {
-		return new TrackController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser', $this->createMock(LoggerInterface::class));
+		return new TrackController('tickbuddy', $this->request, $service, $this->createMock(PublicLinkService::class), $this->idempotency(), 'testuser', $this->createMock(LoggerInterface::class));
 	}
 
 	/**
@@ -115,6 +116,7 @@ final class FlagParametersTest extends TestCase {
 
 	public function testTrackUpdateLeavesFlagsNotSent(): void {
 		$track = new Track();
+		$track->setId(1);
 		$service = $this->createMock(TrackService::class);
 		$service->expects($this->once())->method('update')->with(1, 'testuser', 'Run', null, null, null, null)->willReturn($track);
 

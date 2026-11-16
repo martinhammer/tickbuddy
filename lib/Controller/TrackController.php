@@ -13,6 +13,7 @@ use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
+use OCA\Tickbuddy\Service\PublicLinkService;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackOrderConflictException;
@@ -38,6 +39,7 @@ class TrackController extends OCSController {
 		string $appName,
 		IRequest $request,
 		private TrackService $trackService,
+		private PublicLinkService $publicLinks,
 		private IdempotencyService $idempotency,
 		private string $userId,
 		private LoggerInterface $logger,
@@ -50,9 +52,10 @@ class TrackController extends OCSController {
 	 * because automatic Entity serialization in DataResponse does not
 	 * reliably include protected properties across Nextcloud versions.
 	 *
+	 * @param int $publicLinkCount The track's live public links
 	 * @return TickbuddyTrack
 	 */
-	private function serializeTrack(Track $track): array {
+	private function serializeTrack(Track $track, int $publicLinkCount): array {
 		return [
 			'id' => $track->getId(),
 			'name' => $track->getName(),
@@ -60,7 +63,18 @@ class TrackController extends OCSController {
 			'sortOrder' => $track->getSortOrder(),
 			'private' => $track->getPrivate() === 1,
 			'archivedAt' => $track->getArchivedAt(),
+			'publicLinkCount' => $publicLinkCount,
 		];
+	}
+
+	/**
+	 * @param Track[] $tracks
+	 * @return list<TickbuddyTrack>
+	 */
+	private function serializeTracks(array $tracks): array {
+		// One query for every track's count
+		$counts = $this->publicLinks->countsByTrack($this->userId);
+		return array_values(array_map(fn (Track $t) => $this->serializeTrack($t, $counts[$t->getId()] ?? 0), $tracks));
 	}
 
 	/**
@@ -81,8 +95,7 @@ class TrackController extends OCSController {
 		} catch (InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		}
-		$tracks = $this->trackService->findAll($this->userId, $includeArchived);
-		return new DataResponse(array_values(array_map(fn (Track $t) => $this->serializeTrack($t), $tracks)));
+		return new DataResponse($this->serializeTracks($this->trackService->findAll($this->userId, $includeArchived)));
 	}
 
 	/**
@@ -108,7 +121,8 @@ class TrackController extends OCSController {
 		return $this->idempotency->run($this->userId, 'tracks.create', [$name, $type], function () use ($name, $type): DataResponse {
 			try {
 				$track = $this->trackService->create(trim($name), $type, $this->userId);
-				return new DataResponse($this->serializeTrack($track), Http::STATUS_CREATED);
+				// A new track has no links yet
+				return new DataResponse($this->serializeTrack($track, 0), Http::STATUS_CREATED);
 			} catch (InvalidTrackNameException|InvalidTrackTypeException $e) {
 				// An unknown type is a bad value here, not a wrong endpoint as for ticks
 				return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
@@ -152,7 +166,7 @@ class TrackController extends OCSController {
 		} catch (ReadOnlyTrackException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => $e->getReason()], Http::STATUS_LOCKED);
 		}
-		return new DataResponse(array_values(array_map(fn (Track $t) => $this->serializeTrack($t), $tracks)));
+		return new DataResponse($this->serializeTracks($tracks));
 	}
 
 	/**
@@ -194,7 +208,7 @@ class TrackController extends OCSController {
 			$private = Flags::readOptional('private', $private);
 			$archived = Flags::readOptional('archived', $archived);
 			$track = $this->trackService->update($id, $this->userId, $name, $sortOrder, $private, $archived, $archivedAt);
-			return new DataResponse($this->serializeTrack($track));
+			return new DataResponse($this->serializeTrack($track, $this->publicLinks->countForTrack($track->getId())));
 		} catch (InvalidTrackNameException|InvalidArchiveDateException|InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);
 		} catch (DoesNotExistException) {
@@ -213,7 +227,7 @@ class TrackController extends OCSController {
 	}
 
 	/**
-	 * Delete a track and its ticks
+	 * Delete a track and its ticks, notes and public links
 	 *
 	 * @param int $id Track ID
 	 * @return DataResponse<Http::STATUS_NO_CONTENT, null, array{}>|DataResponse<Http::STATUS_NOT_FOUND, TickbuddyError, array{}>

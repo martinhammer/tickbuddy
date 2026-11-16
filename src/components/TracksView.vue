@@ -31,7 +31,8 @@ import {
 } from '../icons.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
 import { errorReason, httpStatus } from '../strictHandling.ts'
-import { dropIndex, gapAt, typeName } from '../trackMenu.ts'
+import { trackSubname } from '../publicLinks.ts'
+import { dropIndex, gapAt } from '../trackMenu.ts'
 import type { TrackMenuItem } from '../trackMenu.ts'
 import type { Track } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -42,8 +43,8 @@ import NewTrackDialog from './NewTrackDialog.vue'
 import TrackConfirmDialogs from './TrackConfirmDialogs.vue'
 import TrackSidebar from './TrackSidebar.vue'
 
-// Setting up tracks: the list, details in the sidebar, New track, archive,
-// delete, reorder, and Import and Export. The only screen that asks for
+// Setting up tracks: the list, details and public links in the sidebar, New
+// track, archive, delete, reorder, and Import and Export. The only screen that asks for
 // archived tracks.
 
 const props = defineProps<{
@@ -400,7 +401,7 @@ onMounted(() => {
 							</span>
 						</template>
 						<template #subname>
-							{{ typeName(track.type) }}{{ track.private ? ' · Private' : '' }}
+							{{ trackSubname(track, track.publicLinkCount) }}
 						</template>
 						<template #actions>
 							<NcActionButton v-for="item in menuItems(track)"
@@ -445,8 +446,9 @@ onMounted(() => {
 										{{ track.name }}
 										<span :class="$style.archivedDate">archived {{ fmtDay(track.archivedAt) }}</span>
 									</div>
+									<!-- No link count: archiving revoked them -->
 									<div :class="$style.archivedType">
-										{{ typeName(track.type) }}{{ track.private ? ' · Private' : '' }}
+										{{ trackSubname(track) }}
 									</div>
 								</div>
 								<NcActions :class="$style.archivedActions">
@@ -492,6 +494,7 @@ onMounted(() => {
 		:rename-requested="renamingTrackId === selectedTrack.id"
 		@close="emit('close-track')"
 		@rename-started="renamingTrackId = null"
+		@links-changed="reload"
 		@archive="trackPendingArchive = selectedTrack"
 		@delete="trackPendingDelete = selectedTrack"
 		@rename="(name) => selectedTrack && saveName(selectedTrack, name)"

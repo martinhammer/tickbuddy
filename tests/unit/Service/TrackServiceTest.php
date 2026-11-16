@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Service;
 
 use OCA\Tickbuddy\Db\NoteMapper;
+use OCA\Tickbuddy\Db\PublicLinkMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
@@ -25,6 +26,7 @@ final class TrackServiceTest extends TestCase {
 	private TrackMapper $trackMapper;
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
+	private PublicLinkMapper $publicLinkMapper;
 	private ITimeFactory $timeFactory;
 	private StrictHandling $strictHandling;
 	private IDBConnection $db;
@@ -35,12 +37,13 @@ final class TrackServiceTest extends TestCase {
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->tickMapper = $this->createMock(TickMapper::class);
 		$this->noteMapper = $this->createMock(NoteMapper::class);
+		$this->publicLinkMapper = $this->createMock(PublicLinkMapper::class);
 		$this->timeFactory = $this->createMock(ITimeFactory::class);
 		$this->timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-15 01:30:00'));
 		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
 		$this->strictHandling = $this->createMock(StrictHandling::class);
 		$this->db = $this->createMock(IDBConnection::class);
-		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->timeFactory, $this->strictHandling, $this->db);
+		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->timeFactory, $this->strictHandling, $this->db);
 	}
 
 	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
@@ -177,6 +180,36 @@ final class TrackServiceTest extends TestCase {
 
 		$this->assertSame('2026-10-14', $updated->getArchivedAt());
 		$this->assertSame(3, $updated->getSortOrder());
+	}
+
+	public function testArchiveRevokesThatTracksPublicLinks(): void {
+		$this->givenTrack($this->makeTrack(7));
+		$this->timeFactory->method('getTime')->willReturn(1_794_000_000);
+		$this->publicLinkMapper->expects($this->once())->method('revokeByTrack')->with(7, 1_794_000_000);
+
+		$this->service->update(7, $this->userId, archived: true, archivedAt: '2026-10-14');
+	}
+
+	public function testRestoreBringsNoPublicLinksBack(): void {
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(9);
+		$this->publicLinkMapper->expects($this->never())->method($this->anything());
+
+		$this->service->update(7, $this->userId, archived: false);
+	}
+
+	public function testReArchivingRevokesNothing(): void {
+		$this->givenTrack($this->makeTrack(7, '2026-08-14'));
+		$this->publicLinkMapper->expects($this->never())->method('revokeByTrack');
+
+		$this->service->update(7, $this->userId, archived: true);
+	}
+
+	public function testOtherChangesRevokeNothing(): void {
+		$this->givenTrack($this->makeTrack(7));
+		$this->publicLinkMapper->expects($this->never())->method('revokeByTrack');
+
+		$this->service->update(7, $this->userId, name: 'Run', private: true);
 	}
 
 	public function testArchiveWithoutDateUsesTheServerDate(): void {
@@ -408,7 +441,7 @@ final class TrackServiceTest extends TestCase {
 		$this->service->reorder([1], $this->userId);
 	}
 
-	public function testDeleteRemovesTicksAndNotesToo(): void {
+	public function testDeleteRemovesTicksNotesAndPublicLinksToo(): void {
 		$track = new Track();
 		$track->setId(5);
 		$track->setUserId($this->userId);
@@ -418,6 +451,9 @@ final class TrackServiceTest extends TestCase {
 			->method('deleteByTrackId')
 			->with(5);
 		$this->noteMapper->expects($this->once())
+			->method('deleteByTrackId')
+			->with(5);
+		$this->publicLinkMapper->expects($this->once())
 			->method('deleteByTrackId')
 			->with(5);
 		$this->trackMapper->expects($this->once())

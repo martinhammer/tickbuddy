@@ -6,6 +6,7 @@ namespace Service;
 
 use OCA\Tickbuddy\Db\Note;
 use OCA\Tickbuddy\Db\NoteMapper;
+use OCA\Tickbuddy\Db\PublicLinkMapper;
 use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
@@ -21,6 +22,7 @@ use Psr\Log\LoggerInterface;
 final class ImportServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
+	private PublicLinkMapper $publicLinkMapper;
 	private TrackMapper $trackMapper;
 	private IDBConnection $db;
 	private LoggerInterface $logger;
@@ -36,12 +38,13 @@ final class ImportServiceTest extends TestCase {
 	protected function setUp(): void {
 		$this->tickMapper = $this->createMock(TickMapper::class);
 		$this->noteMapper = $this->createMock(NoteMapper::class);
+		$this->publicLinkMapper = $this->createMock(PublicLinkMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
 		$this->db = $this->createMock(IDBConnection::class);
 		$timeFactory = $this->createMock(ITimeFactory::class);
 		$timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-20 09:00:00'));
 		$this->logger = $this->createMock(LoggerInterface::class);
-		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->db, $timeFactory, $this->logger);
+		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->db, $timeFactory, $this->logger);
 
 		$this->trackMapper->method('insert')->willReturnCallback(function (Track $track): Track {
 			$track->setId(101 + count($this->insertedTracks));
@@ -356,7 +359,19 @@ final class ImportServiceTest extends TestCase {
 		$this->import($this->duplicateNamesBackup());
 	}
 
-	public function testTickmateReplaceDeletesNotes(): void {
+	public function testReplaceDeletesPublicLinks(): void {
+		$this->publicLinkMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
+
+		$this->import($this->duplicateNamesBackup());
+	}
+
+	public function testMergeKeepsPublicLinks(): void {
+		$this->publicLinkMapper->expects($this->never())->method('deleteAllByUser');
+
+		$this->import($this->duplicateNamesBackup(), ImportService::MODE_MERGE);
+	}
+
+	public function testTickmateReplaceDeletesNotesAndPublicLinks(): void {
 		$this->file = tempnam(sys_get_temp_dir(), 'tickbuddy-import-test');
 		$sqlite = new \SQLite3($this->file);
 		$sqlite->exec('CREATE TABLE tracks (_id INTEGER PRIMARY KEY, name TEXT, enabled INTEGER, "order" INTEGER)');
@@ -365,6 +380,7 @@ final class ImportServiceTest extends TestCase {
 		$sqlite->exec('INSERT INTO ticks VALUES (1, 1, 2026, 9, 17)');
 		$sqlite->close();
 		$this->noteMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
+		$this->publicLinkMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
 
 		$result = $this->service->importTickmate($this->file, ImportService::MODE_REPLACE, $this->userId);
 

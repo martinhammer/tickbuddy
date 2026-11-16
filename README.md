@@ -22,15 +22,41 @@ Key features available now:
 * Nextcloud dashboard widget
 * Import/export data in JSON format
 * Import data from Tickmate backup file
+* Public links (also known as ping URLs or webhooks) let your scripts and home automations tick a track, or read it, without an app password
 * A rich set of APIs leveraged by companion apps: [Tickdroid](https://github.com/martinhammer/tickdroid), [Tickcli](https://github.com/martinhammer/tickcli), [TickLLMe](https://github.com/martinhammer/tickllme)
 
 Planned features:
-* Ping URLs for further automation integrations
 * Additional track types
 * Setting and tracking of targets, goals and expectations 
 * Migration options from other tools
 * Support for translations and accessibility
 * Maybe even a smartwatch app
+
+### Public links
+
+Open a track on the Tracks screen and go to its Public links tab to create one. A **Tick only** link ticks the track whenever it is called; a **View only** link answers the track's ticks as JSON. Each link only works for its allowed days (today, +1 day, 1 week or all), and can be revoked on its own. Use the copy button to copy a link, then call it from a script, a cron job or a home automation:
+
+```sh
+# A Tick only link: tick today (a counter adds 1)
+curl "$LINK"
+
+# Add a line to the day's note, tick another day, or set an exact value
+curl --data-urlencode "appendNote=2.3 GB in 4 min" "$LINK"
+curl "$LINK?date=2026-11-15"
+curl "$LINK?value=0"
+
+# Send a command's output as the note
+backup.sh 2>&1 | tail -n 3 | curl -fsS --data-binary @- -H 'Content-Type: text/plain' "$LINK"
+
+# A View only link: today's tick as JSON
+curl "$LINK"
+
+# Include the notes, or ask for several days
+curl "$LINK?includeNotes=true"
+curl "$LINK?from=2026-11-10&to=2026-11-16"
+```
+
+A Tick only link ticks on GET, POST and HEAD alike, so don't paste one into chats or emails, whose link previews would call it. The details are in [mobile_instructions.md](mobile_instructions.md#public-links).
 
 ### Motivation
 Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, it has been evolving towards a more flexible "daily everything-tracker" concept which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.

@@ -43,7 +43,7 @@ Every request MUST include:
 
 | Header | Value | Purpose |
 |---|---|---|
-| `OCS-APIRequest` | `true` | Required by Nextcloud for any OCS call. Missing it → 404 or HTML error page. |
+| `OCS-APIRequest` | `true` | Required by Nextcloud for any signed-in OCS call. Missing it → 404 or HTML error page. (The public link call, §3 Public links, needs none of these headers.) |
 | `Accept` | `application/json` | Forces JSON response envelope. |
 | `Authorization` | `Basic …` | See above. |
 
@@ -94,6 +94,9 @@ Every error answer of Tickbuddy's own carries `{message, reason}` in `ocs.data`:
 | 400 | `invalidUpload` | an import with no file, an upload error, or a file over 20 MB |
 | 400 | `importFailed` | the import file was read and refused; nothing imported |
 | 403 | `trackLimitReached` | 99 tracks already |
+| 403 | `publicLinkLimitReached` | the track already has 99 public links |
+| 403 | `dayNotAllowed` | a public link was called for a day outside its allowed days |
+| 404 | `publicLinkNotFound` | the public link doesn't exist, was revoked, or its owner can't sign in (also an unknown link id on `/api/public-links/{id}`) |
 | 409 | `noteConflict` | other writers kept changing the note while appending |
 | 409 | `databaseConflict` | the database refused a track change (in practice a `sortOrder` another track holds): `The tracks changed while saving; try again` |
 | 409 | `requestInProgress` | a request with the same `Idempotency-Key` is still being handled; try again shortly |
@@ -192,14 +195,15 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
     "notesAppend": true,
     "idempotencyKey": true,
     "trackFilter": true,
-    "notesBounds": true
+    "notesBounds": true,
+    "publicLinks": true
   }
 }
 ```
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), `trackFilter` (`GET /api/ticks` and `GET /api/notes` take `trackId` — see §3; an older server ignores it and answers every track, so **never assume the answer holds only the track asked for without this flag**), `notesBounds` (`GET /api/notes/bounds` exists — see §3 Notes; absent on older servers, where that route 404s), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Four flags gate optional behaviour: `tickBounds` (`GET /api/ticks/bounds` exists — see §3; absent on older servers, where that route 404s), `archivedTracks` (tracks can be archived and restored — see §3 `PUT /api/tracks/{id}`; an older server silently ignores the `archived` field and answers 200 without archiving, so **don't offer archive or restore without this flag**), `counterIncrement` (`POST /api/ticks/increment` exists — see §3 and §4), `booleanSet` (`POST /api/ticks/set` also takes yes/no tracks — see §3; an older server answers `400` there), `stats` (`GET /api/stats` exists — see §3; absent on older servers, where that route 404s), `notes` (notes on a track's day — see §3 Notes; an older server 404s the `/api/notes` routes and **silently ignores `note` on tick calls**, so never send one without this flag), `statsPeriod` (`GET /api/stats` takes `from` and `to` — see §3 Stats; an older server ignores both and answers all-time stats as if they were the period's, so **never send them without this flag**), `notesAppend` (`POST /api/notes/append` and `appendNote` on tick calls exist, and notes hold up to 500 characters — see §3 Notes; an older notes build 404s the route and **silently ignores `appendNote`**, so never send one without this flag), `idempotencyKey` (`POST /api/tracks`, `toggle`, `set`, `increment` and `POST /api/notes/append` honour `Idempotency-Key` — see Retrying writes safely above; an older server ignores the header, so **a retried increment can count twice there**), `trackFilter` (`GET /api/ticks` and `GET /api/notes` take `trackId` — see §3; an older server ignores it and answers every track, so **never assume the answer holds only the track asked for without this flag**), `notesBounds` (`GET /api/notes/bounds` exists — see §3 Notes; absent on older servers, where that route 404s), `publicLinks` (the `/api/public-links` endpoints, `publicLinkCount` on tracks, and the call — see §3 Public links; older servers 404 the routes), plus `syncDelta`, which will flip to `true` in a future backend (see §4): a "changed since X" delta endpoint exists. Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -218,11 +222,12 @@ type        enum       "boolean" | "counter"    (immutable after create)
 sortOrder   int        client-influenced display order
 private     bool       hides from default views; export must opt-in
 archivedAt  string?    "YYYY-MM-DD" the track was archived on; null while active
+publicLinkCount int    live public links (features.publicLinks; absent on older servers); 0 when archived
 ```
 
 - **Max 99 tracks per user.** Creating the 100th returns `403` with `{message: "Maximum of 99 tracks reached"}`.
 - **Track `type` is immutable.** `PUT /api/tracks/{id}` silently ignores any `type` field. If a user wants a different type, they must delete and recreate.
-- **Deleting a track cascades**: all its ticks and notes are deleted server-side.
+- **Deleting a track cascades**: all its ticks, notes and public links are deleted server-side. **Archiving revokes its public links**, from any client; restoring brings none back.
 - **Archived tracks** (`archivedAt` set) are hidden from `GET /api/tracks` unless asked for, keep their ticks, and can't change: ticks, notes, rename, private, sort order and re-archiving are quietly ignored, or refused with `423` when you send `Prefer: handling=strict` (see §1, Read-only tracks). Only restore and delete work. They still count towards the 99-track limit, so creating a track can fail with fewer than 99 visible.
 
 ### Tick
@@ -525,6 +530,59 @@ Response: `{"defaultView": "journal" | "readonly" | "analytics"}`. Default `"jou
 #### `PUT /api/preferences`
 Form param: `defaultView` (one of the three enum values). Unknown values fall back to `"journal"`.
 
+### Public links
+
+Requires `features.publicLinks`. A public link (also known as a ping URL or webhook) is a web address that ticks or reads **one track** without an app password: the token in the address is the credential. Each has a name, a permission (`tick` or `view`) and allowed days (Editable days' values: `activeDay`, `activeAndPrevious`, `oneWeek`, `allDays`), fixed when created; only the name can change. At most 99 live links per track.
+
+A link object:
+
+```json
+{
+  "id": 7,
+  "trackId": 3,
+  "name": "Backup server",
+  "permission": "tick",
+  "allowedDays": "activeAndPrevious",
+  "url": "https://cloud.example.com/ocs/v2.php/apps/tickbuddy/ping/Hx4…",
+  "lastUsedAt": 1763262720
+}
+```
+
+`lastUsedAt` is Unix seconds, or `null` until the first call; updated at most once a minute, on every call that reaches the link (also one answered 400 or 403). The token appears only inside `url`, which the server builds; never show it on screen, offer a copy button.
+
+#### `GET /api/public-links?trackId=n`
+The track's live links, oldest first; `trackId` missing or 0 is every track's. Revoked links are never listed, so an archived track has none. `404 trackNotFound` for a track that isn't yours.
+
+#### `POST /api/public-links`
+Form params `trackId`, `name`, `permission`, `allowedDays`, all required. `201` with the link. Checks in order: track (`404 trackNotFound`), archived (`423 archived`, **for every client**, with or without `Prefer`), name (`400`, trimmed, 1 to 255 characters, may repeat), `permission` and `allowedDays` (`400 Unknown value "x" for …`), the limit (`403 publicLinkLimitReached`). Honours `Idempotency-Key`.
+
+#### `PUT /api/public-links/{id}`
+Form param `name`. `200` with the link. `404 publicLinkNotFound` for a link that isn't yours or is revoked. `permission` and `allowedDays` are ignored if sent.
+
+#### `DELETE /api/public-links/{id}`
+Revokes the link: `204`, also when it already was. `404 publicLinkNotFound` for a link that isn't yours.
+
+#### The call: `GET`/`POST`/`HEAD` `{url}`
+`/ocs/v2.php/apps/tickbuddy/ping/{token}`. **No `OCS-APIRequest`, no `Authorization`, no CSRF token**; a signed-in session grants nothing here, the link's owner is the user. The answer is the usual OCS envelope, **in JSON by default** (`?format=xml` or `Accept: application/xml` for XML). The day is today **in the owner's Nextcloud time zone** unless `date` (or `from`/`to`) says otherwise, and every day must be one of the link's allowed days and never after today, else `403 dayNotAllowed` and nothing is done.
+
+A **Tick only** link takes `value`, `date` and `appendNote`, from the query string or a form or JSON body; or a `POST` body with `Content-Type: text/plain` as the text to append.
+
+| Track | No `value` | With `value` |
+|---|---|---|
+| Yes/No | ticks the day (again: no change) | `true`/`false` (also `1`/`0`, `on`/`off`, `yes`/`no`), as `set` |
+| Counter | adds 1 (as `increment`) | sets the day to it, 0 to 2147483647, 0 clears |
+
+`appendNote` (or the text body) adds a line to the day's note, a line already there being skipped (there is no `allowDuplicateNote`). The answer is `{value}` (1 or 0 for yes/no), plus `note`, the whole stored note, when text was sent. Honours `Idempotency-Key`, whatever the method. A Tick link on another track type answers `400 wrongTrackType`.
+
+A **View only** link takes `date`, or `from` and `to` (both, as on `GET /api/ticks`), and `includeNotes`. It answers `{ticks: [...]}`, and with `includeNotes=true` also `notes: [...]`, each exactly as `GET /api/ticks` and `GET /api/notes` give them for this track: newest first, sparse. `Idempotency-Key` is ignored.
+
+Errors, each with `{message, reason}`:
+- `404 publicLinkNotFound`: unknown or revoked token, or the owner is deleted, disabled or doesn't have Tickbuddy.
+- `400 invalidValue`: a bad parameter, as on the API; `Send appendNote or a text body, not both`; `Send date, or from and to, not both`; a View link's parameters sent to a Tick link (`Tick only links don't read: leave out from, to and includeNotes`) or the other way round (`View only links don't tick: leave out value, appendNote and the body`).
+- `403 dayNotAllowed`: `This link's allowed days (+1 day) don't include 2026-11-10`.
+- `409`, `422` as on the API.
+- `429`, from Nextcloud and without a `reason`: over 60 calls a minute from one address (all links together; an empty body), or, after 10 calls with tokens that never existed, brute-force protection (an OCS answer, XML unless you asked for JSON). Calls to a revoked link don't count as guesses.
+
 ### Import / Export
 
 #### `GET /api/export?includePrivate=true|false`
@@ -704,6 +762,10 @@ curl -u "$USER:$APP_PASS" \
 curl -u "$USER:$APP_PASS" \
   -H "OCS-APIRequest: true" -H "Accept: application/json" \
   "$NC/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-01-01&to=2026-11-15&trackId=1"
+
+# Tick a track with a public link: no headers, no credentials (features.publicLinks)
+curl -fsS -m 10 --retry 3 "$LINK"
+printf 'Backup OK' | curl -fsS --data-binary @- -H 'Content-Type: text/plain' "$LINK"
 
 # First and last note per track (404 = server predates features.notesBounds)
 curl -u "$USER:$APP_PASS" \

@@ -298,8 +298,10 @@ class StatsService {
 	 * Days since 1970-01-01 of a YYYY-MM-DD date, or null when it isn't a real
 	 * date. Computed arithmetically (Howard Hinnant's days_from_civil) rather
 	 * than through DateTime objects: this runs once per tick row.
+	 *
+	 * @internal Public for EditableDays
 	 */
-	private static function dayNumber(string $date): ?int {
+	public static function dayNumber(string $date): ?int {
 		if (!TrackService::isValidDate($date)) {
 			return null;
 		}

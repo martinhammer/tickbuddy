@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OCA\Tickbuddy\Service;
 
 use OCA\Tickbuddy\Db\NoteMapper;
+use OCA\Tickbuddy\Db\PublicLinkMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
@@ -27,6 +28,7 @@ class TrackService {
 		private TrackMapper $trackMapper,
 		private TickMapper $tickMapper,
 		private NoteMapper $noteMapper,
+		private PublicLinkMapper $publicLinkMapper,
 		private ITimeFactory $timeFactory,
 		private StrictHandling $strictHandling,
 		private IDBConnection $db,
@@ -132,6 +134,8 @@ class TrackService {
 	 * archive or restore, so a restore's end-of-list position wins over a
 	 * sort order sent with it.
 	 *
+	 * Archiving revokes every public link of the track; restoring brings none back.
+	 *
 	 * An archived track only takes a restore (with or without other fields).
 	 * Any other change, re-archiving included, is refused for clients that
 	 * asked for strict handling and quietly ignored for the rest.
@@ -180,7 +184,11 @@ class TrackService {
 			$track->setPrivate($private ? 1 : 0);
 		}
 		if ($archived === true) {
+			// Only an active track gets here: re-archiving returned above, with nothing left to revoke
 			$track->setArchivedAt($archivedAt ?? $this->timeFactory->getDateTime()->format('Y-m-d'));
+			$track = $this->trackMapper->update($track);
+			$this->publicLinkMapper->revokeByTrack($track->getId(), $this->timeFactory->getTime());
+			return $track;
 		} elseif ($archived === false && $track->getArchivedAt() !== null) {
 			$track->setArchivedAt(null);
 			return $this->updateAtEnd($track, $userId);
@@ -305,6 +313,7 @@ class TrackService {
 		$track = $this->trackMapper->findByIdAndUser($id, $userId);
 		$this->tickMapper->deleteByTrackId($id);
 		$this->noteMapper->deleteByTrackId($id);
+		$this->publicLinkMapper->deleteByTrackId($id);
 		$this->trackMapper->delete($track);
 	}
 }
