@@ -1,7 +1,7 @@
 import axios from '@nextcloud/axios'
 import { generateOcsUrl } from '@nextcloud/router'
 import { isTickbuddyApiUrl, PREFER_STRICT } from './strictHandling.ts'
-import type { Note, Preferences, Tick, Track, TrackStats } from './types.ts'
+import type { EditableDays, LinkPermission, Note, Preferences, PublicLink, Tick, Track, TrackStats } from './types.ts'
 
 let strictRegistered = false
 
@@ -156,4 +156,53 @@ export async function savePreference<K extends keyof Preferences>(field: K, valu
 	const params = new URLSearchParams()
 	params.append(field, String(value))
 	await axios.put(generateOcsUrl('/apps/tickbuddy/api/preferences'), params)
+}
+
+/**
+ * A track's public links, oldest first.
+ *
+ * @param trackId the track
+ */
+export async function fetchPublicLinks(trackId: number): Promise<PublicLink[]> {
+	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/public-links'), { params: { trackId } })
+	return response.data.ocs.data
+}
+
+/**
+ * Create a public link. Its permission and allowed days can't change later.
+ *
+ * @param trackId the track
+ * @param name the link's name
+ * @param permission tick or view
+ * @param allowedDays the days a call may tick or read
+ */
+export async function createPublicLink(trackId: number, name: string, permission: LinkPermission, allowedDays: EditableDays): Promise<PublicLink> {
+	const params = new URLSearchParams()
+	params.append('trackId', String(trackId))
+	params.append('name', name)
+	params.append('permission', permission)
+	params.append('allowedDays', allowedDays)
+	const response = await axios.post(generateOcsUrl('/apps/tickbuddy/api/public-links'), params)
+	return response.data.ocs.data
+}
+
+/**
+ * @param id the link
+ * @param name its new name
+ * @return the renamed link
+ */
+export async function renamePublicLink(id: number, name: string): Promise<PublicLink> {
+	const params = new URLSearchParams()
+	params.append('name', name)
+	const response = await axios.put(generateOcsUrl(`/apps/tickbuddy/api/public-links/${id}`), params)
+	return response.data.ocs.data
+}
+
+/**
+ * Revoke a public link; fine when it already is.
+ *
+ * @param id the link
+ */
+export async function revokePublicLink(id: number): Promise<void> {
+	await axios.delete(generateOcsUrl(`/apps/tickbuddy/api/public-links/${id}`))
 }

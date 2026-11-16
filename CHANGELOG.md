@@ -7,10 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Public links (also known as ping URLs or webhooks): a URL that ticks or reads a track without an app password, intended primarily for scripts and home automations; configured in a new Public links tab in the track's sidebar
+- API: `/api/public-links` to list, create, rename and revoke public links, and `publicLinkCount` on tracks (flag `publicLinks`)
 - API: `GET /api/ticks` and `GET /api/notes` take `trackId` to read one track's ticks or notes (flag `trackFilter`)
 - API: `GET /api/notes/bounds`, the first and last note date per track (flag `notesBounds`)
 
 ### Changed
+- Archiving a track revokes its public links
 - Analytics reads only the selected track's ticks instead of every track's whole history
 - API: boolean flags (`includeArchived`, `includeRuns`, `includePrivate`, `private`, `archived`, `allowDuplicate`, `allowDuplicateNote`, `showPrivateDesktop`, `showPrivateMobile`) take `true`/`false`, `1`/`0`, `on`/`off` or `yes`/`no`; anything else is http 400
 - API: a counter's `value` on `POST /api/ticks/set` must be a whole number from 0 to 2147483647; a negative, missing or non-whole value is http 400

@@ -60,6 +60,7 @@ class Capabilities implements ICapability {
 	 *             idempotencyKey: bool,
 	 *             trackFilter: bool,
 	 *             notesBounds: bool,
+	 *             publicLinks: bool,
 	 *         },
 	 *     },
 	 * }
@@ -115,6 +116,10 @@ class Capabilities implements ICapability {
 					// GET /api/notes/bounds — first/last note date per track.
 					// Absent on older servers, where the route 404s.
 					'notesBounds' => true,
+					// Public links: GET/POST /api/public-links, PUT/DELETE /api/public-links/{id},
+					// `publicLinkCount` on tracks, and the call at /ping/{token}.
+					// Older servers 404 the routes.
+					'publicLinks' => true,
 				],
 			],
 		];

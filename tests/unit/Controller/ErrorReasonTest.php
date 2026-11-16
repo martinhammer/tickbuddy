@@ -20,6 +20,7 @@ use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
+use OCA\Tickbuddy\Service\PublicLinkService;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\StatsService;
 use OCA\Tickbuddy\Service\TickService;
@@ -132,7 +133,7 @@ final class ErrorReasonTest extends TestCase {
 		$service->method('update')->willThrowException($e);
 		$service->method('reorder')->willThrowException($e);
 		$service->method('delete')->willThrowException($e);
-		return new TrackController('tickbuddy', $this->request, $service, $this->idempotency(), 'testuser', $this->createMock(LoggerInterface::class));
+		return new TrackController('tickbuddy', $this->request, $service, $this->createMock(PublicLinkService::class), $this->idempotency(), 'testuser', $this->createMock(LoggerInterface::class));
 	}
 
 	public function testCreateErrors(): void {

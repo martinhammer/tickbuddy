@@ -20,6 +20,21 @@ namespace OCA\Tickbuddy;
  *     sortOrder: int,
  *     private: bool,
  *     archivedAt: ?string,
+ *     publicLinkCount: int,
+ * }
+ *
+ * A public link. `permission` is "tick" or "view"; `allowedDays` one of
+ * Editable days' values; `lastUsedAt` Unix seconds, null until first called.
+ * The token appears only inside `url`.
+ *
+ * @psalm-type TickbuddyPublicLink = array{
+ *     id: int,
+ *     trackId: int,
+ *     name: string,
+ *     permission: string,
+ *     allowedDays: string,
+ *     url: string,
+ *     lastUsedAt: ?int,
  * }
  *
  * @psalm-type TickbuddyTick = array{
@@ -45,6 +60,13 @@ namespace OCA\Tickbuddy;
  *     trackId: int,
  *     date: string,
  *     text: string,
+ * }
+ *
+ * What a View only public link answers
+ *
+ * @psalm-type TickbuddyPingView = array{
+ *     ticks: list<TickbuddyTick>,
+ *     notes?: list<TickbuddyNote>,
  * }
  *
  * @psalm-type TickbuddyRun = array{

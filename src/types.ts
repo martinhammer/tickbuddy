@@ -6,6 +6,8 @@ export interface Track {
 	private: boolean
 	/** The archive date as YYYY-MM-DD, or null while active. */
 	archivedAt: string | null
+	/** Live public links; 0 for an archived track, whose links are revoked. */
+	publicLinkCount: number
 }
 
 export interface Tick {
@@ -71,4 +73,20 @@ export interface Preferences {
 	showPrivateMobile: boolean
 	editableDaysDesktop: EditableDays
 	editableDaysMobile: EditableDays
+}
+
+/** What a public link does: tick its track, or read it. */
+export type LinkPermission = 'tick' | 'view'
+
+/** `GET /api/public-links`: a web address that ticks or reads one track. */
+export interface PublicLink {
+	id: number
+	trackId: number
+	name: string
+	permission: LinkPermission
+	allowedDays: EditableDays
+	/** The address, token included. Copied, never shown. */
+	url: string
+	/** Unix seconds, or null until first called. */
+	lastUsedAt: number | null
 }

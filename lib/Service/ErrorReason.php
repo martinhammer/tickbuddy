@@ -23,6 +23,12 @@ final class ErrorReason {
 	public const IMPORT_FAILED = 'importFailed';
 	/** 403: the user already has the most tracks allowed */
 	public const TRACK_LIMIT_REACHED = 'trackLimitReached';
+	/** 403: the track already has the most public links allowed */
+	public const PUBLIC_LINK_LIMIT_REACHED = 'publicLinkLimitReached';
+	/** 403: a public link was called for a day outside its allowed days */
+	public const DAY_NOT_ALLOWED = 'dayNotAllowed';
+	/** 404: the public link doesn't exist, was revoked, or its owner can't sign in */
+	public const PUBLIC_LINK_NOT_FOUND = 'publicLinkNotFound';
 	/** 409: other writers kept changing the note while appending */
 	public const NOTE_CONFLICT = 'noteConflict';
 	/** 409: the database refused a track change */
