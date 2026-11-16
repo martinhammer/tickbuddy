@@ -157,7 +157,7 @@ function save(text: string): Promise<boolean> {
 }
 
 .cell:hover,
-.cell:focus-within,
+.cell:has(:focus-visible),
 .editing {
 	z-index: 3;
 }
@@ -169,13 +169,13 @@ function save(text: string): Promise<boolean> {
 }
 
 .cell:hover .control,
-.cell:focus-within .control {
+.cell:has(:focus-visible) .control {
 	opacity: 1;
 	pointer-events: auto;
 }
 
 .cell:hover .hidesOnHover,
-.cell:focus-within .hidesOnHover {
+.cell:has(:focus-visible) .hidesOnHover {
 	opacity: 0;
 }
 
@@ -366,7 +366,7 @@ function save(text: string): Promise<boolean> {
 }
 
 .cell:hover .noteBox,
-.cell:focus-within .noteBox,
+.cell:has(:focus-visible) .noteBox,
 .noteBoxEditing {
 	display: block;
 }

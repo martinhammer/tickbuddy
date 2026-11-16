@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - API: database errors no longer send the database's own text to the client
 - Import: miscellaneous fixes for Tickmate files
+- Journal: cell hover focus does not get stuck after a tick or a note
 
 ## [3.0.0] - 2026-10-30
 
