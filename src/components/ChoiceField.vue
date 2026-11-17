@@ -42,10 +42,13 @@ const selected = computed<Choice | null>({
 	},
 })
 
-// The list opens when its search field gets focus
+// Focus alone no longer opens the list (vue-select leaves that to a click or
+// a key), and a field focused without opening never emits close, which would
+// keep the Journal's bar open: open it as a press on the field does
 function open(): void {
 	const el = root.value?.$el as HTMLElement | undefined
-	el?.querySelector('input')?.focus()
+	el?.querySelector('.vs__selected-options')
+		?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
 }
 
 onMounted(async () => {
