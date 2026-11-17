@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-11-17
 
 ### Added
 - Public links (also known as ping URLs or webhooks): a URL that ticks or reads a track without an app password, intended primarily for scripts and home automations; configured in a new Public links tab in the track's sidebar

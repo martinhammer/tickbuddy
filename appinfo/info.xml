@@ -25,7 +25,7 @@ Your data is stored in Tickbuddy on your Nextcloud server. These companion apps 
 	<repository type="git">https://github.com/martinhammer/tickbuddy</repository>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Today_20261030.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Journal_20261030.png</screenshot>
-	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Tracks_20261030.png</screenshot>	
+	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Tracks_20261117.png</screenshot>	
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Analytics_20261030.png</screenshot>
 	<screenshot>https://raw.githubusercontent.com/martinhammer/tickbuddy/main/img/Dashboard_20261030.png</screenshot>
 	<dependencies>
