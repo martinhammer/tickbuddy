@@ -14,6 +14,7 @@ You can learn more about Tickbuddy and the companion apps over at [tickbuddy.app
 ### Features
 
 Key features available now:
+* Four track types: Yes/No, Counter, Number, Choice
 * Today screen to tick each track for one day, with the last seven days, the current streak and the day's note
 * Journal screen in two layouts (days down or tracks down), with a choice of which days can be changed, notes in the cells, and "Go to date"
 * Tracks screen to add, rename, reorder, archive, restore and delete tracks (i.e. events to be tracked), and to import and export
@@ -26,8 +27,8 @@ Key features available now:
 * A rich set of APIs leveraged by companion apps: [Tickdroid](https://github.com/martinhammer/tickdroid), [Tickcli](https://github.com/martinhammer/tickcli), [TickLLMe](https://github.com/martinhammer/tickllme)
 
 Planned features:
-* Additional track types
-* Setting and tracking of targets, goals and expectations 
+* Analytics enhancements
+* Setting and tracking of targets, goals and expectations
 * Migration options from other tools
 * Support for translations and accessibility
 * Maybe even a smartwatch app

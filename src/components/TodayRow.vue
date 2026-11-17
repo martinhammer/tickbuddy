@@ -1,22 +1,26 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import { fmtDate } from '../dates.ts'
-import { valueText } from '../heatmap.ts'
+import { choiceLabel, numberText, trackValueText } from '../heatmap.ts'
 import { MDI_MINUS, MDI_NOTE_TEXT_OUTLINE, MDI_PLUS } from '../icons.ts'
 import { hashFor } from '../routes.ts'
 import { runText } from '../runText.ts'
 import type { Track, TrackStats } from '../types.ts'
+import ChoiceField from './ChoiceField.vue'
 import NoteField from './NoteField.vue'
 import NoteText from './NoteText.vue'
+import NumberField from './NumberField.vue'
 
 type SaveNote = (text: string) => Promise<boolean>
+type SaveValue = (value: number | null) => Promise<boolean>
 
 export interface Square {
 	date: string
-	value: number
+	/** The stored value, null without a tick */
+	value: number | null
 	fill: string
 	/** The day shown, outlined */
 	shown: boolean
@@ -24,14 +28,18 @@ export interface Square {
 
 const props = defineProps<{
 	track: Track
-	/** The value on the day shown */
-	value: number
+	/** The value on the day shown, null without a tick */
+	value: number | null
 	/** Seven days, newest first: the last seven, or the day shown and the six after it */
 	squares: Square[]
 	stats: TrackStats | undefined
 	/** The day's note, "" when there is none */
 	note: string
 	locked: boolean
+	/** A Number or Choice is on screen: the control area is wider, on every row */
+	wide: boolean
+	/** A Number's value or a Choice's place (null clears the day) */
+	saveValue: SaveValue
 	saveNote: SaveNote
 }>()
 
@@ -45,11 +53,27 @@ const editing = ref(false)
 
 const isYesNo = props.track.type === 'boolean'
 const isCounter = props.track.type === 'counter'
+const isNumber = props.track.type === 'number'
+const isChoice = props.track.type === 'choice'
+
+// Yes/No and Counter read an empty day as 0
+const count = computed(() => props.value ?? 0)
 
 const analyticsLabel = `Show analytics for ${props.track.name}`
+const fieldLabel = props.track.unit ? `${props.track.name}, ${props.track.unit}` : props.track.name
 
 function squareLabel(square: Square): string {
-	return `${props.track.name}, ${fmtDate(square.date)}: ${valueText(square.value, isCounter)}`
+	return `${props.track.name}, ${fmtDate(square.date)}: ${trackValueText(square.value, props.track)}`
+}
+
+// A Number or Choice day is open without a value (a Number's 0 is a reading),
+// a Yes/No or Counter day at 0
+function isOpen(square: Square): boolean {
+	return isNumber || isChoice ? square.value === null : (square.value ?? 0) <= 0
+}
+
+function pick(place: number | null): void {
+	props.saveValue(place)
 }
 
 // A locked day shows the read-only value instead of the controls; a click on
@@ -101,7 +125,7 @@ function openNote(): void {
 						role="img"
 						:aria-label="squareLabel(square)"
 						:title="squareLabel(square)"
-						:class="[$style.square, square.shown && $style.squareShown, square.shown && square.value <= 0 && $style.squareOpen]"
+						:class="[$style.square, square.shown && $style.squareShown, square.shown && isOpen(square) && $style.squareOpen]"
 						:style="{ background: square.fill }" />
 					<span :class="$style.run" :title="analyticsLabel">{{ runText(stats) }}</span>
 				</a>
@@ -138,31 +162,54 @@ function openNote(): void {
 			</div>
 		</div>
 
-		<div :class="[$style.control, locked && $style.controlLocked]" @click="onControlClick">
+		<div :class="[$style.control, wide && $style.controlWide, locked && $style.controlLocked]" @click="onControlClick">
 			<!-- A locked day: the value only, as the Journal shows it at rest -->
 			<span v-if="locked && isYesNo"
 				:class="$style.mark"
 				role="img"
-				:aria-label="`${track.name}: ${value > 0 ? 'ticked' : 'not ticked'}`">{{ value > 0 ? '✓' : '' }}</span>
+				:aria-label="`${track.name}: ${count > 0 ? 'ticked' : 'not ticked'}`">{{ count > 0 ? '✓' : '' }}</span>
 			<span v-else-if="locked && isCounter"
-				:class="[$style.count, value === 0 && $style.zero]"
+				:class="[$style.count, count === 0 && $style.zero]"
 				role="img"
-				:aria-label="`${track.name}: ${value}`">{{ value }}</span>
+				:aria-label="`${track.name}: ${count}`">{{ count }}</span>
+			<span v-else-if="locked && isNumber"
+				:class="$style.lockedValue"
+				role="img"
+				:title="value === null ? undefined : numberText(value, track)"
+				:aria-label="`${track.name}: ${trackValueText(value, track)}`">{{ value === null ? '' : numberText(value, track) }}</span>
+			<span v-else-if="locked && isChoice"
+				:class="$style.lockedValue"
+				role="img"
+				:title="value === null ? undefined : choiceLabel(value, track)"
+				:aria-label="`${track.name}: ${trackValueText(value, track)}`">{{ value === null ? '' : choiceLabel(value, track) }}</span>
+			<template v-else-if="isNumber">
+				<NumberField :track="track"
+					:value="value"
+					:save="saveValue"
+					:label="fieldLabel" />
+				<span v-if="track.unit" :class="$style.unit" :title="track.unit">{{ track.unit }}</span>
+			</template>
+			<ChoiceField v-else-if="isChoice"
+				:track="track"
+				:value="value"
+				:label="track.name"
+				:class="$style.choice"
+				@pick="pick" />
 			<NcCheckboxRadioSwitch v-else-if="isYesNo"
-				:model-value="value > 0"
+				:model-value="count > 0"
 				:aria-label="track.name"
 				@update:model-value="(checked: boolean) => emit('set-yes-no', checked)" />
 			<template v-else-if="isCounter">
 				<NcButton variant="tertiary"
 					:aria-label="`Take one from ${track.name}`"
 					:title="`Take one from ${track.name}`"
-					:disabled="value <= 0"
+					:disabled="count <= 0"
 					@click="emit('increment', -1)">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_MINUS" />
 					</template>
 				</NcButton>
-				<span :class="$style.count">{{ value }}</span>
+				<span :class="$style.count">{{ count }}</span>
 				<NcButton variant="tertiary"
 					:aria-label="`Add one to ${track.name}`"
 					:title="`Add one to ${track.name}`"
@@ -339,6 +386,37 @@ function openNote(): void {
 	min-width: calc(2 * var(--default-clickable-area) + 3ch);
 }
 
+/* With a Number or Choice on screen, on every row (one size, --today-wide-control) */
+.controlWide {
+	--today-wide-control: 170px;
+	gap: 6px;
+	width: var(--today-wide-control);
+	min-width: var(--today-wide-control);
+}
+
+.unit {
+	max-width: 8ch;
+	overflow: hidden;
+	color: var(--color-text-maxcontrast);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.choice {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* A locked Number or Choice: the value as text, cut to the area */
+.lockedValue {
+	min-width: 0;
+	overflow: hidden;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* Fills the area, so a click anywhere in it says why nothing changes */
 .controlLocked {
 	align-self: stretch;
@@ -382,6 +460,10 @@ function openNote(): void {
 	.name {
 		white-space: normal;
 		overflow-wrap: anywhere;
+	}
+
+	.controlWide {
+		--today-wide-control: 140px;
 	}
 }
 </style>

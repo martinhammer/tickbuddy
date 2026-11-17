@@ -1,3 +1,13 @@
+/** One option of a Choice track: its place (the value a day stores) and label. */
+export interface TrackOption {
+	value: number
+	label: string
+}
+
+/**
+ * A track. `type` is "boolean", "counter", "number" or "choice"; any other is
+ * shown read-only. Each type's settings are null on every other type.
+ */
 export interface Track {
 	id: number
 	name: string
@@ -8,6 +18,16 @@ export interface Track {
 	archivedAt: string | null
 	/** Live public links; 0 for an archived track, whose links are revoked. */
 	publicLinkCount: number
+	/** Number: the unit shown after the value, "" when none. */
+	unit: string | null
+	/** Number: 0 to 3. */
+	decimalPlaces: number | null
+	/** Number: whether a value below 0 can be entered. */
+	allowNegative: boolean | null
+	/** Choice: the options in place order. */
+	options: TrackOption[] | null
+	/** Choice: whether the options are a scale, shaded by place. */
+	orderedScale: boolean | null
 }
 
 export interface Tick {
@@ -45,9 +65,13 @@ export interface TrackStats {
 	longestBreak: Run | null
 	firstTick: string | null
 	lastTick: string | null
-	/** Highest value over every day from the first tick, an unticked day counting as 0. */
-	maxValue: number
-	minValue: number
+	/**
+	 * Highest value over every day from the first tick, an unticked day counting
+	 * as 0. Number and ordered Choice: the highest and lowest entry, null without
+	 * one; a plain Choice list: always null.
+	 */
+	maxValue: number | null
+	minValue: number | null
 	/** Only when asked for with includeRuns. */
 	runs?: Run[]
 }

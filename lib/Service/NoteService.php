@@ -68,17 +68,26 @@ class NoteService {
 	 *
 	 * The range is checked first, then the track, as on stats.
 	 *
-	 * @param ?int $trackId One track only (also an archived one), or null for every track
+	 * @param ?int $trackId One track only (also an archived one, and of any type), or null for every track
+	 * @param bool $includeAllTypes With every track: also tracks of types not in
+	 *                              {@see TrackService::BASE_TYPES}
 	 * @return Note[]
 	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
 	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null, bool $includeAllTypes = true): array {
 		TrackService::checkDateRange($from, $to);
 		if ($trackId !== null) {
 			$this->trackMapper->findByIdAndUser($trackId, $userId);
 		}
-		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
+		$trackIds = null;
+		if ($trackId === null && !$includeAllTypes) {
+			$trackIds = $this->trackMapper->findIdsByUserAndTypes($userId, TrackService::BASE_TYPES);
+			if ($trackIds === []) {
+				return [];
+			}
+		}
+		return $this->noteMapper->findByUserAndDateRange($userId, $from, $to, $trackId, $trackIds);
 	}
 
 	/**

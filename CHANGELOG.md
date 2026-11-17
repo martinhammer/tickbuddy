@@ -4,9 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [Unreleased]
+
+### Added
+- Number tracks: a reading typed in each day (km run, weight, a greenhouse's overnight low), with an optional unit, 0 to 3 decimal places, and optionally negative values; shown and typed with the separators of your Nextcloud locale
+- Choice tracks: one option a day from the track's own list of 2 to 99 (mood, pain, which exercise), optionally an ordered scale; options can be renamed later
+- Both new types on Today, in both Journal layouts, on the dashboard widget and in Analytics (as days with an entry for now), with their settings in New track and in the track's Details
+
+### Notes
+- Downgrading Tickbuddy once Number or Choice tracks exist is not supported: an older version would read them as counters. An older version refuses to import an export holding them.
+
+
 ## [3.1.0] - 2026-11-17
 
 ### Added
+- API: track types `number` and `choice`, with `unit`, `decimalPlaces`, `allowNegative`, `options` and `orderedScale` on every track; `POST /api/ticks/set` sets and clears their days; `PUT /api/tracks/{id}/options/{value}` renames an option (flags `numberTracks`, `choiceTracks`)
+- API: `includeAllTypes` on `GET /api/tracks`, `/api/ticks`, `/api/notes`, `/api/stats` and the reorder's answer; without it, older clients see only Yes/No and Counter tracks, as before
+- Public links tick Number and Choice tracks with a value (`value=72.4`, `value=2`)
+- Export and import carry both types, their settings and their values
 - Public links (also known as ping URLs or webhooks): a URL that ticks or reads a track without an app password, intended primarily for scripts and home automations; configured in a new Public links tab in the track's sidebar
 - API: `/api/public-links` to list, create, rename and revoke public links, and `publicLinkCount` on tracks (flag `publicLinks`)
 - API: `GET /api/ticks` and `GET /api/notes` take `trackId` to read one track's ticks or notes (flag `trackFilter`)

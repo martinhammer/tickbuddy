@@ -11,7 +11,7 @@ import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcListItem from '@nextcloud/vue/components/NcListItem'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-import { fetchTracks } from '../api.ts'
+import { fetchTracks, renameOption } from '../api.ts'
 import { fmtDay, todayStr, userLocale } from '../dates.ts'
 import {
 	MDI_ARCHIVE_OUTLINE,
@@ -34,7 +34,7 @@ import { errorReason, httpStatus } from '../strictHandling.ts'
 import { trackSubname } from '../publicLinks.ts'
 import { dropIndex, gapAt } from '../trackMenu.ts'
 import type { TrackMenuItem } from '../trackMenu.ts'
-import type { Track } from '../types.ts'
+import type { Track, TrackOption } from '../types.ts'
 import { useToday } from '../useToday.ts'
 import { refusedAsReadOnly } from '../writeErrors.ts'
 import ExportDialog from './ExportDialog.vue'
@@ -42,6 +42,7 @@ import ImportDialog from './ImportDialog.vue'
 import NewTrackDialog from './NewTrackDialog.vue'
 import TrackConfirmDialogs from './TrackConfirmDialogs.vue'
 import TrackSidebar from './TrackSidebar.vue'
+import type { TrackSetting } from './TrackSidebar.vue'
 
 // Setting up tracks: the list, details and public links in the sidebar, New
 // track, archive, delete, reorder, and Import and Export. The only screen that asks for
@@ -249,6 +250,40 @@ async function setPrivate(track: Track, value: boolean) {
 	}
 }
 
+// A Number's or Choice's setting. The controls show the track's value, so a
+// refused change leaves them as they were.
+const SETTING_FAILED: Record<TrackSetting['field'], string> = {
+	unit: 'Could not update the unit for track',
+	decimalPlaces: 'Could not update decimal places for track',
+	allowNegative: 'Could not update negative values for track',
+	orderedScale: 'Could not update the ordered scale for track',
+}
+
+async function setSetting(track: Track, setting: TrackSetting) {
+	const params = new URLSearchParams()
+	params.append(setting.field, String(setting.value))
+	try {
+		const response = await axios.put(`${apiUrl}/${track.id}`, params)
+		const saved: Track = response.data.ocs.data
+		track.unit = saved.unit
+		track.decimalPlaces = saved.decimalPlaces
+		track.allowNegative = saved.allowNegative
+		track.orderedScale = saved.orderedScale
+	} catch (e) {
+		if (await refusedAsReadOnly(e, track.name, loadTracks)) return
+		showError(ocsErrorMessage(e, `${SETTING_FAILED[setting.field]} "${track.name}"`))
+	}
+}
+
+async function onRenameOption(track: Track, option: TrackOption, label: string) {
+	try {
+		track.options = (await renameOption(track.id, option.value, label)).options
+	} catch (e) {
+		if (await refusedAsReadOnly(e, track.name, loadTracks)) return
+		showError(ocsErrorMessage(e, `Could not rename option "${option.label}"`))
+	}
+}
+
 // --- Reorder ---
 async function move(fromIndex: number, toIndex: number) {
 	if (fromIndex === toIndex) return
@@ -258,6 +293,8 @@ async function move(fromIndex: number, toIndex: number) {
 	const trackIds = tracks.value.map(t => t.id)
 	const params = new URLSearchParams()
 	trackIds.forEach(id => params.append('trackIds[]', String(id)))
+	// The answer lists the tracks; without the flag it would leave Number and Choice out
+	params.append('includeAllTypes', 'true')
 	try {
 		const response = await axios.put(`${apiUrl}/reorder`, params)
 		tracks.value = response.data.ocs.data
@@ -498,7 +535,9 @@ onMounted(() => {
 		@archive="trackPendingArchive = selectedTrack"
 		@delete="trackPendingDelete = selectedTrack"
 		@rename="(name) => selectedTrack && saveName(selectedTrack, name)"
-		@set-private="(value) => selectedTrack && setPrivate(selectedTrack, value)" />
+		@set-private="(value) => selectedTrack && setPrivate(selectedTrack, value)"
+		@set-setting="(setting) => selectedTrack && setSetting(selectedTrack, setting)"
+		@rename-option="(option, label) => selectedTrack && onRenameOption(selectedTrack, option, label)" />
 </template>
 
 <style module>

@@ -22,7 +22,7 @@ import {
 import zoomPlugin from 'chartjs-plugin-zoom'
 import { fetchStats, fetchTicks, fetchTracks } from '../api.ts'
 import { fmtDate, isoWeek, parseDateStr, toDateStr, userLocale } from '../dates.ts'
-import { EMPTY_FILL, LEVEL_ALPHA, fillFor, getPrimaryColor, hexToRgba, levelFor, valueText } from '../heatmap.ts'
+import { EMPTY_FILL, LEVEL_ALPHA, choiceLabel, fillFor, getPrimaryColor, hexToRgba, numberText, trackLevel, trackValueText } from '../heatmap.ts'
 import { loadPreferences, showPrivate } from '../preferences.ts'
 import type { Tick, Track, TrackStats } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -125,6 +125,14 @@ const selectedTrackType = computed(() => {
 	if (!selectedTrack.value) return 'boolean'
 	return allTracks.value.find(t => t.id === selectedTrack.value!.id)?.type ?? 'boolean'
 })
+
+// Number and Choice count days with an entry, as the stats do: each counts 1
+// in the polar and period charts (their own charts come with a later step)
+const countsEntries = computed(() => selectedTrackType.value === 'number' || selectedTrackType.value === 'choice')
+
+const countedTicks = computed(() => countsEntries.value
+	? trackTicks.value.map(t => ({ ...t, value: 1 }))
+	: trackTicks.value)
 
 // --- Primary colour extraction ---
 const primaryColor = ref(getPrimaryColor())
@@ -247,7 +255,9 @@ const weeklyMeanTooltip = computed(() => {
 	if (!firstTick) return []
 	const weeks = Math.round(spanWeeks.value)
 	return [
-		`Total ${totalCount.value} across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`,
+		countsEntries.value
+			? `${totalCount.value} ${totalCount.value === 1 ? 'day' : 'days'} with an entry across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`
+			: `Total ${totalCount.value} across ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`,
 		`Since ${fmtDate(firstTick)}`,
 	]
 })
@@ -389,7 +399,7 @@ function polarShades(values: number[]): string[] {
 }
 
 const daysOfWeekPolar = computed(() => {
-	const ticks = trackTicks.value
+	const ticks = countedTicks.value
 	if (ticks.length === 0) return null
 
 	const counts = [0, 0, 0, 0, 0, 0, 0] // 0=Mon..6=Sun
@@ -441,7 +451,7 @@ const daysOfWeekPolar = computed(() => {
 })
 
 const monthsPolar = computed(() => {
-	const ticks = trackTicks.value
+	const ticks = countedTicks.value
 	if (ticks.length === 0) return null
 
 	const counts = new Array(12).fill(0)
@@ -486,7 +496,7 @@ function buildTimeSeries(
 	bucketFn: (date: string) => string,
 	labelFn: (key: string) => string,
 ): { data: any; options: any } | null {
-	const ticks = trackTicks.value
+	const ticks = countedTicks.value
 	if (ticks.length === 0) return null
 
 	const buckets = new Map<string, number>()
@@ -638,10 +648,11 @@ const heatmapData = computed(() => {
 	// Align to the locale's first weekday so every column is a full week.
 	while (start.getDay() !== localeFirstDay) start.setDate(start.getDate() - 1)
 
-	const isCounter = selectedTrackType.value === 'counter'
-	// The stats' maxValue ignores future-dated ticks, so the widget and this
-	// heatmap shade the same day the same way.
-	const maxValue = isCounter ? (trackStats.value?.maxValue ?? 0) : 1
+	const track = allTracks.value.find(t => t.id === selectedTrack.value?.id)
+	if (!track) return null
+	// The stats' maxValue (and a Number's minValue) ignore future-dated ticks, so
+	// the widget, Today and this heatmap shade the same day the same way.
+	const stats = trackStats.value ?? undefined
 
 	const color = primaryColor.value
 
@@ -655,13 +666,13 @@ const heatmapData = computed(() => {
 		const week = Math.floor(offset / 7)
 		const row = offset % 7
 		const ds = toDateStr(d)
-		const value = byDate.get(ds) ?? 0
+		const value = byDate.get(ds) ?? null
 		cells.push({
 			x: GRID_LEFT_PAD + week * CELL_PITCH,
 			y: HEATMAP_TOP_GUTTER + row * CELL_PITCH,
-			fill: fillFor(levelFor(value, isCounter, maxValue), color),
+			fill: fillFor(trackLevel(value, track, stats), color),
 			dateLabel: fmtDate(ds),
-			valueText: valueText(value, isCounter),
+			valueText: trackValueText(value, track),
 		})
 
 		// Label the column containing the 1st, keeping labels from colliding.
@@ -696,7 +707,7 @@ const heatmapData = computed(() => {
 		dayLabels,
 		dayColWidth: DAY_LABEL_COL,
 		dayLabelX: DAY_LABEL_COL - 6,
-		isCounter,
+		legendEnds: legendEnds(track, stats),
 		// Only shown when there's history beyond the trailing year to scroll to.
 		hint: weeks > 53
 			? 'Hint: showing last 365 days, scroll sideways for earlier history.'
@@ -707,6 +718,21 @@ const heatmapData = computed(() => {
 		height,
 	}
 })
+
+// The heatmap legend's two ends: Less and More for a Counter, a Number's lowest
+// and highest values, an ordered scale's first and last labels; none for Yes/No
+// and a plain list, which are shaded in one colour
+function legendEnds(track: Track, stats: TrackStats | undefined): [string, string] | null {
+	if (track.type === 'counter') return ['Less', 'More']
+	if (track.type === 'number') {
+		if (stats?.minValue == null || stats.maxValue == null || stats.minValue === stats.maxValue) return null
+		return [numberText(stats.minValue, track), numberText(stats.maxValue, track)]
+	}
+	if (track.type === 'choice' && track.orderedScale && (track.options?.length ?? 0) >= 2) {
+		return [choiceLabel(1, track), choiceLabel(track.options!.length, track)]
+	}
+	return null
+}
 
 const heatmapScroller = ref<HTMLElement | null>(null)
 const heatmapWrap = ref<HTMLElement | null>(null)
@@ -1017,14 +1043,14 @@ onMounted(start)
 							</div>
 						</div>
 					</div>
-					<div v-if="heatmapData.isCounter" :class="$style.heatmapLegend">
-						<span>Less</span>
+					<div v-if="heatmapData.legendEnds" :class="$style.heatmapLegend">
+						<span>{{ heatmapData.legendEnds[0] }}</span>
 						<span :class="$style.legendSwatch" :style="{ background: heatmapData.emptyFill }" />
 						<span v-for="(fill, i) in heatmapData.legend"
 							:key="i"
 							:class="$style.legendSwatch"
 							:style="{ background: fill }" />
-						<span>More</span>
+						<span>{{ heatmapData.legendEnds[1] }}</span>
 					</div>
 				</div>
 

@@ -34,9 +34,11 @@ class TickMapper extends QBMapper {
 	 *
 	 * @param ?int $trackId One track's only, or null for every track's; served by
 	 *                      the (user_id, track_id, date) unique index either way
+	 * @param ?int[] $trackIds Only these tracks' (not empty), or null for every track's; the
+	 *                         types a client knows ({@see \OCA\Tickbuddy\Service\TrackService::BASE_TYPES})
 	 * @return Tick[]
 	 */
-	public function findByUserAndDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
+	public function findByUserAndDateRange(string $userId, string $from, string $to, ?int $trackId = null, ?array $trackIds = null): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')
 			->from($this->getTableName())
@@ -45,6 +47,9 @@ class TickMapper extends QBMapper {
 			->andWhere($qb->expr()->lte('date', $qb->createNamedParameter($to)));
 		if ($trackId !== null) {
 			$qb->andWhere($qb->expr()->eq('track_id', $qb->createNamedParameter($trackId, IQueryBuilder::PARAM_INT)));
+		}
+		if ($trackIds !== null) {
+			$qb->andWhere($qb->expr()->in('track_id', $qb->createNamedParameter($trackIds, IQueryBuilder::PARAM_INT_ARRAY)));
 		}
 		$qb->orderBy('date', 'DESC');
 		return $this->findEntities($qb);

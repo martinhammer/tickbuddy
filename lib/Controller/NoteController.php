@@ -57,18 +57,21 @@ class NoteController extends OCSController {
 	 *
 	 * @param string $from Start date (YYYY-MM-DD), inclusive
 	 * @param string $to End date (YYYY-MM-DD), inclusive; the same as `from` for one day
-	 * @param int $trackId One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track
+	 * @param int $trackId One track only (also an archived one, of any type); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track
+	 * @param string|int|float|bool|null $includeAllTypes With all tracks, also the notes of tracks of every type: true or false (also 1/0, on/off, yes/no). Without it only "boolean" and "counter" tracks' notes are listed
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyNote>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
 	 * 200: Notes returned, newest first
-	 * 400: From or to is missing or not a date, or from is after to
+	 * 400: From or to is missing or not a date, or from is after to, or includeAllTypes isn't true or false
 	 * 404: Track not found
 	 */
+	// The flag is a union for the framework: typed bool, Nextcloud would read "no" as true
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/notes')]
-	public function index(string $from = '', string $to = '', int $trackId = 0): DataResponse {
+	public function index(string $from = '', string $to = '', int $trackId = 0, string|int|float|bool|null $includeAllTypes = false): DataResponse {
 		try {
-			$notes = $this->noteService->findByDateRange($this->userId, $from, $to, $trackId !== 0 ? $trackId : null);
+			$includeAllTypes = Flags::read('includeAllTypes', $includeAllTypes, false);
+			$notes = $this->noteService->findByDateRange($this->userId, $from, $to, $trackId !== 0 ? $trackId : null, $includeAllTypes);
 			return new DataResponse(array_values(array_map(fn (Note $n) => $this->serializeNote($n), $notes)));
 		} catch (InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);

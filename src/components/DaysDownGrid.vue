@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { addDays, isWeekend, parseDateStr, userLocale } from '../dates.ts'
 import type { JournalActions } from '../journal.ts'
 import type { Track } from '../types.ts'
@@ -20,6 +20,14 @@ const emit = defineEmits<{
 
 const shortFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short', month: 'short', day: 'numeric' })
 const yearFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+
+// The unit's line under the names exists only when a track on screen has a unit
+const hasUnits = computed(() => props.tracks.some(t => t.type === 'number' && t.unit))
+
+// The full name, and the unit on a second line
+function headerTitle(track: Track): string {
+	return track.type === 'number' && track.unit ? `${track.name}\n${track.unit}` : track.name
+}
 
 // As Edit journal: "Today", "Yesterday", then the date (with its year outside this one)
 function formatDate(date: string): string {
@@ -58,9 +66,11 @@ onBeforeUnmount(() => {
 					<th v-for="track in tracks" :key="track.id" :class="$style.trackHeader">
 						<button type="button"
 							:class="$style.trackButton"
-							:title="`Show analytics for ${track.name}`"
+							:aria-label="`Show analytics for ${track.name}`"
+							:title="headerTitle(track)"
 							@click="actions.openTrack(track.id)">
-							{{ track.name }}
+							<span :class="$style.trackName">{{ track.name }}</span>
+							<span v-if="hasUnits" :class="$style.unit">{{ track.type === 'number' ? track.unit : '' }}</span>
 						</button>
 					</th>
 				</tr>
@@ -90,22 +100,27 @@ onBeforeUnmount(() => {
 
 <style module>
 .grid {
+	/* Track headers' maximum width, which also cuts Choice labels in the cells */
+	--days-down-header-width: 120px;
 	width: 100%;
 	border-collapse: separate;
 	border-spacing: 0;
 }
 
+/* Layers, in both grids and JournalCell.vue: the sticky first column 4, a
+   hovered, focused or editing cell 5 (its floating bar and note box reach past
+   the cell, over the first column's start), the sticky header row 6, the corner 7 */
 .corner,
 .trackHeader {
 	position: sticky;
 	inset-block-start: 0;
-	z-index: 5;
+	z-index: 6;
 	background: var(--color-main-background);
 }
 
 .corner {
 	inset-inline-start: 0;
-	z-index: 6;
+	z-index: 7;
 }
 
 /* The grid's start margin, solid so that days scrolling under the sticky
@@ -115,9 +130,13 @@ onBeforeUnmount(() => {
 	border-inline-start: 8px solid var(--color-main-background);
 }
 
+/* A maximum width, so a long name or unit can't widen its column (one value,
+   --days-down-header-width, to refine) */
 .trackHeader {
+	max-width: var(--days-down-header-width);
 	padding: 2px;
 	text-align: center;
+	vertical-align: top;
 	white-space: nowrap;
 }
 
@@ -146,9 +165,29 @@ onBeforeUnmount(() => {
 }
 
 .grid .trackButton {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	max-width: 100%;
 	padding: 6px 10px;
 	border-radius: var(--border-radius-element, 8px);
 	font-weight: bold;
+}
+
+/* Name and unit each cut with "…" on its own line */
+.trackName,
+.unit {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Kept when empty (a track without a unit), so the names stay aligned */
+.unit {
+	min-height: 1.3em;
+	color: var(--color-text-maxcontrast);
+	font-size: 12px;
+	font-weight: normal;
 }
 
 .grid .trackButton:hover,
@@ -173,6 +212,7 @@ onBeforeUnmount(() => {
 }
 
 .tickCell {
+	--cell-label-width: var(--days-down-header-width);
 	padding: 0 4px;
 	text-align: center;
 	border-block-end: 1px solid var(--color-border);
@@ -192,5 +232,11 @@ onBeforeUnmount(() => {
 
 .sentinel {
 	height: 1px;
+}
+
+@media (max-width: 1023px) {
+	.grid {
+		--days-down-header-width: 96px;
+	}
 }
 </style>

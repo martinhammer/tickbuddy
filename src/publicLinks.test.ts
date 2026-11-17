@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { archiveLinksText, exampleBase, exampleDates, lastUsedText, linkCountText, linkDetails, revokeText, trackSubname } from './publicLinks.ts'
 import type { PublicLink, Track } from './types.ts'
 
-const track: Track = { id: 3, name: 'Backup ran', type: 'boolean', sortOrder: 1, private: false, archivedAt: null, publicLinkCount: 0 }
+const track: Track = { id: 3, name: 'Backup ran', type: 'boolean', sortOrder: 1, private: false, archivedAt: null, publicLinkCount: 0, unit: null, decimalPlaces: null, allowNegative: null, options: null, orderedScale: null }
 
 const link: PublicLink = {
 	id: 7,

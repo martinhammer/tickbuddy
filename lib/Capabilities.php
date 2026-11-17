@@ -61,6 +61,8 @@ class Capabilities implements ICapability {
 	 *             trackFilter: bool,
 	 *             notesBounds: bool,
 	 *             publicLinks: bool,
+	 *             numberTracks: bool,
+	 *             choiceTracks: bool,
 	 *         },
 	 *     },
 	 * }
@@ -120,6 +122,17 @@ class Capabilities implements ICapability {
 					// `publicLinkCount` on tracks, and the call at /ping/{token}.
 					// Older servers 404 the routes.
 					'publicLinks' => true,
+					// Number tracks (type "number"): a reading per day with a unit and
+					// 0 to 3 decimal places, its fields on tracks, `set` on it (null or
+					// "" clears a day), and `includeAllTypes` on GET /api/tracks, ticks,
+					// notes and stats and on the reorder's answer. Older servers refuse
+					// the type on create and know no `includeAllTypes`.
+					'numberTracks' => true,
+					// Choice tracks (type "choice"): one option of the track's list per
+					// day, stored as its place; `options` and `orderedScale` on tracks,
+					// `set` on it, `includeAllTypes` as above, and the option rename
+					// PUT /api/tracks/{id}/options/{value}, which older servers 404.
+					'choiceTracks' => true,
 				],
 			],
 		];

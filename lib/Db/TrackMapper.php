@@ -19,14 +19,16 @@ class TrackMapper extends QBMapper {
 	/**
 	 * @param bool $forUpdate Lock the rows until the transaction ends (ignored on SQLite,
 	 *                        which locks the whole database for a write transaction)
+	 * @param ?string[] $types Only tracks of these types, or null for every type
 	 * @return Track[]
 	 */
-	public function findAllByUser(string $userId, bool $forUpdate = false): array {
+	public function findAllByUser(string $userId, bool $forUpdate = false, ?array $types = null): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')
 			->from($this->getTableName())
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
 			->orderBy('sort_order', 'ASC');
+		self::onlyTypes($qb, $types);
 		if ($forUpdate) {
 			$qb->forUpdate();
 		}
@@ -36,16 +38,78 @@ class TrackMapper extends QBMapper {
 	/**
 	 * Tracks that aren't archived.
 	 *
+	 * @param ?string[] $types Only tracks of these types, or null for every type
 	 * @return Track[]
 	 */
-	public function findActiveByUser(string $userId): array {
+	public function findActiveByUser(string $userId, ?array $types = null): array {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')
 			->from($this->getTableName())
 			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
 			->andWhere($qb->expr()->isNull('archived_at'))
 			->orderBy('sort_order', 'ASC');
+		self::onlyTypes($qb, $types);
 		return $this->findEntities($qb);
+	}
+
+	/**
+	 * The ids of the user's tracks of the given types, archived ones included.
+	 *
+	 * @param string[] $types
+	 * @return list<int>
+	 */
+	public function findIdsByUserAndTypes(string $userId, array $types): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+		self::onlyTypes($qb, $types);
+		$result = $qb->executeQuery();
+		$ids = [];
+		while (true) {
+			/** @var false|int|string $id */
+			$id = $result->fetchOne();
+			if ($id === false) {
+				break;
+			}
+			$ids[] = (int)$id;
+		}
+		$result->closeCursor();
+		return $ids;
+	}
+
+	/**
+	 * Every track's type, as track id => type, to write each tick's value as
+	 * its type does.
+	 *
+	 * @return array<int, string>
+	 */
+	public function findTypesByUser(string $userId): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('id', 'type')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+		$result = $qb->executeQuery();
+		$types = [];
+		while (true) {
+			/** @var array{id: mixed, type: mixed}|false $row */
+			$row = $result->fetch();
+			if ($row === false) {
+				break;
+			}
+			$types[(int)$row['id']] = (string)$row['type'];
+		}
+		$result->closeCursor();
+		return $types;
+	}
+
+	/**
+	 * @param ?string[] $types
+	 */
+	private static function onlyTypes(IQueryBuilder $qb, ?array $types): void {
+		if ($types !== null) {
+			$qb->andWhere($qb->expr()->in('type', $qb->createNamedParameter(array_values($types), IQueryBuilder::PARAM_STR_ARRAY)));
+		}
 	}
 
 	public function countByUser(string $userId): int {

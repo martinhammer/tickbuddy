@@ -11,6 +11,8 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCA\Tickbuddy\Service\ImportException;
 use OCA\Tickbuddy\Service\ImportService;
 use OCP\AppFramework\Utility\ITimeFactory;
@@ -24,6 +26,7 @@ final class ImportServiceTest extends TestCase {
 	private NoteMapper $noteMapper;
 	private PublicLinkMapper $publicLinkMapper;
 	private TrackMapper $trackMapper;
+	private TrackOptionMapper $optionMapper;
 	private IDBConnection $db;
 	private LoggerInterface $logger;
 	private ImportService $service;
@@ -44,7 +47,8 @@ final class ImportServiceTest extends TestCase {
 		$timeFactory = $this->createMock(ITimeFactory::class);
 		$timeFactory->method('getDateTime')->willReturn(new \DateTime('2026-10-20 09:00:00'));
 		$this->logger = $this->createMock(LoggerInterface::class);
-		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->db, $timeFactory, $this->logger);
+		$this->optionMapper = $this->createMock(TrackOptionMapper::class);
+		$this->service = new ImportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->db, $timeFactory, $this->logger, $this->optionMapper);
 
 		$this->trackMapper->method('insert')->willReturnCallback(function (Track $track): Track {
 			$track->setId(101 + count($this->insertedTracks));
@@ -913,5 +917,115 @@ final class ImportServiceTest extends TestCase {
 		$this->service->importTickmate($this->file, ImportService::MODE_MERGE, $this->userId);
 
 		$this->assertSame(str_repeat('a', 244) . ' (imported)', $this->insertedTracks[0]->getName());
+	}
+
+	// --- Number and Choice ---
+
+	/** The export of a Number and a Choice track, as ExportService writes it */
+	private function numberAndChoiceBackup(): array {
+		return [
+			'version' => 1,
+			'exportedAt' => '2026-11-17T06:00:00+01:00',
+			'tracks' => [
+				['name' => 'Run', 'type' => 'number', 'sortOrder' => 1, 'private' => false, 'unit' => 'km', 'decimalPlaces' => 1, 'allowNegative' => false],
+				['name' => "Mum's mood", 'type' => 'choice', 'sortOrder' => 2, 'private' => true, 'options' => ['Excited', 'Happy', 'Normal', 'Sad'], 'orderedScale' => true],
+			],
+			'ticks' => [
+				// More decimals than the track has now, and a negative value it no longer allows: kept
+				['track' => 'Run', 'date' => '2026-11-15', 'value' => 10.45],
+				['track' => 'Run', 'date' => '2026-11-16', 'value' => -1.5],
+				// A reading of 0 is an entry, not "nothing"
+				['track' => 'Run', 'date' => '2026-11-17', 'value' => 0],
+				['track' => "Mum's mood", 'date' => '2026-11-17', 'value' => 2],
+			],
+		];
+	}
+
+	/** @return \ArrayObject<int, array{0: int, 1: int, 2: string}> */
+	private function collectOptions(): \ArrayObject {
+		$options = new \ArrayObject();
+		$this->optionMapper->method('insert')->willReturnCallback(function (TrackOption $o) use ($options): TrackOption {
+			$options[] = [$o->getTrackId(), $o->getPlace(), $o->getLabel()];
+			return $o;
+		});
+		return $options;
+	}
+
+	public function testNumberAndChoiceImportAsStored(): void {
+		$options = $this->collectOptions();
+		$this->optionMapper->expects($this->once())->method('deleteAllByUser')->with($this->userId);
+
+		$result = $this->import($this->numberAndChoiceBackup());
+
+		$this->assertSame(['tracks' => 2, 'ticks' => 4, 'notes' => 0], $result);
+		[$run, $mood] = $this->insertedTracks;
+		$this->assertSame(['km', 1, 0, null], [$run->getUnit(), $run->getDecimalPlaces(), $run->getAllowNegative(), $run->getOrderedScale()]);
+		$this->assertSame([null, null, null, 1], [$mood->getUnit(), $mood->getDecimalPlaces(), $mood->getAllowNegative(), $mood->getOrderedScale()]);
+		$this->assertSame([[102, 1, 'Excited'], [102, 2, 'Happy'], [102, 3, 'Normal'], [102, 4, 'Sad']], $options->getArrayCopy());
+		$this->assertSame([
+			[101, '2026-11-15', 10450],
+			[101, '2026-11-16', -1500],
+			[101, '2026-11-17', 0],
+			[102, '2026-11-17', 2],
+		], $this->insertedTicks);
+	}
+
+	public function testNumberSettingsDefaultWhenMissing(): void {
+		$this->import(['version' => 1, 'tracks' => [['name' => 'Run', 'type' => 'number']]]);
+
+		$this->assertSame([null, 1, 0], [$this->insertedTracks[0]->getUnit(), $this->insertedTracks[0]->getDecimalPlaces(), $this->insertedTracks[0]->getAllowNegative()]);
+	}
+
+	public function testMergeSuffixesOnlyTheName(): void {
+		$existing = new Track();
+		$existing->setName("Mum's mood");
+		$this->trackMapper->method('findAllByUser')->willReturn([$existing]);
+		$options = $this->collectOptions();
+
+		$this->import($this->numberAndChoiceBackup(), ImportService::MODE_MERGE);
+
+		$this->assertSame("Mum's mood (imported)", $this->insertedTracks[1]->getName());
+		$this->assertSame('Excited', $options[0][2]);
+	}
+
+	public static function refusedNumberOrChoiceProvider(): array {
+		$run = ['name' => 'Run', 'type' => 'number'];
+		$mood = ['name' => 'Mood', 'type' => 'choice', 'options' => ['A', 'B', 'C', 'D']];
+		return [
+			'decimal places 5' => [[$run + ['decimalPlaces' => 5]], [], 'Track "Run" has invalid decimal places "5"'],
+			'decimal places as text' => [[$run + ['decimalPlaces' => '1']], [], 'Track "Run" has invalid decimal places "1"'],
+			'unit not text' => [[$run + ['unit' => 5]], [], 'Track "Run" has an invalid unit'],
+			'long unit' => [[$run + ['unit' => str_repeat('x', 256)]], [], 'Track "Run" has an invalid unit'],
+			'unreadable allowNegative' => [[$run + ['allowNegative' => 'maybe']], [], 'Track "Run" has invalid allowNegative value "maybe"'],
+			'no options' => [[['name' => 'Mood', 'type' => 'choice']], [], 'Track "Mood" needs 2 to 99 options'],
+			'one option' => [[['name' => 'Mood', 'type' => 'choice', 'options' => ['A']]], [], 'Track "Mood" needs 2 to 99 options'],
+			'options not a list' => [[['name' => 'Mood', 'type' => 'choice', 'options' => 'A, B']], [], 'Track "Mood" needs 2 to 99 options'],
+			'empty option' => [[['name' => 'Mood', 'type' => 'choice', 'options' => ['A', ' ']]], [], 'Track "Mood" has an empty option'],
+			'option not text' => [[['name' => 'Mood', 'type' => 'choice', 'options' => ['A', 2]]], [], 'Track "Mood" has an empty option'],
+			'same option twice' => [[['name' => 'Mood', 'type' => 'choice', 'options' => ['Happy', 'happy']]], [], 'Track "Mood" has the option "happy" twice'],
+			'unreadable orderedScale' => [[$mood + ['orderedScale' => 'x']], [], 'Track "Mood" has invalid orderedScale value "x"'],
+			'options on a number' => [[$run + ['options' => ['A', 'B']]], [], 'Track "Run" has settings of another type: options'],
+			'unit on a choice' => [[$mood + ['unit' => 'km']], [], 'Track "Mood" has settings of another type: unit'],
+			'unit on a counter' => [[['name' => 'Coffee', 'type' => 'counter', 'unit' => '']], [], 'Track "Coffee" has settings of another type: unit'],
+			'number as text' => [[$run], [['track' => 'Run', 'date' => '2026-11-17', 'value' => '10.4']], 'Tick on 2026-11-17 has an invalid value "10.4"'],
+			'four decimals' => [[$run], [['track' => 'Run', 'date' => '2026-11-17', 'value' => 1.2345]], 'Tick on 2026-11-17 has an invalid value "1.2345"'],
+			'number beyond the limit' => [[$run], [['track' => 'Run', 'date' => '2026-11-17', 'value' => 3000000]], 'Tick on 2026-11-17 has an invalid value "3000000"'],
+			'number without a value' => [[$run], [['track' => 'Run', 'date' => '2026-11-17']], 'Tick on 2026-11-17 has an invalid value "null"'],
+			'number null' => [[$run], [['track' => 'Run', 'date' => '2026-11-17', 'value' => null]], 'Tick on 2026-11-17 has an invalid value "null"'],
+			'choice 0' => [[$mood], [['track' => 'Mood', 'date' => '2026-11-17', 'value' => 0]], 'Tick on 2026-11-17 has an invalid value "0"'],
+			'choice past the options' => [[$mood], [['track' => 'Mood', 'date' => '2026-11-17', 'value' => 5]], 'Tick on 2026-11-17 has an invalid value "5"'],
+			'choice as text' => [[$mood], [['track' => 'Mood', 'date' => '2026-11-17', 'value' => '2']], 'Tick on 2026-11-17 has an invalid value "2"'],
+		];
+	}
+
+	/**
+	 * @dataProvider refusedNumberOrChoiceProvider
+	 */
+	public function testNumberAndChoiceRefusals(array $tracks, array $ticks, string $message): void {
+		$this->expectNoWrites();
+
+		$this->expectException(ImportException::class);
+		$this->expectExceptionMessage($message);
+		$this->import(['version' => 1, 'tracks' => $tracks, 'ticks' => $ticks]);
 	}
 }

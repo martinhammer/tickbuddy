@@ -48,11 +48,14 @@ class StatsService {
 	 * @param bool $includeArchived With all tracks, include archived ones
 	 * @param string $from The period's first day as YYYY-MM-DD; none if empty
 	 * @param string $to The period's last day as YYYY-MM-DD; none if empty
+	 * @param bool $includeAllTypes With all tracks, include tracks of types not in
+	 *                              {@see TrackService::BASE_TYPES}; one track is
+	 *                              answered whatever its type
 	 * @return list<TickbuddyStats>
 	 * @throws InvalidValueException if $today, $from or $to is not a date, or $from is after $to
 	 * @throws DoesNotExistException if $trackId is not the user's
 	 */
-	public function forUser(string $userId, string $today, ?int $trackId, bool $includeRuns, bool $includeArchived, string $from = '', string $to = ''): array {
+	public function forUser(string $userId, string $today, ?int $trackId, bool $includeRuns, bool $includeArchived, string $from = '', string $to = '', bool $includeAllTypes = true): array {
 		if ($today === '') {
 			$today = $this->timeFactory->getDateTime()->format('Y-m-d');
 		} elseif (!TrackService::isValidDate($today)) {
@@ -69,13 +72,24 @@ class StatsService {
 		$last = $to !== '' && $to < $today ? $to : $today;
 		$tracks = $trackId !== null
 			? [$this->trackService->find($trackId, $userId)]
-			: $this->trackService->findAll($userId, $includeArchived);
+			: $this->trackService->findAll($userId, $includeArchived, $includeAllTypes);
 		$values = $this->tickMapper->findValuesByUser($userId, $last, $trackId, $start);
 
 		return array_values(array_map(function (Track $track) use ($values, $last, $start, $includeRuns): array {
 			$archivedAt = $track->getArchivedAt();
 			$end = $archivedAt !== null && $archivedAt < $last ? $archivedAt : $last;
-			return ['trackId' => $track->getId()] + self::summarise($values[$track->getId()] ?? [], $end, $includeRuns, $start);
+			$type = $track->getType();
+			$countsEntries = $type === 'number' || $type === 'choice';
+			$stats = self::summarise($values[$track->getId()] ?? [], $end, $includeRuns, $start, $countsEntries);
+			if ($type === 'number') {
+				$stats['maxValue'] = $stats['maxValue'] === null ? null : NumberValue::toWire($stats['maxValue']);
+				$stats['minValue'] = $stats['minValue'] === null ? null : NumberValue::toWire($stats['minValue']);
+			} elseif ($type === 'choice' && $track->getOrderedScale() !== 1) {
+				// A plain list's places have no order
+				$stats['maxValue'] = null;
+				$stats['minValue'] = null;
+			}
+			return ['trackId' => $track->getId()] + $stats;
 		}, $tracks));
 	}
 
@@ -87,6 +101,10 @@ class StatsService {
 	 * @param string $end The period's last day, YYYY-MM-DD; for all-time stats, today
 	 * @param ?string $start The period's first day, YYYY-MM-DD, from which every day
 	 *                       takes part; null to count from the first tick
+	 * @param bool $countsEntries Number and Choice: every stored day counts 1 in the
+	 *                            totals (a Number's 0 or negative value too), and
+	 *                            maxValue/minValue are the highest and lowest stored
+	 *                            value among the days with one, null without any
 	 * @return array{
 	 *     total: int,
 	 *     weeklyMean: float,
@@ -99,12 +117,12 @@ class StatsService {
 	 *     longestBreak: ?TickbuddyRun,
 	 *     firstTick: ?string,
 	 *     lastTick: ?string,
-	 *     maxValue: int,
-	 *     minValue: int,
+	 *     maxValue: ?int,
+	 *     minValue: ?int,
 	 *     runs?: list<TickbuddyRun>,
 	 * }
 	 */
-	public static function summarise(array $values, string $end, bool $includeRuns, ?string $start = null): array {
+	public static function summarise(array $values, string $end, bool $includeRuns, ?string $start = null, bool $countsEntries = false): array {
 		$endDay = self::requireDayNumber($end);
 		$startDay = $start !== null ? self::requireDayNumber($start) : null;
 		/** @var array<int, int> $byDay */
@@ -129,13 +147,18 @@ class StatsService {
 			'longestBreak' => $streaks['longestBreak'],
 			'firstTick' => null,
 			'lastTick' => null,
-			'maxValue' => 0,
-			'minValue' => 0,
+			'maxValue' => $countsEntries ? null : 0,
+			'minValue' => $countsEntries ? null : 0,
 		];
 
 		if ($byDay !== []) {
 			$first = min(array_keys($byDay));
 			$last = max(array_keys($byDay));
+			$stored = $byDay;
+			if ($countsEntries) {
+				// Each entry counts 1; its value only sets the highest and lowest
+				$byDay = array_fill_keys(array_keys($byDay), 1);
+			}
 			$total = array_sum($byDay);
 
 			// One pass over every day from the period's first day (else the
@@ -170,8 +193,8 @@ class StatsService {
 			$stats['peak7'] = $peak7;
 			$stats['firstTick'] = self::dateOf($first);
 			$stats['lastTick'] = self::dateOf($last);
-			$stats['maxValue'] = $max;
-			$stats['minValue'] = $min;
+			$stats['maxValue'] = $countsEntries ? max($stored) : $max;
+			$stats['minValue'] = $countsEntries ? min($stored) : $min;
 		}
 
 		if ($includeRuns) {

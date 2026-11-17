@@ -13,6 +13,18 @@ namespace OCA\Tickbuddy;
  *     reason: string,
  * }
  *
+ * One option of a Choice track: `value` is its place, what a day stores.
+ *
+ * @psalm-type TickbuddyTrackOption = array{
+ *     value: int,
+ *     label: string,
+ * }
+ *
+ * A track. `type` is "boolean", "counter", "number" or "choice" (and maybe
+ * more later). A Number's `unit` ("" when none), `decimalPlaces` and
+ * `allowNegative`, and a Choice's `options` and `orderedScale`, are null on
+ * every other type.
+ *
  * @psalm-type TickbuddyTrack = array{
  *     id: int,
  *     name: string,
@@ -21,6 +33,11 @@ namespace OCA\Tickbuddy;
  *     private: bool,
  *     archivedAt: ?string,
  *     publicLinkCount: int,
+ *     unit: ?string,
+ *     decimalPlaces: ?int,
+ *     allowNegative: ?bool,
+ *     options: ?list<TickbuddyTrackOption>,
+ *     orderedScale: ?bool,
  * }
  *
  * A public link. `permission` is "tick" or "view"; `allowedDays` one of
@@ -37,11 +54,14 @@ namespace OCA\Tickbuddy;
  *     lastUsedAt: ?int,
  * }
  *
+ * A day's value: a Counter's count, 1 for Yes/No, a Number's value (a
+ * decimal, or a whole number written without a point), a Choice's place.
+ *
  * @psalm-type TickbuddyTick = array{
  *     id: int,
  *     trackId: int,
  *     date: string,
- *     value: int,
+ *     value: int|float,
  * }
  *
  * @psalm-type TickbuddyTickBounds = array{
@@ -76,6 +96,10 @@ namespace OCA\Tickbuddy;
  *     to: string,
  * }
  *
+ * One track's stats. On a Number or Choice track every day with an entry
+ * counts 1, and `maxValue`/`minValue` are the highest and lowest entry (null
+ * without one, and always null on a Choice that isn't an ordered scale).
+ *
  * @psalm-type TickbuddyStats = array{
  *     trackId: int,
  *     total: int,
@@ -89,8 +113,8 @@ namespace OCA\Tickbuddy;
  *     longestBreak: ?TickbuddyRun,
  *     firstTick: ?string,
  *     lastTick: ?string,
- *     maxValue: int,
- *     minValue: int,
+ *     maxValue: int|float|null,
+ *     minValue: int|float|null,
  *     runs?: list<TickbuddyRun>,
  * }
  *

@@ -10,6 +10,8 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCA\Tickbuddy\Service\ExportService;
 use PHPUnit\Framework\TestCase;
 
@@ -17,6 +19,7 @@ final class ExportServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
 	private TrackMapper $trackMapper;
+	private TrackOptionMapper $optionMapper;
 	private ExportService $service;
 	private string $userId = 'testuser';
 
@@ -24,7 +27,8 @@ final class ExportServiceTest extends TestCase {
 		$this->tickMapper = $this->createMock(TickMapper::class);
 		$this->noteMapper = $this->createMock(NoteMapper::class);
 		$this->trackMapper = $this->createMock(TrackMapper::class);
-		$this->service = new ExportService($this->trackMapper, $this->tickMapper, $this->noteMapper);
+		$this->optionMapper = $this->createMock(TrackOptionMapper::class);
+		$this->service = new ExportService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->optionMapper);
 	}
 
 	private function makeTrack(int $id, string $name, string $type, int $sortOrder, bool $private = false, ?string $archivedAt = null): Track {
@@ -209,5 +213,43 @@ final class ExportServiceTest extends TestCase {
 			[['track' => 'Diary', 'date' => '2026-10-13', 'text' => 'secret']],
 			$this->service->export($this->userId, true)['notes'],
 		);
+	}
+
+	public function testNumberAndChoiceCarryTheirSettingsAndValues(): void {
+		$run = $this->makeTrack(10, 'Run', 'number', 1);
+		$run->setUnit('km');
+		$run->setDecimalPlaces(1);
+		$run->setAllowNegative(0);
+		$plain = $this->makeTrack(15, 'Weight', 'number', 2);
+		$plain->setDecimalPlaces(2);
+		$plain->setAllowNegative(1);
+		$mood = $this->makeTrack(20, "Mum's mood", 'choice', 3, true);
+		$mood->setOrderedScale(1);
+		$this->trackMapper->method('findAllByUser')->willReturn([$this->makeTrack(5, 'Coffee', 'counter', 0), $run, $plain, $mood]);
+		$options = [];
+		foreach (['Excited', 'Happy'] as $index => $label) {
+			$option = new TrackOption();
+			$option->setTrackId(20);
+			$option->setPlace($index + 1);
+			$option->setLabel($label);
+			$options[] = $option;
+		}
+		$this->optionMapper->expects($this->once())->method('findByTracks')->with([3 => 20], $this->userId)->willReturn([20 => $options]);
+		$this->tickMapper->method('findAllByUser')->willReturn([
+			$this->makeTick(10, '2026-11-16', 10450),
+			$this->makeTick(10, '2026-11-17', 0),
+			$this->makeTick(15, '2026-11-17', -72000),
+			$this->makeTick(20, '2026-11-17', 2),
+		]);
+
+		$result = $this->service->export($this->userId, true);
+
+		$this->assertSame([
+			['name' => 'Coffee', 'type' => 'counter', 'sortOrder' => 0, 'private' => false],
+			['name' => 'Run', 'type' => 'number', 'sortOrder' => 1, 'private' => false, 'unit' => 'km', 'decimalPlaces' => 1, 'allowNegative' => false],
+			['name' => 'Weight', 'type' => 'number', 'sortOrder' => 2, 'private' => false, 'unit' => '', 'decimalPlaces' => 2, 'allowNegative' => true],
+			['name' => "Mum's mood", 'type' => 'choice', 'sortOrder' => 3, 'private' => true, 'options' => ['Excited', 'Happy'], 'orderedScale' => true],
+		], $result['tracks']);
+		$this->assertSame('[10.45,0,-72,2]', json_encode(array_column($result['ticks'], 'value')));
 	}
 }

@@ -11,6 +11,8 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\IDBConnection;
 use Psr\Log\LoggerInterface;
@@ -38,6 +40,7 @@ class ImportService {
 		private IDBConnection $db,
 		private ITimeFactory $timeFactory,
 		private LoggerInterface $logger,
+		private TrackOptionMapper $optionMapper,
 	) {
 	}
 
@@ -152,7 +155,7 @@ class ImportService {
 				'sortOrder' => (int)($t['sortOrder'] ?? $i + 1),
 				'private' => self::jsonPrivate($name, $t['private'] ?? null),
 				'archivedAt' => $archivedAt,
-			];
+			] + self::jsonSettings($name, $type, $t);
 			$positionsByName[$name][] = $i;
 		}
 
@@ -254,7 +257,7 @@ class ImportService {
 	 *
 	 * @param list<mixed> $jsonTicks
 	 * @param array<string, list<int>> $positionsByName Cleaned track name → positions in the file
-	 * @param list<array{name: string, type: string, ...}> $trackEntries
+	 * @param list<array{name: string, type: string, options: list<string>, ...}> $trackEntries
 	 * @return list<array{position: int, date: string, value: int}>
 	 * @throws ImportException
 	 */
@@ -277,12 +280,13 @@ class ImportService {
 			$position = $this->resolveJsonTrackPosition($t, 'Tick', $date, $positionsByName, count($trackEntries));
 			$track = $trackEntries[$position];
 
-			// Missing: 1, as in files from before counters
+			// Missing: 1, as in files from before counters. A Number or Choice has no
+			// default, so a missing value fails there
 			$value = array_key_exists('value', $t)
-				? self::jsonTickValue($track['type'], $t['value'])
-				: 1;
+				? self::jsonTickValue($track, $t['value'])
+				: ($track['type'] === 'boolean' || $track['type'] === 'counter' ? 1 : null);
 			if ($value === null) {
-				throw new ImportException("Tick on {$date} has an invalid value \"" . self::shown($t['value']) . '"');
+				throw new ImportException("Tick on {$date} has an invalid value \"" . self::shown($t['value'] ?? null) . '"');
 			}
 
 			if (isset($seen["{$position} {$date}"])) {
@@ -290,7 +294,9 @@ class ImportService {
 			}
 			$seen["{$position} {$date}"] = true;
 
-			if ($value > 0) {
+			// Every Number or Choice value is an entry (a Number's 0 is a reading);
+			// on the other types 0 means no tick
+			if ($value > 0 || ($track['type'] !== 'boolean' && $track['type'] !== 'counter')) {
 				$resolved[] = ['position' => $position, 'date' => $date, 'value' => $value];
 			}
 		}
@@ -299,18 +305,89 @@ class ImportService {
 	}
 
 	/**
-	 * A tick value from a backup: yes/no tracks take what `set` takes (true
-	 * is 1, false 0), counters a whole number from 0 to the counter limit.
-	 * 0 means no tick.
+	 * A tick value from a backup, as stored: yes/no tracks take what `set`
+	 * takes (true is 1, false 0), counters a whole number from 0 to the counter
+	 * limit (0 means no tick), a Number a JSON number with up to 3 decimals,
+	 * taken as it was saved (more decimals than the track has now, or a
+	 * negative value it no longer allows, are kept), a Choice an option's place.
 	 *
+	 * @param array{type: string, options: list<string>, ...} $track
 	 * @return ?int Null when the track can't take the value
 	 */
-	private static function jsonTickValue(string $type, mixed $value): ?int {
-		if ($type === 'boolean') {
-			$ticked = TickService::parseYesNo($value);
-			return $ticked === null ? null : (int)$ticked;
+	private static function jsonTickValue(array $track, mixed $value): ?int {
+		return match ($track['type']) {
+			'boolean' => ($ticked = TickService::parseYesNo($value)) === null ? null : (int)$ticked,
+			'number' => NumberValue::parseStored($value),
+			'choice' => is_int($value) && $value >= 1 && $value <= count($track['options']) ? $value : null,
+			default => is_int($value) && $value >= 0 && $value <= TickService::MAX_VALUE ? $value : null,
+		};
+	}
+
+	/**
+	 * A Number's or Choice's settings from a backup, with their defaults when
+	 * missing. Settings of another type fail, so a hand-edited file can't hide one.
+	 *
+	 * @param array<array-key, mixed> $t
+	 * @return array{unit: ?string, decimalPlaces: ?int, allowNegative: ?bool, options: list<string>, orderedScale: ?bool}
+	 * @throws ImportException
+	 */
+	private static function jsonSettings(string $name, string $type, array $t): array {
+		$foreign = array_values(array_filter(
+			$type === 'number' ? ['options', 'orderedScale'] : ($type === 'choice' ? ['unit', 'decimalPlaces', 'allowNegative'] : ['unit', 'decimalPlaces', 'allowNegative', 'options', 'orderedScale']),
+			fn (string $key) => array_key_exists($key, $t),
+		));
+		if ($foreign !== []) {
+			throw new ImportException("Track \"{$name}\" has settings of another type: " . implode(', ', $foreign));
 		}
-		return is_int($value) && $value >= 0 && $value <= TickService::MAX_VALUE ? $value : null;
+		$settings = ['unit' => null, 'decimalPlaces' => null, 'allowNegative' => null, 'options' => [], 'orderedScale' => null];
+		if ($type === 'number') {
+			$unit = $t['unit'] ?? '';
+			if (!is_string($unit) || mb_strlen(trim($unit)) > TrackService::MAX_NAME_LENGTH) {
+				throw new ImportException("Track \"{$name}\" has an invalid unit");
+			}
+			$places = $t['decimalPlaces'] ?? TrackService::DEFAULT_DECIMAL_PLACES;
+			if (!is_int($places) || $places < 0 || $places > TrackService::MAX_DECIMAL_PLACES) {
+				throw new ImportException("Track \"{$name}\" has invalid decimal places \"" . self::shown($places) . '"');
+			}
+			$settings['unit'] = trim($unit) === '' ? null : trim($unit);
+			$settings['decimalPlaces'] = $places;
+			$settings['allowNegative'] = self::jsonFlag($name, 'allowNegative', $t['allowNegative'] ?? null);
+		} elseif ($type === 'choice') {
+			$options = $t['options'] ?? null;
+			if (!is_array($options) || !array_is_list($options) || count($options) < TrackService::MIN_OPTIONS || count($options) > TrackService::MAX_OPTIONS) {
+				throw new ImportException("Track \"{$name}\" needs " . TrackService::MIN_OPTIONS . ' to ' . TrackService::MAX_OPTIONS . ' options');
+			}
+			$seen = [];
+			foreach ($options as $label) {
+				if (!is_string($label) || trim($label) === '') {
+					throw new ImportException("Track \"{$name}\" has an empty option");
+				}
+				$label = trim($label);
+				if (mb_strlen($label) > TrackService::MAX_NAME_LENGTH) {
+					throw new ImportException("Track \"{$name}\" has an option longer than " . TrackService::MAX_NAME_LENGTH . ' characters');
+				}
+				if (isset($seen[mb_strtolower($label)])) {
+					throw new ImportException("Track \"{$name}\" has the option \"{$label}\" twice");
+				}
+				$seen[mb_strtolower($label)] = true;
+				$settings['options'][] = $label;
+			}
+			$settings['orderedScale'] = self::jsonFlag($name, 'orderedScale', $t['orderedScale'] ?? null);
+		}
+		return $settings;
+	}
+
+	/**
+	 * A track's flag from a backup, read as the API reads it; missing or null is false.
+	 *
+	 * @throws ImportException if it can't be read
+	 */
+	private static function jsonFlag(string $name, string $key, mixed $value): bool {
+		$flag = $value === null ? false : TickService::parseYesNo($value);
+		if ($flag === null) {
+			throw new ImportException("Track \"{$name}\" has invalid {$key} value \"" . self::shown($value) . '"');
+		}
+		return $flag;
 	}
 
 	/**
@@ -418,7 +495,7 @@ class ImportService {
 	}
 
 	/**
-	 * @param list<array{name: string, type: string, sortOrder: int, private: bool, archivedAt: ?string}> $trackEntries
+	 * @param list<array{name: string, type: string, sortOrder: int, private: bool, archivedAt: ?string, unit: ?string, decimalPlaces: ?int, allowNegative: ?bool, options: list<string>, orderedScale: ?bool}> $trackEntries
 	 * @return list<int> New Tickbuddy track IDs, in file order
 	 * @throws ImportException
 	 */
@@ -427,6 +504,7 @@ class ImportService {
 
 		if ($mode === self::MODE_REPLACE) {
 			$this->publicLinkMapper->deleteAllByUser($userId);
+			$this->optionMapper->deleteAllByUser($userId);
 			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);
@@ -471,7 +549,19 @@ class ImportService {
 			$track->setSortOrder($sortOrder);
 			$track->setPrivate($entry['private'] ? 1 : 0);
 			$track->setArchivedAt($entry['archivedAt']);
+			$track->setUnit($entry['unit']);
+			$track->setDecimalPlaces($entry['decimalPlaces']);
+			$track->setAllowNegative($entry['allowNegative'] === null ? null : (int)$entry['allowNegative']);
+			$track->setOrderedScale($entry['orderedScale'] === null ? null : (int)$entry['orderedScale']);
 			$this->trackMapper->insert($track);
+			foreach ($entry['options'] as $index => $label) {
+				$option = new TrackOption();
+				$option->setUserId($userId);
+				$option->setTrackId($track->getId());
+				$option->setPlace($index + 1);
+				$option->setLabel($label);
+				$this->optionMapper->insert($option);
+			}
 
 			$trackIds[] = $track->getId();
 			$sortOrder++;
@@ -714,6 +804,7 @@ class ImportService {
 
 		if ($mode === self::MODE_REPLACE) {
 			$this->publicLinkMapper->deleteAllByUser($userId);
+			$this->optionMapper->deleteAllByUser($userId);
 			$this->noteMapper->deleteAllByUser($userId);
 			$this->tickMapper->deleteAllByUser($userId);
 			$this->trackMapper->deleteAllByUser($userId);

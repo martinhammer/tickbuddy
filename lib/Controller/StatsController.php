@@ -50,6 +50,7 @@ class StatsController extends OCSController {
 	 * @param int $trackId One track only (also an archived one); 0 for all tracks
 	 * @param string|int|float|bool|null $includeRuns Add every streak and break to each entry: true or false (also 1/0, on/off, yes/no)
 	 * @param string|int|float|bool|null $includeArchived With all tracks, include archived ones: true or false, as `includeRuns`
+	 * @param string|int|float|bool|null $includeAllTypes With all tracks, include tracks of every type, as `includeRuns`. Without it only "boolean" and "counter" tracks get an entry. `trackId` answers its track whatever its type
 	 * @return DataResponse<Http::STATUS_OK, list<TickbuddyStats>, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_NOT_FOUND, TickbuddyError, array{}>
 	 *
 	 * 200: Stats returned
@@ -59,11 +60,12 @@ class StatsController extends OCSController {
 	// Flags are unions for the framework: typed bool, Nextcloud would read "no" as true
 	#[NoAdminRequired]
 	#[ApiRoute(verb: 'GET', url: '/api/stats')]
-	public function index(string $today = '', string $from = '', string $to = '', int $trackId = 0, string|int|float|bool|null $includeRuns = false, string|int|float|bool|null $includeArchived = false): DataResponse {
+	public function index(string $today = '', string $from = '', string $to = '', int $trackId = 0, string|int|float|bool|null $includeRuns = false, string|int|float|bool|null $includeArchived = false, string|int|float|bool|null $includeAllTypes = false): DataResponse {
 		try {
 			$includeRuns = Flags::read('includeRuns', $includeRuns, false);
 			$includeArchived = Flags::read('includeArchived', $includeArchived, false);
-			$stats = $this->statsService->forUser($this->userId, $today, $trackId !== 0 ? $trackId : null, $includeRuns, $includeArchived, $from, $to);
+			$includeAllTypes = Flags::read('includeAllTypes', $includeAllTypes, false);
+			$stats = $this->statsService->forUser($this->userId, $today, $trackId !== 0 ? $trackId : null, $includeRuns, $includeArchived, $from, $to, $includeAllTypes);
 			return new DataResponse($stats);
 		} catch (InvalidValueException $e) {
 			return new DataResponse(['message' => $e->getMessage(), 'reason' => ErrorReason::INVALID_VALUE], Http::STATUS_BAD_REQUEST);

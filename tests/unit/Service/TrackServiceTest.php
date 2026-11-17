@@ -9,14 +9,19 @@ use OCA\Tickbuddy\Db\PublicLinkMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCA\Tickbuddy\Service\InvalidArchiveDateException;
 use OCA\Tickbuddy\Service\InvalidTrackNameException;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
+use OCA\Tickbuddy\Service\InvalidValueException;
+use OCA\Tickbuddy\Service\OptionNotFoundException;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\StrictHandling;
 use OCA\Tickbuddy\Service\TrackLimitReachedException;
 use OCA\Tickbuddy\Service\TrackOrderConflictException;
 use OCA\Tickbuddy\Service\TrackService;
+use OCA\Tickbuddy\Service\TrackSettings;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\DB\Exception as DbException;
 use OCP\IDBConnection;
@@ -24,6 +29,7 @@ use PHPUnit\Framework\TestCase;
 
 final class TrackServiceTest extends TestCase {
 	private TrackMapper $trackMapper;
+	private TrackOptionMapper $optionMapper;
 	private TickMapper $tickMapper;
 	private NoteMapper $noteMapper;
 	private PublicLinkMapper $publicLinkMapper;
@@ -43,7 +49,8 @@ final class TrackServiceTest extends TestCase {
 		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
 		$this->strictHandling = $this->createMock(StrictHandling::class);
 		$this->db = $this->createMock(IDBConnection::class);
-		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->timeFactory, $this->strictHandling, $this->db);
+		$this->optionMapper = $this->createMock(TrackOptionMapper::class);
+		$this->service = new TrackService($this->trackMapper, $this->tickMapper, $this->noteMapper, $this->publicLinkMapper, $this->timeFactory, $this->strictHandling, $this->db, $this->optionMapper);
 	}
 
 	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
@@ -688,5 +695,323 @@ final class TrackServiceTest extends TestCase {
 		$this->trackMapper->expects($this->once())->method('reorder')->with($this->userId, [3, 1, 2]);
 
 		$this->service->reorder([99, 3, 1], $this->userId);
+	}
+
+	// --- Number and Choice ---
+
+	/** Mock a create that succeeds, and collect the options it inserts. */
+	private function givenCreate(): \ArrayObject {
+		$this->trackMapper->method('countByUser')->willReturn(0);
+		$this->trackMapper->method('getMaxSortOrder')->willReturn(0);
+		$this->trackMapper->method('insert')->willReturnCallback(function (Track $t): Track {
+			$t->setId(7);
+			return $t;
+		});
+		$options = new \ArrayObject();
+		$this->optionMapper->method('insert')->willReturnCallback(function (TrackOption $o) use ($options): TrackOption {
+			$options[] = [$o->getTrackId(), $o->getPlace(), $o->getLabel(), $o->getUserId()];
+			return $o;
+		});
+		return $options;
+	}
+
+	public function testCreateNumberWithDefaults(): void {
+		$this->givenCreate();
+
+		$track = $this->service->create('Run', 'number', $this->userId);
+
+		$this->assertSame('number', $track->getType());
+		$this->assertNull($track->getUnit());
+		$this->assertSame(1, $track->getDecimalPlaces());
+		$this->assertSame(0, $track->getAllowNegative());
+		$this->assertNull($track->getOrderedScale());
+	}
+
+	public function testCreateNumberWithSettings(): void {
+		$this->givenCreate();
+
+		$track = $this->service->create('Greenhouse low', 'number', $this->userId, new TrackSettings(unit: ' °C ', decimalPlaces: '2', allowNegative: 'yes'));
+
+		$this->assertSame('°C', $track->getUnit());
+		$this->assertSame(2, $track->getDecimalPlaces());
+		$this->assertSame(1, $track->getAllowNegative());
+	}
+
+	public function testCreateNumberStoresAnEmptyUnitAsNull(): void {
+		$this->givenCreate();
+
+		$this->assertNull($this->service->create('Run', 'number', $this->userId, new TrackSettings(unit: '  '))->getUnit());
+	}
+
+	public function testCreateChoiceWritesItsOptionsInOneTransaction(): void {
+		$options = $this->givenCreate();
+		$this->db->expects($this->once())->method('beginTransaction');
+		$this->db->expects($this->once())->method('commit');
+
+		$track = $this->service->create("Mum's mood", 'choice', $this->userId, new TrackSettings(options: [' Excited ', 'Happy', 'Normal', 'Sad'], orderedScale: true));
+
+		$this->assertSame(1, $track->getOrderedScale());
+		$this->assertNull($track->getDecimalPlaces());
+		$this->assertSame([
+			[7, 1, 'Excited', $this->userId],
+			[7, 2, 'Happy', $this->userId],
+			[7, 3, 'Normal', $this->userId],
+			[7, 4, 'Sad', $this->userId],
+		], $options->getArrayCopy());
+	}
+
+	public function testCreateChoiceTakesTwoAndNinetyNineOptions(): void {
+		$options = $this->givenCreate();
+
+		$this->service->create('A', 'choice', $this->userId, new TrackSettings(options: ['a', 'b']));
+		$this->service->create('B', 'choice', $this->userId, new TrackSettings(options: array_map(fn (int $i) => "o{$i}", range(1, 99))));
+
+		$this->assertCount(101, $options);
+		$this->assertSame(0, $this->service->create('C', 'choice', $this->userId, new TrackSettings(options: ['a', 'b']))->getOrderedScale());
+	}
+
+	public function testAFailingOptionRollsTheTrackBack(): void {
+		$this->givenCreate();
+		$this->optionMapper->method('insert')->willThrowException(new \RuntimeException('disk full'));
+		$this->db->expects($this->once())->method('rollBack');
+		$this->db->expects($this->never())->method('commit');
+
+		$this->expectException(\RuntimeException::class);
+		$this->service->create('Mood', 'choice', $this->userId, new TrackSettings(options: ['a', 'b']));
+	}
+
+	public static function refusedCreateProvider(): array {
+		return [
+			'one option' => ['choice', new TrackSettings(options: ['a']), 'Choice tracks need 2 to 99 options'],
+			'100 options' => ['choice', new TrackSettings(options: array_map(fn (int $i) => "o{$i}", range(1, 100))), 'Choice tracks need 2 to 99 options'],
+			'no options' => ['choice', new TrackSettings(), 'Choice tracks need 2 to 99 options'],
+			'options not a list' => ['choice', new TrackSettings(options: ['x' => 'a', 'y' => 'b']), 'Choice tracks need 2 to 99 options'],
+			'blank option' => ['choice', new TrackSettings(options: ['a', '  ']), 'Option labels cannot be empty'],
+			'option not text' => ['choice', new TrackSettings(options: ['a', ['b']]), 'Options must be a list of labels'],
+			'long option' => ['choice', new TrackSettings(options: ['a', str_repeat('x', 256)]), 'Option labels can be at most 255 characters'],
+			'same label ignoring case' => ['choice', new TrackSettings(options: ['Happy', 'Sad', ' happy']), 'Two options can\'t have the same label: "happy"'],
+			'unreadable orderedScale' => ['choice', new TrackSettings(options: ['a', 'b'], orderedScale: 'maybe'), 'orderedScale must be true or false'],
+			'decimal places 4' => ['number', new TrackSettings(decimalPlaces: 4), 'Decimal places must be 0, 1, 2 or 3'],
+			'decimal places 1.5' => ['number', new TrackSettings(decimalPlaces: 1.5), 'Decimal places must be 0, 1, 2 or 3'],
+			'decimal places negative' => ['number', new TrackSettings(decimalPlaces: '-1'), 'Decimal places must be 0, 1, 2 or 3'],
+			'long unit' => ['number', new TrackSettings(unit: str_repeat('x', 256)), 'Units can be at most 255 characters'],
+			'unreadable allowNegative' => ['number', new TrackSettings(allowNegative: 'maybe'), 'allowNegative must be true or false'],
+			'options on a number' => ['number', new TrackSettings(options: ['a', 'b']), 'options and orderedScale are only for choice tracks'],
+			'unit on a choice' => ['choice', new TrackSettings(unit: 'km', options: ['a', 'b']), 'unit, decimalPlaces and allowNegative are only for number tracks'],
+			'unit on a counter' => ['counter', new TrackSettings(unit: 'km'), 'unit, decimalPlaces and allowNegative are only for number tracks'],
+			'orderedScale on yes/no' => ['boolean', new TrackSettings(orderedScale: true), 'options and orderedScale are only for choice tracks'],
+		];
+	}
+
+	/**
+	 * @dataProvider refusedCreateProvider
+	 */
+	public function testCreateRefusesBadSettingsWithNothingWritten(string $type, TrackSettings $settings, string $message): void {
+		$this->trackMapper->expects($this->never())->method('insert');
+		$this->optionMapper->expects($this->never())->method('insert');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->create('Track', $type, $this->userId, $settings);
+	}
+
+	public function testCreateChecksTheSettingsBeforeTheLimit(): void {
+		$this->trackMapper->method('countByUser')->willReturn(99);
+
+		$this->expectException(InvalidValueException::class);
+		$this->service->create('Mood', 'choice', $this->userId, new TrackSettings(options: ['a']));
+	}
+
+	private function makeNumberTrack(?string $archivedAt = null): Track {
+		$track = $this->makeTrack(5, $archivedAt);
+		$track->setType('number');
+		$track->setUnit('km');
+		$track->setDecimalPlaces(2);
+		$track->setAllowNegative(0);
+		return $track;
+	}
+
+	private function makeChoiceTrack(?string $archivedAt = null): Track {
+		$track = $this->makeTrack(6, $archivedAt);
+		$track->setType('choice');
+		$track->setOrderedScale(0);
+		return $track;
+	}
+
+	public function testUpdateChangesNumberSettings(): void {
+		$track = $this->makeNumberTrack();
+		$this->givenTrack($track);
+		$this->tickMapper->expects($this->never())->method($this->anything());
+
+		$this->service->update(5, $this->userId, settings: new TrackSettings(unit: ' mi ', decimalPlaces: 0, allowNegative: 'on'));
+
+		$this->assertSame('mi', $track->getUnit());
+		$this->assertSame(0, $track->getDecimalPlaces());
+		$this->assertSame(1, $track->getAllowNegative());
+	}
+
+	public function testUpdateEmptiesTheUnit(): void {
+		$track = $this->makeNumberTrack();
+		$this->givenTrack($track);
+
+		$this->service->update(5, $this->userId, settings: new TrackSettings(unit: ''));
+
+		$this->assertNull($track->getUnit());
+		$this->assertSame(2, $track->getDecimalPlaces());
+	}
+
+	public function testUpdateChangesOrderedScale(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+
+		$this->service->update(6, $this->userId, settings: new TrackSettings(orderedScale: 'true'));
+
+		$this->assertSame(1, $track->getOrderedScale());
+	}
+
+	public static function refusedUpdateProvider(): array {
+		return [
+			'number setting on a choice' => ['choice', new TrackSettings(decimalPlaces: 2), 'unit, decimalPlaces and allowNegative are only for number tracks'],
+			'orderedScale on a number' => ['number', new TrackSettings(orderedScale: true), 'options and orderedScale are only for choice tracks'],
+			'options on a choice' => ['choice', new TrackSettings(options: ['a', 'b']), 'Options can\'t be changed here: rename one with PUT /api/tracks/{id}/options/{value}'],
+			'decimal places 9' => ['number', new TrackSettings(decimalPlaces: 9), 'Decimal places must be 0, 1, 2 or 3'],
+		];
+	}
+
+	/**
+	 * @dataProvider refusedUpdateProvider
+	 */
+	public function testUpdateRefusesBadSettings(string $type, TrackSettings $settings, string $message): void {
+		$track = $type === 'number' ? $this->makeNumberTrack('2026-10-01') : $this->makeChoiceTrack('2026-10-01');
+		$this->strict();
+		$this->givenTrack($track);
+		$this->trackMapper->expects($this->never())->method('update');
+
+		// A 400 comes first, on an archived track too
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->update($track->getId(), $this->userId, settings: $settings);
+	}
+
+	public function testArchivedTrackIgnoresSettings(): void {
+		$track = $this->makeNumberTrack('2026-10-01');
+		$this->givenTrack($track);
+		$this->trackMapper->expects($this->never())->method('update');
+
+		$this->assertSame($track, $this->service->update(5, $this->userId, settings: new TrackSettings(decimalPlaces: 0)));
+		$this->assertSame(2, $track->getDecimalPlaces());
+	}
+
+	public function testStrictRefusesSettingsOnAnArchivedTrack(): void {
+		$this->strict();
+		$this->givenTrack($this->makeChoiceTrack('2026-10-01'));
+
+		$this->expectException(ReadOnlyTrackException::class);
+		$this->service->update(6, $this->userId, settings: new TrackSettings(orderedScale: true));
+	}
+
+	private function givenOptions(Track $track, string ...$labels): void {
+		$options = [];
+		foreach ($labels as $index => $label) {
+			$option = new TrackOption();
+			$option->setId(100 + $index);
+			$option->setUserId($this->userId);
+			$option->setTrackId($track->getId());
+			$option->setPlace($index + 1);
+			$option->setLabel($label);
+			$options[] = $option;
+		}
+		$this->optionMapper->method('findByTrack')->willReturn($options);
+	}
+
+	public function testRenameOption(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy', 'Normal');
+		$this->optionMapper->expects($this->once())->method('update')
+			->with($this->callback(fn (TrackOption $o) => $o->getPlace() === 3 && $o->getLabel() === 'Calm'));
+
+		$this->assertSame($track, $this->service->renameOption(6, $this->userId, 3, ' Calm '));
+	}
+
+	public function testRenameOptionToItsOwnLabelChangesNothing(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy');
+		$this->optionMapper->expects($this->never())->method('update');
+
+		$this->service->renameOption(6, $this->userId, 2, 'Happy');
+	}
+
+	public function testRenameOptionCanChangeItsOwnCase(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'happy');
+		$this->optionMapper->expects($this->once())->method('update');
+
+		$this->service->renameOption(6, $this->userId, 2, 'Happy');
+	}
+
+	public function testRenameOptionRefusesAnotherOptionsLabel(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy');
+		$this->optionMapper->expects($this->never())->method('update');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Two options can\'t have the same label: "EXCITED"');
+		$this->service->renameOption(6, $this->userId, 2, 'EXCITED');
+	}
+
+	public function testRenameOptionRefusesABlankLabel(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy');
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Option labels cannot be empty');
+		$this->service->renameOption(6, $this->userId, 2, ' ');
+	}
+
+	public function testRenameUnknownOption(): void {
+		$track = $this->makeChoiceTrack();
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy');
+
+		$this->expectException(OptionNotFoundException::class);
+		$this->service->renameOption(6, $this->userId, 3, 'Sad');
+	}
+
+	public function testRenameOptionOnAnotherType(): void {
+		$this->givenTrack($this->makeNumberTrack());
+
+		$this->expectException(InvalidTrackTypeException::class);
+		$this->expectExceptionMessage('Only choice tracks have options');
+		$this->service->renameOption(5, $this->userId, 1, 'Sad');
+	}
+
+	public function testRenameOptionOnAnArchivedTrackIsRefusedWithoutStrictHandling(): void {
+		$track = $this->makeChoiceTrack('2026-10-01');
+		$this->givenTrack($track);
+		$this->givenOptions($track, 'Excited', 'Happy');
+		$this->optionMapper->expects($this->never())->method('update');
+
+		$this->expectException(ReadOnlyTrackException::class);
+		$this->service->renameOption(6, $this->userId, 2, 'Glad');
+	}
+
+	public function testDeleteRemovesOptions(): void {
+		$this->givenTrack($this->makeChoiceTrack());
+		$this->optionMapper->expects($this->once())->method('deleteByTrackId')->with(6);
+
+		$this->service->delete(6, $this->userId);
+	}
+
+	public function testFindAllOnlyBaseTypesWhenAsked(): void {
+		$this->trackMapper->expects($this->once())->method('findActiveByUser')->with($this->userId, ['boolean', 'counter'])->willReturn([]);
+		$this->trackMapper->expects($this->once())->method('findAllByUser')->with($this->userId, false, null)->willReturn([]);
+
+		$this->service->findAll($this->userId, false, false);
+		$this->service->findAll($this->userId, true, true);
 	}
 }

@@ -8,6 +8,8 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
@@ -22,6 +24,7 @@ use PHPUnit\Framework\TestCase;
 final class TickServiceTest extends TestCase {
 	private TickMapper $tickMapper;
 	private TrackMapper $trackMapper;
+	private TrackOptionMapper $optionMapper;
 	private NoteService $noteService;
 	private StrictHandling $strictHandling;
 	private TickService $service;
@@ -33,7 +36,8 @@ final class TickServiceTest extends TestCase {
 		$this->noteService = $this->createMock(NoteService::class);
 		// A mock's refuseArchived() does nothing, so tests get the legacy answers unless they call strict()
 		$this->strictHandling = $this->createMock(StrictHandling::class);
-		$this->service = new TickService($this->tickMapper, $this->trackMapper, $this->noteService, $this->strictHandling);
+		$this->optionMapper = $this->createMock(TrackOptionMapper::class);
+		$this->service = new TickService($this->tickMapper, $this->trackMapper, $this->noteService, $this->strictHandling, $this->optionMapper);
 	}
 
 	/** The client sent Prefer: handling=strict: writes to archived tracks are refused. */
@@ -1218,5 +1222,303 @@ final class TickServiceTest extends TestCase {
 		$this->tickMapper->expects($this->once())->method('insert');
 
 		$this->assertSame(1, $this->service->toggle($this->userId, 1, '2026-10-18')['value']);
+	}
+
+	// --- Number and Choice ---
+
+	private function makeNumberTrack(int $decimalPlaces = 1, bool $allowNegative = false, ?string $archivedAt = null): Track {
+		$track = new Track();
+		$track->setId(3);
+		$track->setType('number');
+		$track->setUserId($this->userId);
+		$track->setDecimalPlaces($decimalPlaces);
+		$track->setAllowNegative($allowNegative ? 1 : 0);
+		$track->setArchivedAt($archivedAt);
+		return $track;
+	}
+
+	private function makeChoiceTrack(int $options = 4, ?string $archivedAt = null): Track {
+		$track = new Track();
+		$track->setId(4);
+		$track->setType('choice');
+		$track->setUserId($this->userId);
+		$track->setOrderedScale(1);
+		$track->setArchivedAt($archivedAt);
+		$this->optionMapper->method('findByTrack')->willReturn(array_map(function (int $place): TrackOption {
+			$option = new TrackOption();
+			$option->setPlace($place);
+			$option->setLabel("Option {$place}");
+			return $option;
+		}, range(1, $options)));
+		return $track;
+	}
+
+	/** Expect one stored value on a day without a tick, and nothing else written. */
+	private function expectInsert(int $value): void {
+		$this->noTick();
+		$this->tickMapper->expects($this->once())->method('insert')
+			->with($this->callback(fn (Tick $t) => $t->getValue() === $value));
+		$this->tickMapper->expects($this->never())->method('delete');
+	}
+
+	public static function numberProvider(): array {
+		return [
+			'JSON float' => [10.4, 1, 10400, 10.4],
+			'string' => ['10.4', 1, 10400, 10.4],
+			'rounded on 1' => [10.45, 1, 10500, 10.5],
+			'rounded on 0' => ['72.5', 0, 73000, 73],
+			'more decimals than 3' => ['1.23456', 3, 1235, 1.235],
+			'whole' => [72, 1, 72000, 72],
+		];
+	}
+
+	/**
+	 * @dataProvider numberProvider
+	 */
+	public function testSetNumber(mixed $value, int $decimalPlaces, int $stored, int|float $answer): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack($decimalPlaces));
+		$this->expectInsert($stored);
+
+		$this->assertSame(['value' => $answer], $this->service->set($this->userId, 3, '2026-11-17', $value));
+	}
+
+	public function testSetNumberZeroIsStored(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->expectInsert(0);
+
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 3, '2026-11-17', '0'));
+	}
+
+	public function testSetNumberReplacesAStoredValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$tick = $this->makeTick(10400);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('update')->with($tick);
+
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 3, '2026-11-17', 0));
+		$this->assertSame(0, $tick->getValue());
+	}
+
+	public function testSetNegativeNumberWhereAllowed(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack(1, true));
+		$this->expectInsert(-1500);
+
+		$this->assertSame(['value' => -1.5], $this->service->set($this->userId, 3, '2026-11-17', -1.5));
+	}
+
+	public function testSetNegativeNumberWhereNotAllowed(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage("This track doesn't allow negative values");
+		$this->service->set($this->userId, 3, '2026-11-17', '-1.5');
+	}
+
+	public static function clearProvider(): array {
+		return ['null' => [null], 'empty' => ['']];
+	}
+
+	/**
+	 * @dataProvider clearProvider
+	 */
+	public function testClearNumber(?string $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$tick = $this->makeTick(10400);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+
+		$this->assertSame(['value' => null], $this->service->set($this->userId, 3, '2026-11-17', $value));
+	}
+
+	public function testClearingAnEmptyDayChangesNothing(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->noTick();
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => null], $this->service->set($this->userId, 4, '2026-11-17', null));
+	}
+
+	public static function badNumberProvider(): array {
+		return [
+			'comma' => ['10,4', 'Number tracks take a number, such as 10.4'],
+			'JSON true' => [true, 'Number tracks take a number, such as 10.4'],
+			'beyond' => ['2147483.648', 'Numbers must be between -2147483.647 and 2147483.647'],
+			'beyond negative' => ['-2147483.648', 'Numbers must be between -2147483.647 and 2147483.647'],
+		];
+	}
+
+	/**
+	 * @dataProvider badNumberProvider
+	 */
+	public function testSetNumberRefuses(mixed $value, string $message): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack(3, true));
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage($message);
+		$this->service->set($this->userId, 3, '2026-11-17', $value);
+	}
+
+	public function testSetNumberWithoutAValueIsRefused(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Number tracks take a number, such as 10.4');
+		$this->service->set($this->userId, 3, '2026-11-17', null, valueSent: false);
+	}
+
+	public function testSetNumberWithANote(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->expectInsert(5000);
+		$this->noteService->expects($this->once())->method('writeForTick')->with($this->userId, 3, '2026-11-17', 'Easy')->willReturn('Easy');
+
+		$this->assertSame(['value' => 5, 'note' => 'Easy'], $this->service->set($this->userId, 3, '2026-11-17', 5, 'Easy'));
+	}
+
+	public static function choiceProvider(): array {
+		return [[1, 1], [4, 4], ['2', 2], [' 3 ', 3]];
+	}
+
+	/**
+	 * @dataProvider choiceProvider
+	 */
+	public function testSetChoice(mixed $value, int $place): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack());
+		$this->expectInsert($place);
+
+		$this->assertSame(['value' => $place], $this->service->set($this->userId, 4, '2026-11-17', $value));
+	}
+
+	public static function badChoiceProvider(): array {
+		return [[0], [5], [2.0], ['two'], [true], ['-1']];
+	}
+
+	/**
+	 * @dataProvider badChoiceProvider
+	 */
+	public function testSetChoiceRefuses(mixed $value): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack());
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Choice tracks take the number of an option, from 1 to 4');
+		$this->service->set($this->userId, 4, '2026-11-17', $value);
+	}
+
+	public function testSetChoiceWithoutAValueIsRefused(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack(3));
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidValueException::class);
+		$this->expectExceptionMessage('Choice tracks take the number of an option, from 1 to 3');
+		$this->service->set($this->userId, 4, '2026-11-17', null, valueSent: false);
+	}
+
+	public function testClearChoice(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack());
+		$tick = $this->makeTick(2);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+
+		$this->assertSame(['value' => null], $this->service->set($this->userId, 4, '2026-11-17', ''));
+	}
+
+	public function testSetChecksTheValueBeforeTheDate(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack());
+
+		$this->expectExceptionMessage('Choice tracks take the number of an option, from 1 to 4');
+		$this->service->set($this->userId, 4, 'yesterday', 9);
+	}
+
+	public function testSetRefusesAnUnknownType(): void {
+		$track = $this->makeNumberTrack();
+		$track->setType('duration');
+		$this->trackMapper->method('findByIdAndUser')->willReturn($track);
+		$this->expectNoTickWrites();
+
+		$this->expectException(InvalidTrackTypeException::class);
+		$this->service->set($this->userId, 3, '2026-11-17', 5);
+	}
+
+	public function testToggleAndIncrementRefuseNumberAndChoice(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturnOnConsecutiveCalls($this->makeNumberTrack(), $this->makeChoiceTrack(), $this->makeNumberTrack(), $this->makeChoiceTrack());
+		$messages = [];
+		foreach ([
+			fn () => $this->service->toggle($this->userId, 3, '2026-11-17'),
+			fn () => $this->service->toggle($this->userId, 4, '2026-11-17'),
+			fn () => $this->service->increment($this->userId, 3, '2026-11-17', 1),
+			fn () => $this->service->increment($this->userId, 4, '2026-11-17', 1),
+		] as $call) {
+			try {
+				$call();
+			} catch (InvalidTrackTypeException $e) {
+				$messages[] = $e->getMessage();
+			}
+		}
+		$this->assertSame([
+			'Toggle is only available for boolean tracks',
+			'Toggle is only available for boolean tracks',
+			'Increment is only available for counter tracks',
+			'Increment is only available for counter tracks',
+		], $messages);
+	}
+
+	public function testArchivedNumberAnswersTheStoredValue(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack(1, false, '2026-11-01'));
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($this->makeTick(10450));
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => 10.45], $this->service->set($this->userId, 3, '2026-10-17', 3));
+	}
+
+	public function testArchivedChoiceWithoutAValueAnswersNull(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeChoiceTrack(4, '2026-11-01'));
+		$this->noTick();
+		$this->expectNoTickWrites();
+
+		$this->assertSame(['value' => null], $this->service->set($this->userId, 4, '2026-10-17', 2));
+	}
+
+	public function testStrictRefusesNumberOnAnArchivedTrack(): void {
+		$this->strict();
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack(1, false, '2026-11-01'));
+		$this->expectNoTickWrites();
+
+		$this->expectException(ReadOnlyTrackException::class);
+		$this->service->set($this->userId, 3, '2026-10-17', 3);
+	}
+
+	public function testCounterSetZeroStillDeletes(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeCounterTrack());
+		$tick = $this->makeTick(4);
+		$this->tickMapper->method('findByUserTrackDate')->willReturn($tick);
+		$this->tickMapper->expects($this->once())->method('delete')->with($tick);
+		$this->tickMapper->expects($this->never())->method('update');
+
+		$this->assertSame(['value' => 0], $this->service->set($this->userId, 2, '2026-11-17', 0));
+	}
+
+	public function testReadsWithoutAllTypesOnlyReadBaseTypes(): void {
+		$this->trackMapper->expects($this->once())->method('findIdsByUserAndTypes')->with($this->userId, ['boolean', 'counter'])->willReturn([1, 2]);
+		$this->tickMapper->expects($this->once())->method('findByUserAndDateRange')->with($this->userId, '2026-11-01', '2026-11-17', null, [1, 2])->willReturn([]);
+
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-17', null, false);
+	}
+
+	public function testReadsWithoutAllTypesAndNoBaseTracksReadNothing(): void {
+		$this->trackMapper->method('findIdsByUserAndTypes')->willReturn([]);
+		$this->tickMapper->expects($this->never())->method('findByUserAndDateRange');
+
+		$this->assertSame([], $this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-17', null, false));
+	}
+
+	public function testOneTrackIsReadWhateverItsType(): void {
+		$this->trackMapper->method('findByIdAndUser')->willReturn($this->makeNumberTrack());
+		$this->trackMapper->expects($this->never())->method('findIdsByUserAndTypes');
+		$this->tickMapper->expects($this->once())->method('findByUserAndDateRange')->with($this->userId, '2026-11-01', '2026-11-17', 3, null)->willReturn([]);
+
+		$this->service->findByDateRange($this->userId, '2026-11-01', '2026-11-17', 3, false);
 	}
 }
