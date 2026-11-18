@@ -2,7 +2,7 @@
 #
 # Records a day's last.fm scrobbles on a Tickbuddy counter track through a
 # public link: the number of songs as the day's value, and a one-line summary
-# (distinct artists, most played song) appended to the day's note.
+# (distinct artists, most played artist) appended to the day's note.
 #
 # Usage: lastfm-to-tickbuddy.sh [--no-note] [--dry-run] [YYYY-MM-DD]
 #
@@ -114,8 +114,8 @@ summary=
 if [[ $note == 1 ]] && ((count > 0)); then
 	summary=$(jq -r '
 		(map(.artist) | unique | length) as $artists
-		| group_by([.artist, .name]) | max_by(length) as $top
-		| "Last.fm: \($artists) artist\(if $artists == 1 then "" else "s" end), most played: \($top[0].artist) – \($top[0].name) (\($top | length)×)"
+		| group_by(.artist) | max_by(length) as $top
+		| "Last.fm: \($artists) artist\(if $artists == 1 then "" else "s" end), most played artist: \($top[0].artist) \($top | length)×"
 	' <<< "$tracks")
 	# Well within Tickbuddy's 500 characters, whatever the names.
 	summary=${summary:0:400}
