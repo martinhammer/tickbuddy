@@ -487,4 +487,95 @@ final class StatsServiceTest extends TestCase {
 		$this->expectExceptionMessage('From must be on or before to');
 		$this->service->forUser($this->userId, self::TODAY, null, false, false, '2026-03-02', '2026-03-01');
 	}
+
+	// --- Number and Choice ---
+
+	private function makeTypedTrack(int $id, string $type, bool $orderedScale = false): Track {
+		$track = $this->makeTrack($id);
+		$track->setType($type);
+		if ($type === 'choice') {
+			$track->setOrderedScale($orderedScale ? 1 : 0);
+		}
+		return $track;
+	}
+
+	public function testANumberCountsEveryEntry(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(5, 'number'));
+		// -1.5, 0 and 21.45, with an empty day between: 0 is a reading
+		$this->tickMapper->method('findValuesByUser')->willReturn([5 => [
+			'2026-10-05' => -1500,
+			'2026-10-06' => 0,
+			'2026-10-08' => 21450,
+		]]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 5, false, false)[0];
+
+		$this->assertSame(3, $s['total']);
+		$this->assertSame(3, $s['last7']);
+		$this->assertSame(-1.5, $s['minValue']);
+		$this->assertSame(21.45, $s['maxValue']);
+		$this->assertSame(self::makeRun(true, '2026-10-08', '2026-10-08', 1), $s['current']);
+		$this->assertSame(self::makeRun(true, '2026-10-05', '2026-10-06', 2), $s['longestStreak']);
+	}
+
+	public function testANumberWithoutEntriesHasNoHighestOrLowest(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(5, 'number'));
+		$this->tickMapper->method('findValuesByUser')->willReturn([]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 5, false, false)[0];
+
+		$this->assertNull($s['maxValue']);
+		$this->assertNull($s['minValue']);
+		$this->assertSame(0, $s['total']);
+	}
+
+	public function testAWholeNumberIsAnsweredWithoutAPoint(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(5, 'number'));
+		$this->tickMapper->method('findValuesByUser')->willReturn([5 => ['2026-10-08' => 72000]]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 5, false, false)[0];
+
+		$this->assertSame(72, $s['maxValue']);
+		$this->assertSame(72, $s['minValue']);
+	}
+
+	public function testAnOrderedScaleAnswersPlaces(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(6, 'choice', true));
+		$this->tickMapper->method('findValuesByUser')->willReturn([6 => ['2026-10-06' => 3, '2026-10-07' => 1, '2026-10-08' => 2]]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 6, false, false)[0];
+
+		$this->assertSame(3, $s['total']);
+		$this->assertSame(3, $s['maxValue']);
+		$this->assertSame(1, $s['minValue']);
+	}
+
+	public function testAPlainListHasNoHighestOrLowest(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(6, 'choice', false));
+		$this->tickMapper->method('findValuesByUser')->willReturn([6 => ['2026-10-06' => 3, '2026-10-07' => 1]]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 6, false, false)[0];
+
+		$this->assertSame(2, $s['total']);
+		$this->assertNull($s['maxValue']);
+		$this->assertNull($s['minValue']);
+	}
+
+	public function testCountersStillSumAndCountEmptyDaysAsZero(): void {
+		$this->trackService->method('find')->willReturn($this->makeTypedTrack(2, 'counter'));
+		$this->tickMapper->method('findValuesByUser')->willReturn([2 => ['2026-10-06' => 3, '2026-10-08' => 2]]);
+
+		$s = $this->service->forUser($this->userId, self::TODAY, 2, false, false)[0];
+
+		$this->assertSame(5, $s['total']);
+		$this->assertSame(3, $s['maxValue']);
+		$this->assertSame(0, $s['minValue']);
+	}
+
+	public function testStatsPassTheTypeFilterOn(): void {
+		$this->trackService->expects($this->once())->method('findAll')->with($this->userId, false, false)->willReturn([]);
+		$this->tickMapper->method('findValuesByUser')->willReturn([]);
+
+		$this->service->forUser($this->userId, self::TODAY, null, false, false, '', '', false);
+	}
 }

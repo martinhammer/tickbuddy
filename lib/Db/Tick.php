@@ -7,6 +7,9 @@ namespace OCA\Tickbuddy\Db;
 use OCP\AppFramework\Db\Entity;
 
 /**
+ * One day's value of one track: a Counter's count, 1 for Yes/No, a Number's
+ * value in thousandths (10.4 is 10400) or a Choice's place (1 to n).
+ *
  * @method string getUserId()
  * @method void setUserId(string $userId)
  * @method int getTrackId()

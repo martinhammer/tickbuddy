@@ -244,6 +244,7 @@ final class ErrorReasonTest extends TestCase {
 	public function testRequestInProgress(): void {
 		// The row's fingerprint can't match, so give each write a row with its own
 		$this->request->method('getHeader')->willReturnCallback(fn (string $name) => $name === 'Idempotency-Key' ? '8e03978e-40d5-43e8-bc93-6894a57f9324' : '');
+		$this->request->method('getParams')->willReturn(['value' => 1]);
 		$unique = $this->createMock(DbException::class);
 		$unique->method('getReason')->willReturn(DbException::REASON_UNIQUE_CONSTRAINT_VIOLATION);
 		$this->idempotencyMapper->method('claim')->willThrowException($unique);
@@ -255,7 +256,7 @@ final class ErrorReasonTest extends TestCase {
 		});
 		$e = new \LogicException('The write must not run');
 		$writes = [
-			['tracks.create', ['A', 'boolean'], fn () => $this->tracks($e)->create('A', 'boolean')],
+			['tracks.create', ['A', 'boolean', null, null, null, null, null], fn () => $this->tracks($e)->create('A', 'boolean')],
 			['ticks.toggle', [1, '2026-10-20', null, null, false], fn () => $this->ticks($e)->toggle(1, '2026-10-20')],
 			['ticks.set', [1, '2026-10-20', 1, null, null, false], fn () => $this->ticks($e)->set(1, '2026-10-20', 1)],
 			['ticks.increment', [1, '2026-10-20', 1, null, null, false], fn () => $this->ticks($e)->increment(1, '2026-10-20', 1)],

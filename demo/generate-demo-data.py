@@ -8,7 +8,9 @@ lapses, but trending the right way) while building an exercise habit, cutting
 down on sweets, and keeping their coffee steady. Partway in they also take up
 daily affirmations, and later set up a nightly backup whose cron job reports
 to Tickbuddy through Tickcli. One winter they follow a Couch to 5k plan to the
-end, then archive the track.
+end, then archive the track. They weigh themselves most mornings (a Number
+track, slowly going down as the drinking does) and rate their mood each
+evening (a Choice track, an ordered scale that lifts on active, dry days).
 
 Notes are sprinkled over the hand-ticked tracks the way a person writes them:
 now and then, in no fixed form, sometimes on a day without a tick. Nightly
@@ -17,7 +19,8 @@ night, and on a failed run a note without a tick.
 
 Storage is sparse, matching the app: boolean tracks emit a row only on "yes"
 days; counter tracks emit a row only when the value is >= 1 (a zero means "no
-row"). All track/tick/note shapes follow lib/Service/ImportService::importJson().
+row"). Number and Choice tracks emit a row on every day with an entry, and
+none on a day without one. All track/tick/note shapes follow lib/Service/ImportService::importJson().
 
 Usage:
     python3 generate-demo-data.py                 # writes tickbuddy-demo-data.json next to this script, ending today
@@ -82,11 +85,27 @@ TRACKS = [
     {"name": "Exercise", "type": "boolean", "sortOrder": 5, "private": False},
     {"name": "Affirmations", "type": "boolean", "sortOrder": 6, "private": False},
     {"name": "Nightly backup", "type": "boolean", "sortOrder": 7, "private": False},
+    # A Number and a Choice track, with their settings as the export writes them
+    {"name": "Weight", "type": "number", "sortOrder": 8, "private": False,
+     "unit": "kg", "decimalPlaces": 1, "allowNegative": False},
+    {"name": "Mood", "type": "choice", "sortOrder": 9, "private": False,
+     "options": ["Awful", "Low", "Okay", "Good", "Great"], "orderedScale": True},
     # Archived, so screenshots and manual checks show the archived list. Only
     # archived tracks carry the key, as the export writes them.
-    {"name": "Couch to 5k", "type": "boolean", "sortOrder": 8, "private": False,
+    {"name": "Couch to 5k", "type": "boolean", "sortOrder": 10, "private": False,
      "archivedAt": "2026-03-02"},
 ]
+
+# Weight: from about 86 kg down to about 78 kg over the whole range, a little
+# up the morning after a drink and over the winter holidays; weighed on most
+# days, fewer at weekends.
+WEIGHT_FROM = 86.0
+WEIGHT_TO = 78.0
+
+# Mood: the place on the scale (1 Awful .. 5 Great). Rated on most evenings,
+# from this point on (fraction of the whole range).
+MOOD_START = 0.20
+MOOD_OPTIONS = 5
 
 # Couch to 5k: three runs a week (Mon, Wed, Fri) over a fixed winter, ending
 # with the graduation run on the day the track is archived. Fixed dates rather
@@ -210,6 +229,16 @@ NOTES = {
             "Rained all day, no excuse really",
         ],
     },
+    "Mood": {
+        "ticked": 0.06, "unticked": 0.0,
+        "texts_by_place": {
+            1: ["Rough day at work", "Ill, everything hurts", "Argument with my brother", "Didn't sleep at all"],
+            2: ["Tired and grumpy", "Grey all day", "Missed the run, annoyed with myself"],
+            3: ["Nothing special", "Quiet day", "ok"],
+            4: ["Good run this morning", "Dinner with friends", "Productive day"],
+            5: ["Hiking in the sun!", "Got the promotion", "Best day in ages", "Holiday starts tomorrow"],
+        },
+    },
     "Affirmations": {
         "ticked": 0.05, "unticked": 0.008,
         "texts_ticked": [
@@ -268,6 +297,10 @@ def generate(start: date, end: date, seed: int) -> dict:
     # And again for notes and the backup, so they never shift any ticks.
     notes_rng = random.Random(seed + 3)
     backup = random.Random(seed + 4)
+    # Weight and Mood (and Mood's notes) each have their own too, so adding them
+    # left every other track's ticks and notes unchanged for a given seed.
+    weight_rng = random.Random(seed + 5)
+    mood_rng = random.Random(seed + 6)
     affirmed_yesterday = False
 
     days = []
@@ -280,7 +313,9 @@ def generate(start: date, end: date, seed: int) -> dict:
     ticks: list[dict] = []
     notes: dict[tuple[str, date], str] = {}
     # A slow random walk per track: notes come in bursts and dry spells.
-    note_mood = {track: 1.0 for track in NOTES}
+    note_mood = {track: 1.0 for track in NOTES if track != "Mood"}
+    weight_drift = 0.0   # kg, a slow wander around the trend
+    mood_yesterday = 3
     backup_size = 41.0   # GB
     backup_failure = ""  # the reason while a failing run lasts
     backup_fail_days = 0
@@ -290,6 +325,10 @@ def generate(start: date, end: date, seed: int) -> dict:
         # Sparse storage: only "yes" / non-zero days get a row.
         if value >= 1:
             ticks.append({"track": track, "date": day.isoformat(), "value": int(value)})
+
+    def add_value(track: str, day: date, value: float | int) -> None:
+        # Number and Choice: every entry gets a row
+        ticks.append({"track": track, "date": day.isoformat(), "value": value})
 
     def maybe_note(track: str, day: date, ticked: bool) -> None:
         cfg = NOTES[track]
@@ -385,6 +424,30 @@ def generate(start: date, end: date, seed: int) -> dict:
                 )
                 add("Nightly backup", day)
 
+        # Weight: the trend, a slow wander, the morning after a drink and the
+        # winter holidays; weighed on about four days in five, fewer at weekends.
+        weight_drift = max(-1.5, min(1.5, weight_drift + weight_rng.gauss(0, 0.15)))
+        if weight_rng.random() < (0.55 if weekend else 0.85):
+            kg = lerp(WEIGHT_FROM, WEIGHT_TO, f) + weight_drift + weight_rng.gauss(0, 0.35)
+            if drank:
+                kg += 0.4
+            if (day.month == 12 and day.day >= 20) or (day.month == 1 and day.day <= 10):
+                kg += 0.9
+            add_value("Weight", day, round(kg, 1))
+
+        # Mood: rated on most evenings once the track exists, leaning on
+        # yesterday's mood, lifted by exercise and kindness, lowered by a drink.
+        if f >= MOOD_START and mood_rng.random() < 0.8:
+            m = 0.5 * mood_yesterday + 0.5 * lerp(2.8, 3.6, f)
+            m += 0.6 if exercised else 0.0
+            m += 0.2 if kind else 0.0
+            m -= 0.5 if drank else 0.0
+            place = min(MOOD_OPTIONS, max(1, round(mood_rng.gauss(m, 0.8))))
+            mood_yesterday = place
+            add_value("Mood", day, place)
+            if mood_rng.random() < NOTES["Mood"]["ticked"]:
+                notes[("Mood", day)] = mood_rng.choice(NOTES["Mood"]["texts_by_place"][place])
+
         # Couch to 5k: the odd run missed, never the last one.
         if C25K_START <= day <= C25K_END and day.weekday() in C25K_DAYS:
             c25k_run += 1
@@ -426,14 +489,24 @@ def print_summary(data: dict, start: date, end: date) -> None:
 
     print(f"Range: {start} .. {end}  ({days} days)")
     print(f"Total tick rows: {len(data['ticks'])}, notes: {len(data['notes'])}")
-    print(f"{'year':6}{'days':>6}{'alcohol%':>10}{'exercise%':>11}{'affirm%':>9}{'backup%':>9}")
+    values: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for t in data["ticks"]:
+        if t["track"] in ("Weight", "Mood"):
+            values[(t["track"], int(t["date"][:4]))].append(t["value"])
+
+    def mean(xs: list[float]) -> str:
+        return f"{sum(xs) / len(xs):.1f}" if xs else "-"
+
+    print(f"{'year':6}{'days':>6}{'alcohol%':>10}{'exercise%':>11}{'affirm%':>9}{'backup%':>9}{'kg':>7}{'mood':>6}")
     for y in sorted(per_year_days):
         dd = per_year_days[y]
         alcohol = 100 * counts[("Alcohol", y)] / dd
         ex = 100 * counts[("Exercise", y)] / dd
         affirm = 100 * counts[("Affirmations", y)] / dd
         backed_up = 100 * counts[("Nightly backup", y)] / dd
-        print(f"{y:<6}{dd:>6}{alcohol:>9.0f}%{ex:>10.0f}%{affirm:>8.0f}%{backed_up:>8.0f}%")
+        kg = mean(values[("Weight", y)])
+        mood = mean(values[("Mood", y)])
+        print(f"{y:<6}{dd:>6}{alcohol:>9.0f}%{ex:>10.0f}%{affirm:>8.0f}%{backed_up:>8.0f}%{kg:>7}{mood:>6}")
     print("Notes per track: " + ", ".join(f"{t} {c}" for t, c in sorted(note_counts.items())))
 
 

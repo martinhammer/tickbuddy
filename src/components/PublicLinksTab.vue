@@ -202,6 +202,9 @@ const examples = computed(() => {
 			`curl "${short}?date=${yesterday}"`,
 			`curl "${short}?value=0"`,
 		].join('\n'),
+		// A Number or Choice needs a value: a plain call is refused
+		number: `curl "${short}?value=72.4"`,
+		choice: `curl "${short}?value=2"`,
 		viewMore: [
 			`curl "${short}?includeNotes=true"`,
 			`curl "${short}?from=${from}&to=${to}"`,
@@ -346,7 +349,15 @@ const examples = computed(() => {
 						<p>
 							<strong>A Tick only link</strong> ticks a Yes/No track for today; calling it again the same day changes nothing. On a Counter track, it adds 1 each time it's called. GET, POST and HEAD all tick, so don't paste the link into chats or emails: their link previews would call it.
 						</p>
-						<pre :class="$style.code">{{ examples.plain }}</pre>
+						<template v-if="track.type === 'number'">
+							<p>On a Number track, like this one, a Tick only link needs a value: a call without one is refused. This records 72.4:</p>
+							<pre :class="$style.code">{{ examples.number }}</pre>
+						</template>
+						<template v-else-if="track.type === 'choice'">
+							<p>On a Choice track, like this one, a Tick only link needs a value: a call without one is refused. This picks the second option:</p>
+							<pre :class="$style.code">{{ examples.choice }}</pre>
+						</template>
+						<pre v-else :class="$style.code">{{ examples.plain }}</pre>
 						<p>Add a line to the day's note, tick another day, or set an exact value:</p>
 						<pre :class="$style.code">{{ examples.tickMore }}</pre>
 						<p>

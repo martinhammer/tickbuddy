@@ -57,6 +57,8 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertTrue($features['trackFilter']);
 		$this->assertTrue($features['notesBounds']);
 		$this->assertTrue($features['publicLinks']);
+		$this->assertTrue($features['numberTracks']);
+		$this->assertTrue($features['choiceTracks']);
 		// Known gap, not yet implemented server-side.
 		$this->assertFalse($features['syncDelta']);
 	}

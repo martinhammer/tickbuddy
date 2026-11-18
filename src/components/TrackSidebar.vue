@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import NcAppSidebar from '@nextcloud/vue/components/NcAppSidebar'
 import NcAppSidebarHeader from '@nextcloud/vue/components/NcAppSidebarHeader'
 import NcAppSidebarTab from '@nextcloud/vue/components/NcAppSidebarTab'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
+import NcSelect from '@nextcloud/vue/components/NcSelect'
+import NcTextField from '@nextcloud/vue/components/NcTextField'
 import { MDI_ARCHIVE_OUTLINE, MDI_DELETE_OUTLINE, MDI_FORMAT_LIST_CHECKS, MDI_LINK_VARIANT, MDI_PENCIL_OUTLINE } from '../icons.ts'
-import { typeName } from '../trackMenu.ts'
-import type { Track } from '../types.ts'
+import { trackSubname } from '../publicLinks.ts'
+import type { Track, TrackOption } from '../types.ts'
 import PublicLinksTab from './PublicLinksTab.vue'
 
 // A track's details in Nextcloud's sidebar: the name with a rename pencil after
@@ -26,6 +28,13 @@ import PublicLinksTab from './PublicLinksTab.vue'
 // units, so names with emoji stop a little sooner, never later.
 const MAX_NAME_LENGTH = 255
 
+/** A Number's or Choice's setting, saved on its own as Private is */
+export type TrackSetting =
+	| { field: 'unit', value: string }
+	| { field: 'decimalPlaces', value: number }
+	| { field: 'allowNegative', value: boolean }
+	| { field: 'orderedScale', value: boolean }
+
 const props = defineProps<{
 	track: Track
 	/** Start editing the name (Rename track in the row's ⋯ menu) */
@@ -37,6 +46,8 @@ const emit = defineEmits<{
 	rename: [name: string]
 	'rename-started': []
 	'set-private': [value: boolean]
+	'set-setting': [setting: TrackSetting]
+	'rename-option': [option: TrackOption, label: string]
 	archive: []
 	delete: []
 	/** A public link was created or revoked */
@@ -58,7 +69,62 @@ const opened = ref(false)
 watch(() => props.track.id, () => {
 	editing.value = false
 	draft.value = props.track.name
+	unitDraft.value = props.track.unit ?? ''
+	renamingOption.value = null
 })
+
+// --- Number settings ---
+const DECIMAL_CHOICES = [0, 1, 2, 3].map(n => ({ id: n, label: String(n) }))
+
+const unitDraft = ref(props.track.unit ?? '')
+watch(() => props.track.unit, (unit) => {
+	unitDraft.value = unit ?? ''
+})
+
+// Enter or losing focus saves a changed unit (empty is no unit); Escape puts it back
+function saveUnit(): void {
+	const unit = unitDraft.value.trim()
+	unitDraft.value = unit
+	if (unit !== (props.track.unit ?? '')) emit('set-setting', { field: 'unit', value: unit })
+}
+
+function cancelUnit(event: KeyboardEvent): void {
+	unitDraft.value = props.track.unit ?? ''
+	;(event.target as HTMLElement | null)?.blur()
+}
+
+const decimalPlaces = computed({
+	get: () => DECIMAL_CHOICES.find(c => c.id === (props.track.decimalPlaces ?? 1)) ?? DECIMAL_CHOICES[1],
+	set: (choice: { id: number } | null) => {
+		if (choice && choice.id !== props.track.decimalPlaces) emit('set-setting', { field: 'decimalPlaces', value: choice.id })
+	},
+})
+
+// --- Choice options ---
+// Renamed in place, as the track's name is: Enter or losing focus saves a
+// changed label that isn't blank, Escape cancels
+const renamingOption = ref<number | null>(null)
+const optionDraft = ref('')
+const optionInput = ref<HTMLInputElement[]>([])
+
+async function startOptionRename(option: TrackOption): Promise<void> {
+	optionDraft.value = option.label
+	renamingOption.value = option.value
+	await nextTick()
+	optionInput.value[0]?.focus()
+	optionInput.value[0]?.select()
+}
+
+function saveOption(option: TrackOption): void {
+	if (renamingOption.value !== option.value) return
+	renamingOption.value = null
+	const label = optionDraft.value.trim()
+	if (label && label !== option.label) emit('rename-option', option, label)
+}
+
+function cancelOption(): void {
+	renamingOption.value = null
+}
 
 watch([() => props.renameRequested, opened], ([requested, isOpen]) => {
 	if (!requested || !isOpen) return
@@ -138,7 +204,7 @@ async function finishWithKey(finish: () => void): Promise<void> {
 						@blur="save">
 				</div>
 				<p :class="$style.subname">
-					{{ typeName(track.type) }}
+					{{ trackSubname(track, track.publicLinkCount) }}
 				</p>
 			</div>
 		</template>
@@ -157,6 +223,76 @@ async function finishWithKey(finish: () => void): Promise<void> {
 				<p :class="$style.help">
 					Hidden in the journal and widgets unless private tracks are shown.
 				</p>
+
+				<!-- A Number's settings save as soon as they're edited, as Private does -->
+				<div v-if="track.type === 'number'" :class="$style.settings">
+					<NcTextField v-model="unitDraft"
+						label="Unit (optional)"
+						:maxlength="MAX_NAME_LENGTH"
+						@keydown.enter.prevent="saveUnit"
+						@keydown.esc.stop.prevent="cancelUnit"
+						@blur="saveUnit" />
+					<NcSelect v-model="decimalPlaces"
+						:options="DECIMAL_CHOICES"
+						:clearable="false"
+						:searchable="false"
+						input-label="Decimal places"
+						:class="$style.decimals" />
+					<p :class="$style.help">
+						Fewer decimals show earlier days rounded; saved values don't change.
+					</p>
+					<NcCheckboxRadioSwitch :model-value="track.allowNegative ?? false"
+						:class="$style.switch"
+						type="switch"
+						@update:model-value="(value: boolean) => emit('set-setting', { field: 'allowNegative', value })">
+						Allow negative values
+					</NcCheckboxRadioSwitch>
+				</div>
+
+				<!-- A Choice's options can be renamed, but not added, removed or reordered -->
+				<div v-else-if="track.type === 'choice'" :class="$style.settings">
+					<h3 :class="$style.settingsHeading">
+						Options
+					</h3>
+					<ol :class="$style.options">
+						<li v-for="option in track.options ?? []" :key="option.value" :class="$style.option">
+							<span :class="$style.place">{{ option.value }}</span>
+							<input v-if="renamingOption === option.value"
+								ref="optionInput"
+								v-model="optionDraft"
+								:class="$style.optionInput"
+								type="text"
+								:maxlength="MAX_NAME_LENGTH"
+								:aria-label="`Option ${option.value}`"
+								@keydown.enter.prevent="saveOption(option)"
+								@keydown.esc.stop.prevent="cancelOption"
+								@blur="saveOption(option)">
+							<template v-else>
+								<span :class="$style.optionLabel" :title="option.label" @click="startOptionRename(option)">{{ option.label }}</span>
+								<NcButton :class="$style.optionPencil"
+									variant="tertiary"
+									size="small"
+									:aria-label="`Rename option ${option.label}`"
+									title="Rename option"
+									@click="startOptionRename(option)">
+									<template #icon>
+										<NcIconSvgWrapper :path="MDI_PENCIL_OUTLINE" :size="16" :class="$style.pencilIcon" />
+									</template>
+								</NcButton>
+							</template>
+						</li>
+					</ol>
+					<NcCheckboxRadioSwitch :model-value="track.orderedScale ?? false"
+						:class="$style.switch"
+						type="switch"
+						@update:model-value="(value: boolean) => emit('set-setting', { field: 'orderedScale', value })">
+						Ordered scale
+					</NcCheckboxRadioSwitch>
+					<p :class="$style.help">
+						The options are ordered from lowest to highest.
+					</p>
+				</div>
+
 				<div :class="$style.buttons">
 					<NcButton variant="secondary" @click="emit('archive')">
 						<template #icon>
@@ -273,6 +409,87 @@ async function finishWithKey(finish: () => void): Promise<void> {
 
 .help {
 	color: var(--color-text-maxcontrast);
+}
+
+.settings {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-block-start: 16px;
+}
+
+.settings .help {
+	margin: 0;
+}
+
+/* NcSelect's own rule (.nc-select.v-select.select, 0,3,0) sets a 260px
+   minimum, so it doesn't follow its column; the selector has to outrank it */
+.decimals:global(.nc-select.v-select.select) {
+	width: 100%;
+	min-width: 0;
+	max-width: none;
+}
+
+.settingsHeading {
+	margin: 0;
+	font-size: inherit;
+	font-weight: bold;
+}
+
+.options {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.option {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: var(--default-clickable-area);
+}
+
+/* The place, muted, right-aligned in a column of its own */
+.place {
+	flex: none;
+	min-width: 2ch;
+	color: var(--color-text-maxcontrast);
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+}
+
+.optionLabel {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: text;
+}
+
+/* Shown under the pointer, with focus and always on touchscreens, as Today's
+   note button; hidden with opacity, so Tab reaches it */
+.optionPencil {
+	flex: none;
+	opacity: 0;
+}
+
+.option:hover .optionPencil,
+.option:focus-within .optionPencil {
+	opacity: 1;
+}
+
+@media (hover: none) {
+	.optionPencil {
+		opacity: 1;
+	}
+}
+
+.option .optionInput {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
 }
 
 .buttons {

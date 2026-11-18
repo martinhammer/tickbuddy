@@ -29,6 +29,8 @@ final class ErrorReason {
 	public const DAY_NOT_ALLOWED = 'dayNotAllowed';
 	/** 404: the public link doesn't exist, was revoked, or its owner can't sign in */
 	public const PUBLIC_LINK_NOT_FOUND = 'publicLinkNotFound';
+	/** 404: the Choice track has no option at this place */
+	public const OPTION_NOT_FOUND = 'optionNotFound';
 	/** 409: other writers kept changing the note while appending */
 	public const NOTE_CONFLICT = 'noteConflict';
 	/** 409: the database refused a track change */

@@ -8,12 +8,13 @@ import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import NcPopover from '@nextcloud/vue/components/NcPopover'
 import { useIsMobile } from '@nextcloud/vue/composables/useIsMobile'
-import { deleteNote, fetchNotes, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
+import { deleteNote, fetchNotes, fetchTicks, fetchTracks, incrementCounter, setNote, setValue, setYesNo } from '../api.ts'
 import { cellWrites, keepCells, replaceDays, tickKey } from '../cellWrites.ts'
 import { addDays, fmtDayLabel, parseDateStr, toDateStr } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
 import { MDI_CALENDAR_OUTLINE, MDI_CALENDAR_TODAY, MDI_PHONE_ROTATE_LANDSCAPE, MDI_PHONE_ROTATE_PORTRAIT } from '../icons.ts'
 import type { JournalActions } from '../journal.ts'
+import { decimalsOf, toWire } from '../numberValue.ts'
 import { editableDays, journalLayout, loadPreferences, showPrivate } from '../preferences.ts'
 import type { Note, Tick, Track } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -228,6 +229,23 @@ async function onIncrement(track: Track, date: string, delta: number): Promise<v
 	}
 }
 
+async function onSetValue(track: Track, date: string, value: number | null): Promise<boolean> {
+	const key = tickKey(track.id, date)
+	const wire = value === null ? null : track.type === 'number' ? toWire(value, decimalsOf(track)) : String(value)
+	try {
+		const stored = await tickWrites.run(key, () => setValue(track.id, date, wire))
+		if (stored === null) {
+			delete tickValues.value[key]
+		} else {
+			tickValues.value[key] = stored
+		}
+		return true
+	} catch (e) {
+		await writeFailed(e, track.name, reload)
+		return false
+	}
+}
+
 async function onSaveNote(track: Track, date: string, text: string): Promise<boolean> {
 	const key = tickKey(track.id, date)
 	try {
@@ -242,11 +260,12 @@ async function onSaveNote(track: Track, date: string, text: string): Promise<boo
 }
 
 const actions: JournalActions = {
-	valueOf: (trackId, date) => tickValues.value[tickKey(trackId, date)] ?? 0,
+	valueOf: (trackId, date) => tickValues.value[tickKey(trackId, date)] ?? null,
 	noteOf: (trackId, date) => notes.value[tickKey(trackId, date)] ?? '',
 	isLocked: date => !isEditable(date, today.value, editableDays.value),
 	setYesNo: onSetYesNo,
 	increment: onIncrement,
+	setValue: onSetValue,
 	saveNote: onSaveNote,
 	lockedClick: () => { showError(LOCKED_DAY_MESSAGE) },
 	openDay: date => emit('open-day', date),

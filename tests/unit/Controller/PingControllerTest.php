@@ -290,10 +290,10 @@ final class PingControllerTest extends TestCase {
 
 	public function testAnotherTrackTypeCantBeTickedYet(): void {
 		$this->givenLink();
-		$this->track->setType('number');
+		$this->track->setType('duration');
 		$this->assertNothingWritten();
 
-		$this->assertError($this->controller()->call(self::TOKEN), 400, "Public links can't tick tracks of this type yet", 'wrongTrackType');
+		$this->assertError($this->controller()->call(self::TOKEN, value: '5'), 400, "Public links can't tick tracks of this type yet", 'wrongTrackType');
 	}
 
 	public static function viewParameterProvider(): array {
@@ -568,5 +568,68 @@ final class PingControllerTest extends TestCase {
 		$this->tickService->expects($this->never())->method('findByDateRange');
 
 		$this->assertError($this->controller()->call(self::TOKEN, date: '2026-11-17'), 403, "This link's allowed days (All) don't include 2026-11-17", 'dayNotAllowed');
+	}
+
+	// --- Number and Choice ---
+
+	public function testANumberNeedsAValue(): void {
+		$this->givenLink();
+		$this->track->setType('number');
+		$this->assertNothingWritten();
+
+		$this->assertError($this->controller()->call(self::TOKEN), 400, 'Number tracks need a value, such as value=10.4', 'invalidValue');
+		$this->assertError($this->controller()->call(self::TOKEN, value: ''), 400, 'Number tracks need a value, such as value=10.4', 'invalidValue');
+	}
+
+	public function testAChoiceNeedsAValue(): void {
+		$this->givenLink();
+		$this->track->setType('choice');
+		$this->tickService->method('optionCount')->willReturn(4);
+		$this->assertNothingWritten();
+
+		$this->assertError($this->controller()->call(self::TOKEN), 400, 'Choice tracks need a value, the number of an option from 1 to 4', 'invalidValue');
+		$this->assertError($this->controller()->call(self::TOKEN, value: ''), 400, 'Choice tracks need a value, the number of an option from 1 to 4', 'invalidValue');
+	}
+
+	public function testANumberIsSetToTheValue(): void {
+		$this->givenLink();
+		$this->track->setType('number');
+		$this->tickService->expects($this->once())->method('set')->with('owner', 3, self::TODAY, '72.45', null, null, false)->willReturn(['value' => 72.5]);
+
+		$response = $this->controller()->call(self::TOKEN, value: '72.45');
+
+		$this->assertSame(['value' => 72.5], $response->getData());
+	}
+
+	public function testAChoiceIsSetToThePlace(): void {
+		$this->givenLink();
+		$this->track->setType('choice');
+		$this->tickService->expects($this->once())->method('set')->with('owner', 3, self::TODAY, '2', null, null, false)->willReturn(['value' => 2]);
+		$this->tickService->expects($this->never())->method('increment');
+
+		$this->assertSame(['value' => 2], $this->controller()->call(self::TOKEN, value: '2')->getData());
+	}
+
+	public function testARefusedValueIs400(): void {
+		$this->givenLink();
+		$this->track->setType('number');
+		$this->tickService->method('set')->willThrowException(new InvalidValueException("This track doesn't allow negative values"));
+
+		$this->assertError($this->controller()->call(self::TOKEN, value: '-1'), 400, "This track doesn't allow negative values", 'invalidValue');
+	}
+
+	public function testAViewLinkAnswersANumbersDecimals(): void {
+		$this->givenLink('view');
+		$this->track->setType('number');
+		$tick = new Tick();
+		$tick->setId(1);
+		$tick->setTrackId(3);
+		$tick->setDate(self::TODAY);
+		$tick->setValue(-10450);
+		$this->tickService->method('findByDateRange')->willReturn([$tick]);
+
+		$data = $this->controller()->call(self::TOKEN)->getData();
+
+		$this->assertSame('{"ticks":[{"id":1,"trackId":3,"date":"2026-11-16","value":-10.45}]}', json_encode($data));
 	}
 }

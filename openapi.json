@@ -60,7 +60,9 @@
                                     "idempotencyKey",
                                     "trackFilter",
                                     "notesBounds",
-                                    "publicLinks"
+                                    "publicLinks",
+                                    "numberTracks",
+                                    "choiceTracks"
                                 ],
                                 "properties": {
                                     "import": {
@@ -112,6 +114,12 @@
                                         "type": "boolean"
                                     },
                                     "publicLinks": {
+                                        "type": "boolean"
+                                    },
+                                    "numberTracks": {
+                                        "type": "boolean"
+                                    },
+                                    "choiceTracks": {
                                         "type": "boolean"
                                     }
                                 }
@@ -459,12 +467,30 @@
                         "nullable": true
                     },
                     "maxValue": {
-                        "type": "integer",
-                        "format": "int64"
+                        "nullable": true,
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            {
+                                "type": "number",
+                                "format": "double"
+                            }
+                        ]
                     },
                     "minValue": {
-                        "type": "integer",
-                        "format": "int64"
+                        "nullable": true,
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            {
+                                "type": "number",
+                                "format": "double"
+                            }
+                        ]
                     },
                     "runs": {
                         "type": "array",
@@ -495,8 +521,16 @@
                         "type": "string"
                     },
                     "value": {
-                        "type": "integer",
-                        "format": "int64"
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "format": "int64"
+                            },
+                            {
+                                "type": "number",
+                                "format": "double"
+                            }
+                        ]
                     }
                 }
             },
@@ -529,7 +563,12 @@
                     "sortOrder",
                     "private",
                     "archivedAt",
-                    "publicLinkCount"
+                    "publicLinkCount",
+                    "unit",
+                    "decimalPlaces",
+                    "allowNegative",
+                    "options",
+                    "orderedScale"
                 ],
                 "properties": {
                     "id": {
@@ -556,6 +595,46 @@
                     "publicLinkCount": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "unit": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "decimalPlaces": {
+                        "type": "integer",
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "allowNegative": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "options": {
+                        "type": "array",
+                        "nullable": true,
+                        "items": {
+                            "$ref": "#/components/schemas/TrackOption"
+                        }
+                    },
+                    "orderedScale": {
+                        "type": "boolean",
+                        "nullable": true
+                    }
+                }
+            },
+            "TrackOption": {
+                "type": "object",
+                "required": [
+                    "value",
+                    "label"
+                ],
+                "properties": {
+                    "value": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "label": {
+                        "type": "string"
                     }
                 }
             }
@@ -1056,11 +1135,20 @@
                     {
                         "name": "trackId",
                         "in": "query",
-                        "description": "One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
+                        "description": "One track only (also an archived one, of any type); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
                         "schema": {
                             "type": "integer",
                             "format": "int64",
                             "default": 0
+                        }
+                    },
+                    {
+                        "name": "includeAllTypes",
+                        "in": "query",
+                        "description": "With all tracks, also the notes of tracks of every type: true or false (also 1/0, on/off, yes/no). Without it only \"boolean\" and \"counter\" tracks' notes are listed",
+                        "schema": {
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
@@ -1109,7 +1197,7 @@
                         }
                     },
                     "400": {
-                        "description": "From or to is missing or not a date, or from is after to",
+                        "description": "From or to is missing or not a date, or from is after to, or includeAllTypes isn't true or false",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2011,7 +2099,7 @@
             "get": {
                 "operationId": "ping-call",
                 "summary": "Call a public link",
-                "description": "No `OCS-APIRequest`, no `Authorization` and no CSRF token: the token in the address is the credential. GET, POST and HEAD all do what the link is for. Answers JSON unless asked for XML.\nA Tick only link ticks a yes/no day, or adds 1 to a counter, or with `value` sets the day to it; `appendNote`, or a POST body sent as `text/plain`, adds a line to the day's note (a line already there is skipped). A View only link answers the day's tick, or a range's, and with `includeNotes` the notes. The day is today in the owner's time zone unless `date` (or `from` and `to`) says otherwise, and must be one of the link's allowed days, never after today.\nTick calls honour `Idempotency-Key` (a UUID) as the API's writes do.",
+                "description": "No `OCS-APIRequest`, no `Authorization` and no CSRF token: the token in the address is the credential. GET, POST and HEAD all do what the link is for. Answers JSON unless asked for XML.\nA Tick only link ticks a yes/no day, or adds 1 to a counter, or with `value` sets the day to it (a number or choice track needs a `value`); `appendNote`, or a POST body sent as `text/plain`, adds a line to the day's note (a line already there is skipped). A View only link answers the day's tick, or a range's, and with `includeNotes` the notes. The day is today in the owner's time zone unless `date` (or `from` and `to`) says otherwise, and must be one of the link's allowed days, never after today.\nTick calls honour `Idempotency-Key` (a UUID) as the API's writes do.",
                 "tags": [
                     "ping"
                 ],
@@ -2037,7 +2125,7 @@
                     {
                         "name": "value",
                         "in": "query",
-                        "description": "Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it)",
+                        "description": "Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it). Number, required: the day's value with a point, such as 72.4, rounded to the track's decimal places. Choice, required: an option's place, from 1 to the number of options",
                         "schema": {
                             "type": "string",
                             "nullable": true
@@ -2104,7 +2192,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick only: the day's value (1 or 0 for yes/no), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
+                        "description": "Tick only: the day's value (1 or 0 for yes/no, a number track's value, a choice's place), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2132,8 +2220,17 @@
                                                             ],
                                                             "properties": {
                                                                 "value": {
-                                                                    "type": "integer",
-                                                                    "format": "int64"
+                                                                    "nullable": true,
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "integer",
+                                                                            "format": "int64"
+                                                                        },
+                                                                        {
+                                                                            "type": "number",
+                                                                            "format": "double"
+                                                                        }
+                                                                    ]
                                                                 },
                                                                 "note": {
                                                                     "type": "string"
@@ -2337,7 +2434,7 @@
             "post": {
                 "operationId": "ping-call-post",
                 "summary": "Call a public link",
-                "description": "No `OCS-APIRequest`, no `Authorization` and no CSRF token: the token in the address is the credential. GET, POST and HEAD all do what the link is for. Answers JSON unless asked for XML.\nA Tick only link ticks a yes/no day, or adds 1 to a counter, or with `value` sets the day to it; `appendNote`, or a POST body sent as `text/plain`, adds a line to the day's note (a line already there is skipped). A View only link answers the day's tick, or a range's, and with `includeNotes` the notes. The day is today in the owner's time zone unless `date` (or `from` and `to`) says otherwise, and must be one of the link's allowed days, never after today.\nTick calls honour `Idempotency-Key` (a UUID) as the API's writes do.",
+                "description": "No `OCS-APIRequest`, no `Authorization` and no CSRF token: the token in the address is the credential. GET, POST and HEAD all do what the link is for. Answers JSON unless asked for XML.\nA Tick only link ticks a yes/no day, or adds 1 to a counter, or with `value` sets the day to it (a number or choice track needs a `value`); `appendNote`, or a POST body sent as `text/plain`, adds a line to the day's note (a line already there is skipped). A View only link answers the day's tick, or a range's, and with `includeNotes` the notes. The day is today in the owner's time zone unless `date` (or `from` and `to`) says otherwise, and must be one of the link's allowed days, never after today.\nTick calls honour `Idempotency-Key` (a UUID) as the API's writes do.",
                 "tags": [
                     "ping"
                 ],
@@ -2360,7 +2457,7 @@
                                     "value": {
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it)",
+                                        "description": "Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it). Number, required: the day's value with a point, such as 72.4, rounded to the track's decimal places. Choice, required: an option's place, from 1 to the number of options",
                                         "anyOf": [
                                             {
                                                 "type": "string"
@@ -2466,7 +2563,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Tick only: the day's value (1 or 0 for yes/no), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
+                        "description": "Tick only: the day's value (1 or 0 for yes/no, a number track's value, a choice's place), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2494,8 +2591,17 @@
                                                             ],
                                                             "properties": {
                                                                 "value": {
-                                                                    "type": "integer",
-                                                                    "format": "int64"
+                                                                    "nullable": true,
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "integer",
+                                                                            "format": "int64"
+                                                                        },
+                                                                        {
+                                                                            "type": "number",
+                                                                            "format": "double"
+                                                                        }
+                                                                    ]
                                                                 },
                                                                 "note": {
                                                                     "type": "string"
@@ -3767,6 +3873,15 @@
                         }
                     },
                     {
+                        "name": "includeAllTypes",
+                        "in": "query",
+                        "description": "With all tracks, include tracks of every type, as `includeRuns`. Without it only \"boolean\" and \"counter\" tracks get an entry. `trackId` answers its track whatever its type",
+                        "schema": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    {
                         "name": "OCS-APIRequest",
                         "in": "header",
                         "description": "Required to be true for the API request to pass",
@@ -3939,11 +4054,20 @@
                     {
                         "name": "trackId",
                         "in": "query",
-                        "description": "One track only (also an archived one); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
+                        "description": "One track only (also an archived one, of any type); 0 for all tracks. Check the `trackFilter` capability: older servers ignore it and answer every track",
                         "schema": {
                             "type": "integer",
                             "format": "int64",
                             "default": 0
+                        }
+                    },
+                    {
+                        "name": "includeAllTypes",
+                        "in": "query",
+                        "description": "With all tracks, also the ticks of tracks of every type: true or false (also 1/0, on/off, yes/no). Without it only \"boolean\" and \"counter\" tracks' ticks are listed",
+                        "schema": {
+                            "type": "string",
+                            "nullable": true
                         }
                     },
                     {
@@ -3992,7 +4116,7 @@
                         }
                     },
                     "400": {
-                        "description": "From or to is missing or not a date, or from is after to",
+                        "description": "From or to is missing or not a date, or from is after to, or includeAllTypes isn't true or false",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4520,7 +4644,7 @@
         "/ocs/v2.php/apps/tickbuddy/api/ticks/set": {
             "post": {
                 "operationId": "tick-set",
-                "summary": "Set a tick (counter: its absolute value; yes/no: ticked or not)",
+                "summary": "Set a tick (counter: its absolute value; yes/no: ticked or not; number: its value; choice: an option)",
                 "description": "With an `Idempotency-Key` header (a UUID), a retry with the same key and the same parameters is answered as the first request was and changes nothing; see the `idempotencyKey` capability.",
                 "tags": [
                     "tick"
@@ -4554,7 +4678,7 @@
                                     "value": {
                                         "nullable": true,
                                         "default": null,
-                                        "description": "Counter: the new value, a whole number from 0 to 2147483647 (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no)",
+                                        "description": "Counter: the new value, a whole number from 0 to 2147483647 (0 deletes the tick). Yes/no: true or false (also 1/0, on/off, yes/no). Number: a number with a point and no grouping, such as 10.4 (a JSON number or a string), from -2147483.647 to 2147483.647, rounded to the track's decimal places; 0 is stored. Choice: an option's place, from 1 to the number of options. Number and choice: null or \"\" clears the day; leaving `value` out is 400",
                                         "anyOf": [
                                             {
                                                 "type": "integer",
@@ -4654,7 +4778,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Value set; `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
+                        "description": "Value set; `value` is the stored value (null for a number or choice day cleared or without a value); `note` is the day's whole stored note, only when `note` or `appendNote` was sent. On an archived track, without Prefer: handling=strict: nothing written, the stored state. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -4680,8 +4804,17 @@
                                                     ],
                                                     "properties": {
                                                         "value": {
-                                                            "type": "integer",
-                                                            "format": "int64"
+                                                            "nullable": true,
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "integer",
+                                                                    "format": "int64"
+                                                                },
+                                                                {
+                                                                    "type": "number",
+                                                                    "format": "double"
+                                                                }
+                                                            ]
                                                         },
                                                         "note": {
                                                             "type": "string"
@@ -4696,7 +4829,7 @@
                         }
                     },
                     "400": {
-                        "description": "Value not valid for the track (counter: a whole number from 0 to 2147483647; yes/no: true or false), the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, `allowDuplicateNote` isn't true or false, or `Idempotency-Key` is not a UUID; nothing written",
+                        "description": "Value not valid for the track (counter: a whole number from 0 to 2147483647; yes/no: true or false; number: a number within the limit, not below 0 unless the track allows it; choice: an option's place), the date or the note is invalid, the note would be too long, or both `note` and `appendNote` were sent, `allowDuplicateNote` isn't true or false, or `Idempotency-Key` is not a UUID; nothing written",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5261,6 +5394,15 @@
                         }
                     },
                     {
+                        "name": "includeAllTypes",
+                        "in": "query",
+                        "description": "Whether to include tracks of every type, read as `includeArchived`. Without it only \"boolean\" and \"counter\" tracks are listed, so a client that predates a type never meets it",
+                        "schema": {
+                            "type": "string",
+                            "nullable": true
+                        }
+                    },
+                    {
                         "name": "OCS-APIRequest",
                         "in": "header",
                         "description": "Required to be true for the API request to pass",
@@ -5306,7 +5448,7 @@
                         }
                     },
                     "400": {
-                        "description": "includeArchived isn't true or false",
+                        "description": "includeArchived or includeAllTypes isn't true or false",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5395,7 +5537,85 @@
                                     "type": {
                                         "type": "string",
                                         "default": "",
-                                        "description": "Track type, either \"boolean\" or \"counter\""
+                                        "description": "Track type: \"boolean\", \"counter\", \"number\" or \"choice\""
+                                    },
+                                    "unit": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: the unit shown after the value, at most 255 characters; none if empty or missing"
+                                    },
+                                    "decimalPlaces": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: 0, 1, 2 or 3; 1 if missing",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowNegative": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: whether values below 0 are allowed: true or false (also 1/0, on/off, yes/no); false if missing",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "options": {
+                                        "type": "array",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Choice only, required: 2 to 99 labels in order, each at most 255 characters, no two the same ignoring case. An option's place (1 for the first) is the value a day stores",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "orderedScale": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Choice only: whether the options are a scale, read as `allowNegative`; false if missing",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -5446,7 +5666,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid name or type, or `Idempotency-Key` is not a UUID",
+                        "description": "Invalid name, type or setting, a setting of another type, or `Idempotency-Key` is not a UUID",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5627,6 +5847,27 @@
                                             "type": "integer",
                                             "format": "int64"
                                         }
+                                    },
+                                    "includeAllTypes": {
+                                        "nullable": true,
+                                        "default": false,
+                                        "description": "Whether the answer lists tracks of every type, as on GET /api/tracks; the reorder itself always covers every track",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -5883,6 +6124,75 @@
                                         "nullable": true,
                                         "default": null,
                                         "description": "Archive date (YYYY-MM-DD), the client's today; the server's date if omitted"
+                                    },
+                                    "unit": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: the new unit; empty removes it"
+                                    },
+                                    "decimalPlaces": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: 0, 1, 2 or 3. Stored values don't change: fewer decimals show older days rounded",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "allowNegative": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Number only: whether new values below 0 are allowed, read as `private`. Days already stored keep their value",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    "orderedScale": {
+                                        "nullable": true,
+                                        "default": null,
+                                        "description": "Choice only: whether the options are a scale, read as `private`",
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            },
+                                            {
+                                                "type": "number",
+                                                "format": "double"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 }
                             }
@@ -5943,7 +6253,7 @@
                         }
                     },
                     "400": {
-                        "description": "Invalid name or archive date, or `private` or `archived` isn't true or false; nothing changed",
+                        "description": "Invalid name, archive date or setting, a setting of another type, or a flag isn't true or false; nothing changed",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -6094,7 +6404,7 @@
             },
             "delete": {
                 "operationId": "track-destroy",
-                "summary": "Delete a track and its ticks, notes and public links",
+                "summary": "Delete a track and its ticks, notes, options and public links",
                 "tags": [
                     "track"
                 ],
@@ -6134,6 +6444,223 @@
                     },
                     "404": {
                         "description": "Track not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Current user is not logged in",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ocs/v2.php/apps/tickbuddy/api/tracks/{id}/options/{value}": {
+            "put": {
+                "operationId": "track-rename-option",
+                "summary": "Rename an option of a Choice track",
+                "description": "The option keeps its place, so every day that holds it shows the new label. Options can't be added, removed or reordered.",
+                "tags": [
+                    "track"
+                ],
+                "security": [
+                    {
+                        "bearer_auth": []
+                    },
+                    {
+                        "basic_auth": []
+                    }
+                ],
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {
+                                        "type": "string",
+                                        "default": "",
+                                        "description": "The new label, at most 255 characters, not another option's (ignoring case)"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Track ID",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "value",
+                        "in": "path",
+                        "description": "The option's place (1 for the first)",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "OCS-APIRequest",
+                        "in": "header",
+                        "description": "Required to be true for the API request to pass",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Option renamed (or already had this label), the whole track",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Track"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The track isn't a Choice, or the label is blank, too long or another option's; nothing changed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Track or option not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": [
+                                        "ocs"
+                                    ],
+                                    "properties": {
+                                        "ocs": {
+                                            "type": "object",
+                                            "required": [
+                                                "meta",
+                                                "data"
+                                            ],
+                                            "properties": {
+                                                "meta": {
+                                                    "$ref": "#/components/schemas/OCSMeta"
+                                                },
+                                                "data": {
+                                                    "$ref": "#/components/schemas/Error"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "423": {
+                        "description": "The track is archived; nothing changed",
                         "content": {
                             "application/json": {
                                 "schema": {

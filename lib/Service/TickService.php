@@ -8,6 +8,7 @@ use OCA\Tickbuddy\Db\Tick;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\Track;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\DB\Exception as DbException;
 
@@ -22,6 +23,7 @@ class TickService {
 		private TrackMapper $trackMapper,
 		private NoteService $noteService,
 		private StrictHandling $strictHandling,
+		private TrackOptionMapper $optionMapper,
 	) {
 	}
 
@@ -31,17 +33,36 @@ class TickService {
 	 *
 	 * The range is checked first, then the track, as on stats.
 	 *
-	 * @param ?int $trackId One track only (also an archived one), or null for every track
+	 * @param ?int $trackId One track only (also an archived one, and of any type), or null for every track
+	 * @param bool $includeAllTypes With every track: also tracks of types not in
+	 *                              {@see TrackService::BASE_TYPES}
 	 * @return Tick[]
 	 * @throws InvalidValueException if from or to is not YYYY-MM-DD, or from is after to
 	 * @throws DoesNotExistException if the track isn't the user's
 	 */
-	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null): array {
+	public function findByDateRange(string $userId, string $from, string $to, ?int $trackId = null, bool $includeAllTypes = true): array {
 		TrackService::checkDateRange($from, $to);
 		if ($trackId !== null) {
 			$this->trackMapper->findByIdAndUser($trackId, $userId);
 		}
-		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to, $trackId);
+		$trackIds = null;
+		if ($trackId === null && !$includeAllTypes) {
+			$trackIds = $this->trackMapper->findIdsByUserAndTypes($userId, TrackService::BASE_TYPES);
+			if ($trackIds === []) {
+				return [];
+			}
+		}
+		return $this->tickMapper->findByUserAndDateRange($userId, $from, $to, $trackId, $trackIds);
+	}
+
+	/**
+	 * Every track's type, as track id => type, to write tick values with
+	 * {@see NumberValue::forWire}.
+	 *
+	 * @return array<int, string>
+	 */
+	public function trackTypes(string $userId): array {
+		return $this->trackMapper->findTypesByUser($userId);
 	}
 
 	/**
@@ -114,7 +135,9 @@ class TickService {
 
 	/**
 	 * Set the value for a tick. Counter: the absolute value, 0 deletes. Yes/no:
-	 * true ticks, false unticks; answers whether it is ticked.
+	 * true ticks, false unticks; answers whether it is ticked. Number: the value,
+	 * rounded to the track's decimal places; 0 is a reading and is stored.
+	 * Choice: the option's place. Number and Choice: null or '' clears the day.
 	 *
 	 * Unlike toggle(), setting a yes/no day is idempotent, so a retried request
 	 * can never undo itself.
@@ -124,20 +147,116 @@ class TickService {
 	 *
 	 * @param mixed $value Counter: a whole number from 0 to MAX_VALUE, as an integer or a string
 	 *                     of digits; 0 deletes the tick. Yes/no: true/false, 1/0, on/off or yes/no.
+	 *                     Number: a number, as {@see NumberValue::parse} reads it. Choice: a
+	 *                     place from 1 to the number of options. Number and Choice: null or ''
+	 *                     clears the day.
 	 * @param string|int|float|bool|null $note The day's new note ('' deletes it), or null to leave it
 	 * @param string|int|float|bool|null $appendNote Text to add to the day's note, or null; not with `$note`
 	 * @param bool $allowDuplicateNote Append `$appendNote` even if the note already holds it
-	 * @return array{value: int, note?: string} `note` only when one was sent
+	 * @param bool $valueSent Whether the request had a `value` at all: a Number or
+	 *                        Choice without one is refused, while null clears
+	 * @return array{value: int|float|null, note?: string} `note` only when one was sent;
+	 *                                                     `value` null for a cleared day
 	 * @throws DoesNotExistException if track not found
+	 * @throws InvalidTrackTypeException if the track's type can't be set
 	 * @throws InvalidValueException if the value, the date or the note is not valid, or both notes were sent
 	 * @throws NoteConflictException if appending lost to other writers, after the tick was written
 	 * @throws ReadOnlyTrackException if the track is archived and the client asked for strict handling
 	 */
-	public function set(string $userId, int $trackId, string $date, mixed $value, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false): array {
+	public function set(string $userId, int $trackId, string $date, mixed $value, string|int|float|bool|null $note = null, string|int|float|bool|null $appendNote = null, bool $allowDuplicateNote = false, bool $valueSent = true): array {
 		$track = $this->trackMapper->findByIdAndUser($trackId, $userId);
-		if ($track->getType() === 'boolean') {
-			return $this->setYesNo($track, $userId, $date, $value, $note, $appendNote, $allowDuplicateNote);
+		switch ($track->getType()) {
+			case 'boolean':
+				return $this->setYesNo($track, $userId, $date, $value, $note, $appendNote, $allowDuplicateNote);
+			case 'number':
+				$stored = $this->numberValue($track, $value, $valueSent);
+				break;
+			case 'choice':
+				$stored = $this->choiceValue($track, $value, $valueSent);
+				break;
+			case 'counter':
+				return $this->setCounter($track, $userId, $date, $value, $note, $appendNote, $allowDuplicateNote);
+			default:
+				// A type this server doesn't know how to set: never the counter branch
+				throw new InvalidTrackTypeException('Set isn\'t available for tracks of type "' . $track->getType() . '"');
 		}
+
+		$type = $track->getType();
+		self::checkDate($date);
+		[$note, $appendNote] = self::checkNotes($note, $appendNote);
+		if ($track->getArchivedAt() !== null) {
+			$this->strictHandling->refuseArchived($track);
+			$current = $this->storedValue($userId, $trackId, $date);
+			return ['value' => $current === null ? null : NumberValue::forWire($current, $type)] + $this->storedNote($userId, $trackId, $date, $note, $appendNote);
+		}
+		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
+
+		$this->writeValue($userId, $trackId, $date, $stored);
+		return ['value' => $stored === null ? null : NumberValue::forWire($stored, $type)] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
+	}
+
+	/**
+	 * A Number's value sent to set(), as thousandths, or null to clear the day.
+	 *
+	 * @throws InvalidValueException
+	 */
+	private function numberValue(Track $track, mixed $value, bool $valueSent): ?int {
+		if (!$valueSent) {
+			throw new InvalidValueException(NumberValue::NOT_A_NUMBER);
+		}
+		if ($value === null || $value === '') {
+			return null;
+		}
+		$milli = NumberValue::parse($value, $track->getDecimalPlaces() ?? TrackService::DEFAULT_DECIMAL_PLACES);
+		if ($milli < 0 && $track->getAllowNegative() !== 1) {
+			throw new InvalidValueException('This track doesn\'t allow negative values');
+		}
+		return $milli;
+	}
+
+	/**
+	 * A Choice's place sent to set(), or null to clear the day.
+	 *
+	 * @throws InvalidValueException
+	 */
+	private function choiceValue(Track $track, mixed $value, bool $valueSent): ?int {
+		if ($valueSent && ($value === null || $value === '')) {
+			return null;
+		}
+		$count = $this->optionCount($track);
+		$place = $valueSent ? self::parseWholeNumber($value, false) : null;
+		if ($place === null || $place < 1 || $place > $count) {
+			throw new InvalidValueException(self::choiceMessage($count));
+		}
+		return $place;
+	}
+
+	/**
+	 * What a Choice track says when its value is missing or wrong.
+	 *
+	 * @internal Public for the public link call, whose own message names the count too
+	 */
+	public static function choiceMessage(int $count): string {
+		return 'Choice tracks take the number of an option, from 1 to ' . $count;
+	}
+
+	/**
+	 * How many options a Choice track has.
+	 *
+	 * @internal Public for the public link call
+	 */
+	public function optionCount(Track $track): int {
+		return count($this->optionMapper->findByTrack($track->getId(), $track->getUserId()));
+	}
+
+	/**
+	 * @return array{value: int, note?: string}
+	 * @throws InvalidValueException
+	 * @throws NoteConflictException
+	 * @throws ReadOnlyTrackException
+	 */
+	private function setCounter(Track $track, string $userId, string $date, mixed $value, string|int|float|bool|null $note, string|int|float|bool|null $appendNote, bool $allowDuplicateNote): array {
+		$trackId = $track->getId();
 
 		$value = self::counterValue($value);
 		self::checkDate($date);
@@ -149,7 +268,8 @@ class TickService {
 		}
 		$this->checkAppend($userId, $trackId, $date, $appendNote, $allowDuplicateNote);
 
-		$this->writeCounter($userId, $trackId, $date, $value);
+		// A counter never stores 0: its 0 is no row
+		$this->writeValue($userId, $trackId, $date, $value === 0 ? null : $value);
 		return ['value' => $value] + $this->writeNote($userId, $trackId, $date, $note, $appendNote, $allowDuplicateNote);
 	}
 
@@ -178,17 +298,18 @@ class TickService {
 	}
 
 	/**
-	 * Store a counter's absolute value, 0 deleting the row. Last write wins: if
-	 * another request inserted the day's row in between, this value replaces
-	 * its value; if that row is gone again by the time it is read, insert again.
+	 * Store a day's value, null deleting the row; any int is stored, 0 included
+	 * (a Number's reading). Last write wins: if another request inserted the
+	 * day's row in between, this value replaces its value; if that row is gone
+	 * again by the time it is read, insert again.
 	 *
 	 * @throws DbException if other requests kept inserting and deleting the row
 	 */
-	private function writeCounter(string $userId, int $trackId, string $date, int $value): void {
+	private function writeValue(string $userId, int $trackId, string $date, ?int $value): void {
 		for ($attempt = 1; ; $attempt++) {
 			try {
 				$tick = $this->tickMapper->findByUserTrackDate($userId, $trackId, $date);
-				if ($value === 0) {
+				if ($value === null) {
 					$this->tickMapper->delete($tick);
 				} else {
 					$tick->setValue($value);
@@ -196,7 +317,7 @@ class TickService {
 				}
 				return;
 			} catch (DoesNotExistException) {
-				if ($value === 0) {
+				if ($value === null) {
 					return;
 				}
 				try {
@@ -493,6 +614,17 @@ class TickService {
 			$this->tickMapper->delete($this->tickMapper->findByUserTrackDate($userId, $trackId, $date));
 		} catch (DoesNotExistException) {
 			// Already gone
+		}
+	}
+
+	/**
+	 * The stored value for a day, null when there is no tick.
+	 */
+	private function storedValue(string $userId, int $trackId, string $date): ?int {
+		try {
+			return $this->tickMapper->findByUserTrackDate($userId, $trackId, $date)->getValue();
+		} catch (DoesNotExistException) {
+			return null;
 		}
 	}
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { isWeekend, parseDateStr, userLocale } from '../dates.ts'
 import type { JournalActions } from '../journal.ts'
+import { decimalsOf, formatNumber } from '../numberValue.ts'
 import type { Track } from '../types.ts'
 import JournalCell from './JournalCell.vue'
 
@@ -20,6 +21,37 @@ const emit = defineEmits<{
 }>()
 
 const weekdayFormatter = new Intl.DateTimeFormat(userLocale, { weekday: 'narrow' })
+
+// The unit's line under the names exists only when a track on screen has a unit
+const hasUnits = computed(() => props.tracks.some(t => t.type === 'number' && t.unit))
+
+function nameTitle(track: Track): string {
+	return track.type === 'number' && track.unit ? `${track.name}\n${track.unit}` : track.name
+}
+
+// Day columns stay narrow with only Yes/No and Counter on screen; with a Number
+// or Choice they fit the widest number loaded, never less than a floor (the
+// floors are in the CSS). The widest only grows while the page is open, so the
+// columns don't jump as days load or values change.
+const widest = ref(0)
+const hasValueTracks = computed(() => props.tracks.some(t => t.type === 'number' || t.type === 'choice'))
+
+watch(() => {
+	let longest = 0
+	for (const track of props.tracks) {
+		if (track.type !== 'number') continue
+		for (const date of props.dates) {
+			const value = props.actions.valueOf(track.id, date)
+			if (value !== null) longest = Math.max(longest, formatNumber(value, decimalsOf(track), userLocale).length)
+		}
+	}
+	return longest
+}, (longest) => {
+	widest.value = Math.max(widest.value, longest)
+}, { immediate: true })
+
+// Figures of one width make ch exact for digits; a separator or minus counts as one
+const dayWidth = computed(() => hasValueTracks.value ? { '--day-number-width': `calc(${widest.value}ch + 12px)` } : undefined)
 
 function weekday(date: string): string {
 	return date === props.today ? 'Today' : weekdayFormatter.format(parseDateStr(date))
@@ -53,7 +85,7 @@ onBeforeUnmount(() => {
 
 <template>
 	<div :class="$style.wrap">
-		<table :class="$style.grid">
+		<table :class="[$style.grid, hasValueTracks && $style.wideDays]" :style="dayWidth">
 			<thead>
 				<tr>
 					<!-- data-sticky and data-today tell JournalView whether today is in view -->
@@ -77,9 +109,11 @@ onBeforeUnmount(() => {
 					<th scope="row" :class="$style.nameCell">
 						<button type="button"
 							:class="$style.nameButton"
-							:title="`Show analytics for ${track.name}`"
+							:aria-label="`Show analytics for ${track.name}`"
+							:title="nameTitle(track)"
 							@click="actions.openTrack(track.id)">
 							<span :class="$style.name">{{ track.name }}</span>
+							<span v-if="hasUnits" :class="$style.unit">{{ track.type === 'number' ? track.unit : '' }}</span>
 						</button>
 					</th>
 					<td v-for="date in dates"
@@ -102,21 +136,32 @@ onBeforeUnmount(() => {
 }
 
 .grid {
+	/* The day columns' width: 38px with only Yes/No and Counter on screen. With a
+	   Number or Choice, the widest number plus padding, never less than the floor */
+	--day-width: 38px;
+	--day-floor: 56px;
 	border-collapse: separate;
 	border-spacing: 0;
 }
 
+.wideDays {
+	--day-width: max(var(--day-floor), var(--day-number-width, 0px));
+}
+
+/* Layers, in both grids and JournalCell.vue: the sticky first column 4, a
+   hovered, focused or editing cell 5 (its floating bar and note box reach past
+   the cell, over the first column's start), the sticky header row 6, the corner 7 */
 .corner,
 .dayHeader {
 	position: sticky;
 	inset-block-start: 0;
-	z-index: 5;
+	z-index: 6;
 	background: var(--color-main-background);
 }
 
 .corner {
 	inset-inline-start: 0;
-	z-index: 6;
+	z-index: 7;
 }
 
 /* The grid's start margin, solid so that days scrolling under the sticky
@@ -127,8 +172,8 @@ onBeforeUnmount(() => {
 }
 
 .dayHeader {
-	width: 38px;
-	min-width: 38px;
+	width: var(--day-width);
+	min-width: var(--day-width);
 	padding: 0;
 	font-weight: normal;
 }
@@ -215,9 +260,22 @@ onBeforeUnmount(() => {
 	font-weight: bold;
 }
 
+/* Kept when empty (a track without a unit), so the names stay aligned */
+.unit {
+	max-width: 100%;
+	min-height: 1.3em;
+	overflow: hidden;
+	color: var(--color-text-maxcontrast);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .tickCell {
-	width: 38px;
-	min-width: 38px;
+	width: var(--day-width);
+	min-width: var(--day-width);
+	max-width: var(--day-width);
+	--cell-label-width: calc(var(--day-width) - 4px);
 	padding: 0;
 	text-align: center;
 	border-block-end: 1px solid var(--color-border);
@@ -238,10 +296,9 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1023px) {
-	.dayHeader,
-	.tickCell {
-		width: 34px;
-		min-width: 34px;
+	.grid {
+		--day-width: 34px;
+		--day-floor: 48px;
 	}
 
 	.nameCell {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dropIndex, gapAt } from './trackMenu.ts'
+import { dropIndex, gapAt, typeName } from './trackMenu.ts'
 
 // The list after dropping the track at fromIndex at the gap (above row gap)
 function drop(list: string[], fromIndex: number, gap: number): string[] {
@@ -38,5 +38,11 @@ describe('gapAt', () => {
 	it('is below the row over its lower half', () => {
 		expect(gapAt(2, 120, rect)).toBe(3)
 		expect(gapAt(2, 139, rect)).toBe(3)
+	})
+})
+
+describe('typeName', () => {
+	it('names every type', () => {
+		expect(['boolean', 'counter', 'number', 'choice', 'duration'].map(typeName)).toEqual(['Yes/No', 'Counter', 'Number', 'Choice', 'duration'])
 	})
 })

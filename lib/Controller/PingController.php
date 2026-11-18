@@ -16,6 +16,7 @@ use OCA\Tickbuddy\Service\InvalidTrackTypeException;
 use OCA\Tickbuddy\Service\InvalidValueException;
 use OCA\Tickbuddy\Service\NoteConflictException;
 use OCA\Tickbuddy\Service\NoteService;
+use OCA\Tickbuddy\Service\NumberValue;
 use OCA\Tickbuddy\Service\PublicLinkService;
 use OCA\Tickbuddy\Service\ReadOnlyTrackException;
 use OCA\Tickbuddy\Service\RequestBody;
@@ -81,7 +82,7 @@ class PingController extends OCSController {
 	 * for. Answers JSON unless asked for XML.
 	 *
 	 * A Tick only link ticks a yes/no day, or adds 1 to a counter, or with
-	 * `value` sets the day to it; `appendNote`, or a POST body sent as
+	 * `value` sets the day to it (a number or choice track needs a `value`); `appendNote`, or a POST body sent as
 	 * `text/plain`, adds a line to the day's note (a line already there is
 	 * skipped). A View only link answers the day's tick, or a range's, and with
 	 * `includeNotes` the notes. The day is today in the owner's time zone unless
@@ -91,15 +92,15 @@ class PingController extends OCSController {
 	 * Tick calls honour `Idempotency-Key` (a UUID) as the API's writes do.
 	 *
 	 * @param string $token The link's token
-	 * @param string|int|float|bool|null $value Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it)
+	 * @param string|int|float|bool|null $value Tick only. Yes/no: true or false (also 1/0, on/off, yes/no). Counter: the day's new value, a whole number from 0 to 2147483647 (0 clears it). Number, required: the day's value with a point, such as 72.4, rounded to the track's decimal places. Choice, required: an option's place, from 1 to the number of options
 	 * @param ?string $date The day (YYYY-MM-DD); today in the owner's time zone if missing
 	 * @param string|int|float|bool|null $appendNote Tick only. Text to add to the day's note on a new line; not with a text body
 	 * @param ?string $from View only. First day of a range (YYYY-MM-DD), with `to`; not with `date`
 	 * @param ?string $to View only. Last day of a range (YYYY-MM-DD), with `from`
 	 * @param string|int|float|bool|null $includeNotes View only. Also answer the notes: true or false (also 1/0, on/off, yes/no)
-	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}|TickbuddyPingView, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY|Http::STATUS_LOCKED, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|float|null, note?: string}|TickbuddyPingView, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 *
-	 * 200: Tick only: the day's value (1 or 0 for yes/no), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing
+	 * 200: Tick only: the day's value (1 or 0 for yes/no, a number track's value, a choice's place), and `note`, the whole stored note, when text was appended. View only: the ticks (sparse, newest first), and the notes with `includeNotes`. With `Idempotency-Key`: a repeat of an earlier request answers as that request did, and changes nothing
 	 * 400: A parameter is invalid, the other kind of link's parameters were sent, the track's type can't be ticked by a link yet, or `Idempotency-Key` is not a UUID; nothing done
 	 * 403: A day is outside the link's allowed days; nothing done
 	 * 404: Unknown or revoked link, or its owner can't sign in
@@ -154,7 +155,7 @@ class PingController extends OCSController {
 	}
 
 	/**
-	 * @return DataResponse<Http::STATUS_OK, array{value: int, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY|Http::STATUS_LOCKED, TickbuddyError, array{}>
+	 * @return DataResponse<Http::STATUS_OK, array{value: int|float|null, note?: string}, array{}>|DataResponse<Http::STATUS_BAD_REQUEST|Http::STATUS_FORBIDDEN|Http::STATUS_NOT_FOUND|Http::STATUS_CONFLICT|Http::STATUS_UNPROCESSABLE_ENTITY|Http::STATUS_LOCKED, TickbuddyError, array{}>
 	 */
 	private function tick(PublicLink $link, string|int|float|bool|null $value, ?string $date, string|int|float|bool|null $appendNote, ?string $body, bool $viewParameters): DataResponse {
 		$owner = $link->getUserId();
@@ -178,12 +179,21 @@ class PingController extends OCSController {
 			}
 			try {
 				$track = $this->trackService->find($link->getTrackId(), $owner);
+				// No default value for a number or choice, and a link never clears
+				// one: an empty reading from a template mustn't wipe the day
+				if ($track->getType() === 'number' && ($value === null || $value === '')) {
+					return $this->invalid('Number tracks need a value, such as value=10.4');
+				}
+				if ($track->getType() === 'choice' && ($value === null || $value === '')) {
+					return $this->invalid('Choice tracks need a value, the number of an option from 1 to ' . $this->tickService->optionCount($track));
+				}
 				// A line already in the note is always skipped (no allowDuplicateNote)
 				return new DataResponse(match ($track->getType()) {
 					'boolean' => $this->tickService->set($owner, $track->getId(), $day, $value ?? true, null, $text, false),
 					'counter' => $value === null
 						? $this->tickService->increment($owner, $track->getId(), $day, 1, null, $text, false)
 						: $this->tickService->set($owner, $track->getId(), $day, $value, null, $text, false),
+					'number', 'choice' => $this->tickService->set($owner, $track->getId(), $day, $value, null, $text, false),
 					default => throw new InvalidTrackTypeException("Public links can't tick tracks of this type yet"),
 				});
 			} catch (DoesNotExistException) {
@@ -232,8 +242,9 @@ class PingController extends OCSController {
 			return $from === $to ? $this->dayNotAllowed($link, $from) : $this->dayNotAllowed($link, $from, $to);
 		}
 		try {
+			$type = $this->trackService->find($link->getTrackId(), $owner)->getType();
 			$ticks = $this->tickService->findByDateRange($owner, $from, $to, $link->getTrackId());
-			$data = ['ticks' => array_values(array_map(fn (Tick $t) => self::serializeTick($t), $ticks))];
+			$data = ['ticks' => array_values(array_map(fn (Tick $t) => self::serializeTick($t, $type), $ticks))];
 			if ($withNotes) {
 				$notes = $this->noteService->findByDateRange($owner, $from, $to, $link->getTrackId());
 				$data['notes'] = array_values(array_map(fn (Note $n) => self::serializeNote($n), $notes));
@@ -249,12 +260,12 @@ class PingController extends OCSController {
 	/**
 	 * @return TickbuddyTick
 	 */
-	private static function serializeTick(Tick $tick): array {
+	private static function serializeTick(Tick $tick, string $type): array {
 		return [
 			'id' => $tick->getId(),
 			'trackId' => $tick->getTrackId(),
 			'date' => $tick->getDate(),
-			'value' => $tick->getValue(),
+			'value' => NumberValue::forWire($tick->getValue(), $type),
 		];
 	}
 

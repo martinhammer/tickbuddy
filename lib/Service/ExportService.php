@@ -7,6 +7,8 @@ namespace OCA\Tickbuddy\Service;
 use OCA\Tickbuddy\Db\NoteMapper;
 use OCA\Tickbuddy\Db\TickMapper;
 use OCA\Tickbuddy\Db\TrackMapper;
+use OCA\Tickbuddy\Db\TrackOption;
+use OCA\Tickbuddy\Db\TrackOptionMapper;
 
 class ExportService {
 	public const FORMAT_VERSION = 1;
@@ -15,6 +17,7 @@ class ExportService {
 		private TrackMapper $trackMapper,
 		private TickMapper $tickMapper,
 		private NoteMapper $noteMapper,
+		private TrackOptionMapper $optionMapper,
 	) {
 	}
 
@@ -34,11 +37,16 @@ class ExportService {
 			$tracks = array_values(array_filter($tracks, fn ($t) => $t->getPrivate() !== 1));
 		}
 
+		$choiceIds = array_map(fn ($t) => $t->getId(), array_filter($tracks, fn ($t) => $t->getType() === 'choice'));
+		$options = $this->optionMapper->findByTracks($choiceIds, $userId);
+
 		// Position of each track in the exported list, so ticks of tracks whose
 		// name isn't unique in the file can say which one they belong to
 		$trackIdToIndex = [];
+		$trackTypes = [];
 		$exportTracks = [];
 		foreach ($tracks as $track) {
+			$trackTypes[$track->getId()] = $track->getType();
 			$trackIdToIndex[$track->getId()] = count($exportTracks);
 			$exportTrack = [
 				'name' => $track->getName(),
@@ -50,6 +58,15 @@ class ExportService {
 			// keep exactly the original format
 			if ($track->getArchivedAt() !== null) {
 				$exportTrack['archivedAt'] = $track->getArchivedAt();
+			}
+			// A type's settings only on tracks of that type, likewise
+			if ($track->getType() === 'number') {
+				$exportTrack['unit'] = $track->getUnit() ?? '';
+				$exportTrack['decimalPlaces'] = $track->getDecimalPlaces() ?? TrackService::DEFAULT_DECIMAL_PLACES;
+				$exportTrack['allowNegative'] = $track->getAllowNegative() === 1;
+			} elseif ($track->getType() === 'choice') {
+				$exportTrack['options'] = array_map(fn (TrackOption $o) => $o->getLabel(), $options[$track->getId()] ?? []);
+				$exportTrack['orderedScale'] = $track->getOrderedScale() === 1;
 			}
 			$exportTracks[] = $exportTrack;
 		}
@@ -78,7 +95,8 @@ class ExportService {
 				continue;
 			}
 			$exportTick['date'] = $tick->getDate();
-			$exportTick['value'] = $tick->getValue();
+			// A Number's stored value exactly, as the API answers it
+			$exportTick['value'] = NumberValue::forWire($tick->getValue(), $trackTypes[$tick->getTrackId()]);
 			$exportTicks[] = $exportTick;
 		}
 

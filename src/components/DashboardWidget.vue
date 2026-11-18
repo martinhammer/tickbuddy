@@ -6,7 +6,7 @@ import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import { fetchStats, fetchTicks, fetchTracks } from '../api.ts'
 import { addDays, fmtDate, parseDateStr, todayStr, userLocale } from '../dates.ts'
-import { fillFor, getPrimaryColor, levelFor, valueText } from '../heatmap.ts'
+import { fillFor, getPrimaryColor, trackLevel, trackValueText } from '../heatmap.ts'
 import type { Tick, Track, TrackStats } from '../types.ts'
 
 // Material Design Icons "refresh", copied in to avoid a dependency for one icon.
@@ -90,7 +90,8 @@ const dayHeads = computed(() => days.value.map((ds, i) => {
 interface Cell {
 	trackId: number
 	date: string
-	value: number
+	/** The stored value, null without a tick */
+	value: number | null
 	level: number
 	fill: string
 }
@@ -110,11 +111,11 @@ interface Row {
 const rows = computed<Row[]>(() => visibleTracks.value.map((track) => {
 	const byDate = tickIndex.value.get(track.id) ?? new Map<string, number>()
 	const trackStats = statsByTrack.value.get(track.id)
-	const maxValue = trackStats?.maxValue ?? 0
 	const isCounter = track.type === 'counter'
+	// A Number shades by value, an ordered Choice by place (trackLevel)
 	const cells = days.value.map((date) => {
-		const value = byDate.get(date) ?? 0
-		const level = levelFor(value, isCounter, maxValue)
+		const value = byDate.get(date) ?? null
+		const level = trackLevel(value, track, trackStats)
 		return { trackId: track.id, date, value, level, fill: fillFor(level, primaryColor.value) }
 	})
 	return {
@@ -122,7 +123,8 @@ const rows = computed<Row[]>(() => visibleTracks.value.map((track) => {
 		isCounter,
 		cells,
 		stats: trackStats,
-		todayOpen: cells[0].value <= 0,
+		// Any stored value is an entry for a Number or Choice, 0 included
+		todayOpen: track.type === 'number' || track.type === 'choice' ? cells[0].value === null : (cells[0].value ?? 0) <= 0,
 	}
 }))
 
@@ -138,7 +140,7 @@ function numTooltip(row: Row): string {
 }
 
 function cellLabel(row: Row, cell: Cell): string {
-	return `${row.track.name}, ${fmtDate(cell.date)}: ${valueText(cell.value, row.isCounter)}`
+	return `${row.track.name}, ${fmtDate(cell.date)}: ${trackValueText(cell.value, row.track)}`
 }
 
 // --- Loading ---
@@ -292,7 +294,7 @@ function hideTooltip(): void {
 function showCellTooltip(event: Event, row: Row, cell: Cell): void {
 	showTooltip(event.currentTarget as HTMLElement, {
 		title: row.track.name,
-		lines: [fmtDate(cell.date), valueText(cell.value, row.isCounter)],
+		lines: [fmtDate(cell.date), trackValueText(cell.value, row.track)],
 		swatch: cell.fill,
 	})
 }

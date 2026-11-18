@@ -5,12 +5,13 @@ import NcButton from '@nextcloud/vue/components/NcButton'
 import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
-import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setYesNo } from '../api.ts'
+import { deleteNote, fetchNotes, fetchStats, fetchTicks, fetchTracks, incrementCounter, setNote, setValue, setYesNo } from '../api.ts'
 import { cellWrites, keepCells, replaceDays, tickKey } from '../cellWrites.ts'
 import { addDays, dayHeading, squaresEnd } from '../dates.ts'
 import { isEditable, LOCKED_DAY_MESSAGE } from '../editableDays.ts'
-import { fillFor, getPrimaryColor, levelFor } from '../heatmap.ts'
+import { fillFor, getPrimaryColor, trackLevel } from '../heatmap.ts'
 import { MDI_CALENDAR_TODAY, MDI_CHEVRON_LEFT, MDI_CHEVRON_RIGHT } from '../icons.ts'
+import { decimalsOf, toWire } from '../numberValue.ts'
 import { editableDays, loadPreferences, showPrivate } from '../preferences.ts'
 import type { Track, TrackStats } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -60,6 +61,10 @@ const view = computed<'loading' | 'error' | 'empty' | 'allPrivate' | 'list'>(() 
 
 const statsByTrack = computed(() => new Map(stats.value.map(s => [s.trackId, s])))
 
+// A Number or Choice on screen widens every row's control area. Only the tracks
+// shown count: a hidden private track changing the layout would hint that it exists.
+const wideControls = computed(() => visibleTracks.value.some(t => t.type === 'number' || t.type === 'choice'))
+
 // The squares follow the day shown (squaresEnd), newest first, its square
 // outlined; the run stays today's.
 const week = computed(() => {
@@ -82,18 +87,17 @@ function goToDay(day: string): void {
 }
 
 // --- Rows ---
+// A day without a tick is null: for a Number, 0 is a reading
 const rows = computed(() => visibleTracks.value.map((track) => {
 	const trackStats = statsByTrack.value.get(track.id)
-	const isCounter = track.type === 'counter'
-	const maxValue = trackStats?.maxValue ?? 0
 	return {
 		track,
 		stats: trackStats,
-		value: tickValues.value[tickKey(track.id, shownDay.value)] ?? 0,
+		value: tickValues.value[tickKey(track.id, shownDay.value)] ?? null,
 		note: notes.value[tickKey(track.id, shownDay.value)] ?? '',
 		squares: week.value.map((date) => {
-			const value = tickValues.value[tickKey(track.id, date)] ?? 0
-			return { date, value, fill: fillFor(levelFor(value, isCounter, maxValue), primaryColor.value), shown: date === shownDay.value }
+			const value = tickValues.value[tickKey(track.id, date)] ?? null
+			return { date, value, fill: fillFor(trackLevel(value, track, trackStats), primaryColor.value), shown: date === shownDay.value }
 		}),
 	}
 }))
@@ -225,6 +229,28 @@ async function onIncrement(track: Track, delta: number): Promise<void> {
 	refreshStats(track.id)
 }
 
+// A Number's value or a Choice's place, null clearing the day; resolves false when it wasn't saved
+function valueSaver(track: Track): (value: number | null) => Promise<boolean> {
+	const day = shownDay.value
+	const key = tickKey(track.id, day)
+	return async (value: number | null) => {
+		const wire = value === null ? null : track.type === 'number' ? toWire(value, decimalsOf(track)) : String(value)
+		try {
+			const stored = await tickWrites.run(key, () => setValue(track.id, day, wire))
+			if (stored === null) {
+				delete tickValues.value[key]
+			} else {
+				tickValues.value[key] = stored
+			}
+		} catch (e) {
+			await writeFailed(e, track.name, reload)
+			return false
+		}
+		refreshStats(track.id)
+		return true
+	}
+}
+
 function noteSaver(track: Track): (text: string) => Promise<boolean> {
 	const day = shownDay.value
 	const key = tickKey(track.id, day)
@@ -315,6 +341,8 @@ onMounted(() => {
 				:stats="row.stats"
 				:note="row.note"
 				:locked="locked"
+				:wide="wideControls"
+				:save-value="valueSaver(row.track)"
 				:save-note="noteSaver(row.track)"
 				@set-yes-no="(value) => onSetYesNo(row.track, value)"
 				@increment="(delta) => onIncrement(row.track, delta)"

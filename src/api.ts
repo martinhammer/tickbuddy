@@ -5,6 +5,11 @@ import type { EditableDays, LinkPermission, Note, Preferences, PublicLink, Tick,
 
 let strictRegistered = false
 
+// The web knows every type there is, so its reads ask for all of them: without
+// `includeAllTypes` the server leaves out Number and Choice tracks (and their
+// ticks, notes and stats), for clients that predate them.
+const ALL_TYPES = { includeAllTypes: true }
+
 /**
  * Send `Prefer: handling=strict` on every request to Tickbuddy's API, so the server
  * answers 423 instead of a quiet 200 when a write hits an archived track. Only
@@ -29,8 +34,9 @@ export function preferStrictHandling(): void {
  * @param includeArchived also list archived tracks (only the Tracks page asks)
  */
 export async function fetchTracks(includeArchived = false): Promise<Track[]> {
-	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/tracks'),
-		includeArchived ? { params: { includeArchived: true } } : undefined)
+	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/tracks'), {
+		params: includeArchived ? { ...ALL_TYPES, includeArchived: true } : ALL_TYPES,
+	})
 	return response.data.ocs.data
 }
 
@@ -44,7 +50,7 @@ export async function fetchTracks(includeArchived = false): Promise<Track[]> {
  */
 export async function fetchTicks(from: string, to: string, trackId?: number): Promise<Tick[]> {
 	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/ticks'), {
-		params: trackId === undefined ? { from, to } : { from, to, trackId },
+		params: trackId === undefined ? { ...ALL_TYPES, from, to } : { from, to, trackId },
 	})
 	return response.data.ocs.data
 }
@@ -58,7 +64,7 @@ export async function fetchTicks(from: string, to: string, trackId?: number): Pr
  * @param options.includeRuns add every streak and break to each entry
  */
 export async function fetchStats(today: string, options: { trackId?: number, includeRuns?: boolean } = {}): Promise<TrackStats[]> {
-	const params: Record<string, string | number | boolean> = { today }
+	const params: Record<string, string | number | boolean> = { ...ALL_TYPES, today }
 	if (options.trackId !== undefined) params.trackId = options.trackId
 	if (options.includeRuns) params.includeRuns = true
 	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/stats'), { params })
@@ -73,7 +79,7 @@ export async function fetchStats(today: string, options: { trackId?: number, inc
  */
 export async function fetchNotes(from: string, to: string): Promise<Note[]> {
 	const response = await axios.get(generateOcsUrl('/apps/tickbuddy/api/notes'), {
-		params: { from, to },
+		params: { ...ALL_TYPES, from, to },
 	})
 	return response.data.ocs.data
 }
@@ -139,6 +145,39 @@ export async function incrementCounter(trackId: number, date: string, delta: num
 	params.append('delta', String(delta))
 	const response = await axios.post(generateOcsUrl('/apps/tickbuddy/api/ticks/increment'), params)
 	return response.data.ocs.data.value
+}
+
+/**
+ * Set a Number or Choice day, or clear it.
+ *
+ * @param trackId a Number or Choice track
+ * @param date the day, YYYY-MM-DD
+ * @param value a Number's value with a point (numberValue.ts toWire), a Choice's
+ *              place, or null to clear the day (sent as "", as a form can't send null)
+ * @return the stored value, null when the day has none
+ */
+export async function setValue(trackId: number, date: string, value: string | null): Promise<number | null> {
+	const params = new URLSearchParams()
+	params.append('trackId', String(trackId))
+	params.append('date', date)
+	params.append('value', value ?? '')
+	const response = await axios.post(generateOcsUrl('/apps/tickbuddy/api/ticks/set'), params)
+	return response.data.ocs.data.value
+}
+
+/**
+ * Rename one option of a Choice track.
+ *
+ * @param trackId a Choice track
+ * @param place the option's place, from 1
+ * @param label its new label
+ * @return the whole track
+ */
+export async function renameOption(trackId: number, place: number, label: string): Promise<Track> {
+	const params = new URLSearchParams()
+	params.append('label', label)
+	const response = await axios.put(generateOcsUrl(`/apps/tickbuddy/api/tracks/${trackId}/options/${place}`), params)
+	return response.data.ocs.data
 }
 
 export async function fetchPreferences(): Promise<Preferences> {
