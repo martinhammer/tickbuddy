@@ -179,9 +179,9 @@ function save(text: string): Promise<boolean> {
 		</template>
 
 		<template v-else-if="isNumber || isChoice">
-			<!-- At rest, and the tap target on a touchscreen; the mouse and the
-				 keyboard use the bar, which covers it -->
-			<span :class="$style.valueWrap">
+			<!-- At rest; the mouse and the keyboard use the bar, which covers it.
+				 A touchscreen hides it and taps the bar's own controls instead. -->
+			<span :class="[$style.valueWrap, !locked && $style.restValue]">
 				<span v-if="locked"
 					:class="[isNumber ? $style.num : $style.label, note && $style.labelWithDot]"
 					:title="isChoice ? shownValue : undefined"
@@ -209,6 +209,7 @@ function save(text: string): Promise<boolean> {
 						@focusin="active = true"
 						@done="active = false" />
 					<span v-if="track.unit" :class="$style.unit" :title="track.unit">{{ track.unit }}</span>
+					<span v-if="note && hasShownValue" :class="[$style.dot, $style.dotInBar]" aria-hidden="true" />
 				</template>
 				<template v-else>
 					<span v-if="active" :class="$style.choiceSlot">
@@ -225,8 +226,9 @@ function save(text: string): Promise<boolean> {
 						:aria-label="`${fieldLabel}: ${trackValueText(stored, track)}`"
 						:title="shownValue || undefined"
 						@click="activate">
-						<span :class="$style.choiceButtonText">{{ shownValue || '–' }}</span>
+						<span :class="[$style.choiceButtonText, !shownValue && $style.emptyText]">{{ shownValue || '…' }}</span>
 					</button>
+					<span v-if="note && hasShownValue" :class="[$style.dot, $style.dotInBar]" aria-hidden="true" />
 				</template>
 				<span :class="$style.divider" aria-hidden="true" />
 				<button type="button"
@@ -361,6 +363,15 @@ function save(text: string): Promise<boolean> {
 	inset-inline-start: calc(100% + 2px);
 }
 
+/* The note's dot after a touchscreen's in-cell control (see the media query) */
+.dotInBar {
+	position: static;
+	display: none;
+	flex: none;
+	align-self: flex-start;
+	margin-block-start: 2px;
+}
+
 /* Room for the dot after a cut label */
 .labelWithDot {
 	max-width: calc(var(--cell-label-width, 100%) - 8px);
@@ -444,6 +455,7 @@ function save(text: string): Promise<boolean> {
 }
 
 .checkboxSlot {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -452,13 +464,25 @@ function save(text: string): Promise<boolean> {
 }
 
 /* Nextcloud's checkbox draws its box on the label, with an uneven margin
-   (3px before, 6px after) that would put it off the centre */
-.cell .checkboxSlot input.checkbox + label {
+   (3px before, 6px after) that would put it off the centre. `checkbox` is
+   core's class, not this module's, hence :global (a module would rename it,
+   and the rule would match nothing). */
+.cell .checkboxSlot input:global(.checkbox) + label {
 	display: flex;
 }
 
-.cell .checkboxSlot input.checkbox + label::before {
+.cell .checkboxSlot input:global(.checkbox) + label::before {
 	margin: 0;
+}
+
+/* Core hides the input 10000px to the left (input[type=checkbox].checkbox,
+   0,2,1); a tap on the label focuses it there, and the grid scrolled back to
+   its first column to show it. Hidden inside the slot instead, it is already
+   in view (the slot is its containing block). */
+.cell .checkboxSlot input:global(.checkbox) {
+	inset-block-start: 0;
+	inset-inline-start: 0;
+	opacity: 0;
 }
 
 .barCount {
@@ -664,16 +688,54 @@ function save(text: string): Promise<boolean> {
 		display: none;
 	}
 
-	/* A Number or Choice shows its value as text; a tap turns it into the field
-	   or opens the list, in the cell */
-	.valueButton.hidesOnHover {
+	/* A Number or Choice: the tap lands on the bar's own control, as a click
+	   does on a desktop, never on the at-rest value (whose swap for the field
+	   after a tap didn't open it, and which had no size on an empty day). At
+	   rest the control looks like the value: no ring or border, centred, an
+	   empty day blank. */
+	.restValue {
+		display: none;
+	}
+
+	.dotInBar {
 		display: block;
 	}
 
-	.valueButton.hidden,
-	.numberBar:not(.activeBar),
-	.choiceBar:not(.activeBar) {
+	.numberBar {
+		--number-field-width: var(--cell-label-width, 9ch);
+	}
+
+	.numberBar .unit {
 		display: none;
+	}
+
+	/* The column (or header) width less 4px, which fits the widest number
+	   with 8px to spare (Tracks down's estimate, n ch + 12px): the field's own
+	   8px padding each side would cut it with core's "…" */
+	.cell .numberBar :global(input) {
+		padding-inline: 2px;
+		text-align: center;
+	}
+
+	.cell .numberBar :global(input):not(:focus) {
+		box-shadow: none !important;
+		background-color: transparent;
+	}
+
+	.cell .numberBar :global(input)::placeholder {
+		color: transparent;
+	}
+
+	.cell .choiceBar:not(.activeBar) .choiceButton {
+		width: var(--cell-label-width, var(--choice-width));
+		justify-content: center;
+		padding-inline: 0;
+		border-color: transparent;
+		background: transparent;
+	}
+
+	.emptyText {
+		visibility: hidden;
 	}
 
 	.bar {

@@ -144,7 +144,9 @@ onBeforeUnmount(() => {
 	border-spacing: 0;
 }
 
-.wideDays {
+/* Doubled to outrank the phone rule below (.grid, later), which would
+   otherwise set 34px at every width under 1024px and never use the floor */
+.grid.wideDays {
 	--day-width: max(var(--day-floor), var(--day-number-width, 0px));
 }
 
@@ -274,7 +276,6 @@ onBeforeUnmount(() => {
 .tickCell {
 	width: var(--day-width);
 	min-width: var(--day-width);
-	max-width: var(--day-width);
 	--cell-label-width: calc(var(--day-width) - 4px);
 	padding: 0;
 	text-align: center;

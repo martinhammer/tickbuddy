@@ -10,6 +10,9 @@ import type { Track } from '../types.ts'
 // Enter or losing focus saves what was typed (empty clears the day), Escape
 // puts the stored value back. Typed text that isn't a number, or a negative
 // value on a track that doesn't take one, stays in the field with a toast.
+// With a unit (Today on a phone), the unit sits inside the field's box, after
+// the number, and the ring goes round both; it hides with focus, leaving the
+// whole box to type in.
 
 type Save = (value: number | null) => Promise<boolean>
 
@@ -21,6 +24,8 @@ const props = defineProps<{
 	save: Save
 	/** The field's accessible name */
 	label: string
+	/** Shown inside the box, after the number (Today on a phone) */
+	unit?: string
 }>()
 
 const emit = defineEmits<{
@@ -40,6 +45,10 @@ let skipBlur = false
 watch(stored, (shown) => {
 	if (!focused.value) text.value = shown
 })
+
+// The input's minimum width in the box: the value as shown, or the "…" (figures
+// are one width, so ch is exact for them); only the unit gives way
+const valueChars = computed(() => ({ '--value-chars': String(text.value.length || 1) }))
 
 // iOS's decimal pad has no minus key, so a track that takes negative values gets the normal keyboard
 const inputMode = computed(() => props.track.allowNegative ? 'text' : 'decimal')
@@ -98,18 +107,25 @@ defineExpose({
 </script>
 
 <template>
-	<input ref="input"
-		v-model="text"
-		:class="$style.field"
-		type="text"
-		:inputmode="inputMode"
-		autocomplete="off"
-		placeholder="–"
-		:aria-label="label"
-		@focus="focused = true"
-		@keydown.enter.prevent="onEnter"
-		@keydown.esc.stop.prevent="onEscape"
-		@blur="onBlur">
+	<!-- Without a unit the wrapper takes no box (display: contents) and the
+		 input draws the ring; with one it is the box, and a click on the unit
+		 focuses the input, as it is a label -->
+	<label :class="unit ? [$style.box, $style.ring] : $style.contents">
+		<input ref="input"
+			v-model="text"
+			:class="[$style.field, unit ? $style.inBox : $style.ring]"
+			:style="unit ? valueChars : undefined"
+			type="text"
+			:inputmode="inputMode"
+			autocomplete="off"
+			placeholder="…"
+			:aria-label="label"
+			@focus="focused = true"
+			@keydown.enter.prevent="onEnter"
+			@keydown.esc.stop.prevent="onEscape"
+			@blur="onBlur">
+		<span v-if="unit" :class="$style.unit" :title="unit">{{ unit }}</span>
+	</label>
 </template>
 
 <style module>
@@ -123,8 +139,6 @@ defineExpose({
    Journal bar's --number-field-height. Right-aligned, with figures of one width
    so the values line up down the page. */
 .field.field {
-	--number-field-border: var(--color-border-maxcontrast);
-	--number-field-ring: 0 -1px var(--number-field-border), 0 0 0 1px color-mix(in srgb, var(--number-field-border), 65% transparent);
 	box-sizing: border-box;
 	width: var(--number-field-width, 9ch);
 	min-width: 0;
@@ -136,34 +150,98 @@ defineExpose({
 	border-radius: var(--border-radius-element);
 	outline: none;
 	background-color: var(--color-main-background);
-	box-shadow: var(--number-field-ring) !important;
 	color: var(--color-main-text);
 	font-variant-numeric: tabular-nums;
 	text-align: end;
 }
 
-.field.field:hover {
-	box-shadow: 0 0 0 1px var(--color-main-text) !important;
-}
-
+/* No ring of its own (core's included) unless it has .ring */
+.field.field,
+.field.field:hover,
 .field.field:focus,
 .field.field:active {
-	box-shadow: 0 0 0 2px var(--color-main-text), 0 0 0 var(--number-field-focus-gap, 4px) var(--color-main-background) !important;
+	box-shadow: none !important;
 }
 
-/* The dash shows only at rest: with focus the empty field holds just the caret */
+/* The ellipsis shows only at rest: with focus the empty field holds just the caret */
 .field.field:focus::placeholder {
 	color: transparent;
 }
 
+/* The ring, on the input, or on the box when the unit is inside it. Tripled to
+   outrank the reset above in every state. */
+.ring.ring.ring {
+	--number-field-border: var(--color-border-maxcontrast);
+	--number-field-ring: 0 -1px var(--number-field-border), 0 0 0 1px color-mix(in srgb, var(--number-field-border), 65% transparent);
+	box-shadow: var(--number-field-ring) !important;
+}
+
+.ring.ring.ring:hover {
+	box-shadow: 0 0 0 1px var(--color-main-text) !important;
+}
+
+.ring.ring.ring:focus,
+.ring.ring.ring:active,
+.ring.ring.ring:focus-within {
+	box-shadow: 0 0 0 2px var(--color-main-text), 0 0 0 var(--number-field-focus-gap, 4px) var(--color-main-background) !important;
+}
+
 /* In the dark theme the ring's line sits under the field rather than over it */
-:global([data-theme-dark]) .field.field:not(:hover, :focus, :active) {
+:global([data-theme-dark]) .ring.ring.ring:not(:hover, :focus, :active, :focus-within) {
 	--number-field-ring: 0 1px var(--number-field-border), 0 0 0 1px color-mix(in srgb, var(--number-field-border), 65% transparent);
 }
 
 @media (prefers-color-scheme: dark) {
-	:global(body:not([data-theme-light])) .field.field:not(:hover, :focus, :active) {
+	:global(body:not([data-theme-light])) .ring.ring.ring:not(:hover, :focus, :active, :focus-within) {
 		--number-field-ring: 0 1px var(--number-field-border), 0 0 0 1px color-mix(in srgb, var(--number-field-border), 65% transparent);
 	}
+}
+
+/* Without a unit the label takes no box: the input is laid out as before */
+.contents {
+	display: contents;
+}
+
+/* With a unit, the box takes the field's size and look; the number stays
+   right-aligned before the unit */
+.box {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	width: var(--number-field-width, 9ch);
+	height: var(--number-field-height, var(--default-clickable-area));
+	border-radius: var(--border-radius-element);
+	background-color: var(--color-main-background);
+	cursor: text;
+}
+
+.field.field.inBox {
+	flex: 1 1 0;
+	width: auto;
+	/* The value in full (its 8px start and 4px end padding included) */
+	min-width: calc(var(--value-chars, 1) * 1ch + 12px);
+	height: 100% !important;
+	padding-inline-end: 4px;
+	background-color: transparent;
+}
+
+/* With focus the unit hides and the input has the whole box */
+.field.field.inBox:focus {
+	padding-inline-end: 8px;
+}
+
+.box:focus-within .unit {
+	display: none;
+}
+
+/* In full after the value when it fits, else cut: the box is the limit */
+.unit {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	padding-inline-end: 8px;
+	color: var(--color-text-maxcontrast);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 </style>

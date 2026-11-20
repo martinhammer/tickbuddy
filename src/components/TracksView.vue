@@ -679,4 +679,18 @@ onMounted(() => {
 		padding-inline-start: 40px;
 	}
 }
+
+/* Touchscreens: the drag handle uses HTML drag and drop, which most phone
+   browsers never start from a finger, so it goes (with the archived list's
+   stand-in, keeping the names lined up); the ⋯ menu's Move up and Move down
+   reorder there. NcListItem's #icon slot has no wrapper and its name keeps its
+   own start padding, so no gap is left. The stand-in is an NcIconSvgWrapper,
+   whose own display (.icon-vue, scoped, 0,2,0) only ties with two classes,
+   and its stylesheet loads later: three classes win. */
+@media (hover: none) {
+	.dragHandle,
+	.archivedItem .handleSpace.handleSpace {
+		display: none;
+	}
+}
 </style>

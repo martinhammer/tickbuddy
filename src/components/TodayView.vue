@@ -61,7 +61,7 @@ const view = computed<'loading' | 'error' | 'empty' | 'allPrivate' | 'list'>(() 
 
 const statsByTrack = computed(() => new Map(stats.value.map(s => [s.trackId, s])))
 
-// A Number or Choice on screen widens every row's control area. Only the tracks
+// A Number or Choice on screen widens the value column, on every row. Only the tracks
 // shown count: a hidden private track changing the layout would hint that it exists.
 const wideControls = computed(() => visibleTracks.value.some(t => t.type === 'number' || t.type === 'choice'))
 
@@ -331,7 +331,7 @@ onMounted(() => {
 				</NcButton>
 			</template>
 		</NcEmptyContent>
-		<ul v-else :class="$style.rows">
+		<ul v-else :class="[$style.rows, wideControls && $style.rowsWide]">
 			<!-- Keyed by day too: a note field left open belongs to its day -->
 			<TodayRow v-for="row in rows"
 				:key="`${row.track.id}|${shownDay}`"
@@ -341,7 +341,6 @@ onMounted(() => {
 				:stats="row.stats"
 				:note="row.note"
 				:locked="locked"
-				:wide="wideControls"
 				:save-value="valueSaver(row.track)"
 				:save-note="noteSaver(row.track)"
 				@set-yes-no="(value) => onSetYesNo(row.track, value)"
@@ -403,9 +402,23 @@ onMounted(() => {
 	text-decoration: underline;
 }
 
+/* Three columns every row takes as a subgrid: the name block, the value (its
+   controls end on one edge down the page), and the last column, as wide as the
+   + or the widest unit on screen (TodayRow caps a unit at 8ch). The narrow
+   sizes put "− 0 +" and the checkbox where they always were. */
 .rows {
-	display: flex;
-	flex-direction: column;
+	--today-value-width: calc(var(--default-clickable-area) + 3ch);
+	--today-control-gap: 0px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) var(--today-value-width) minmax(var(--default-clickable-area), auto);
+	column-gap: var(--today-control-gap);
+}
+
+/* A Number or Choice on screen (wideControls): the field and the drop-down
+   share one width, on phones too */
+.rowsWide {
+	--today-value-width: 140px;
+	--today-control-gap: 6px;
 }
 
 /* At phone width the rows take the full width; only the header still clears
@@ -415,8 +428,18 @@ onMounted(() => {
 		padding: 12px;
 	}
 
+	/* Stuck to the top, so the toggle always sits beside the title and the rows
+	   scroll under the header, the day arrows staying in reach. It takes the
+	   column's top padding and its own space below as padding, so its
+	   background covers both and nothing shows above or behind the title. */
 	.header {
+		position: sticky;
+		inset-block-start: 0;
+		z-index: 1;
+		margin-block: -12px 0;
+		padding-block: 12px 8px;
 		padding-inline-start: 44px;
+		background-color: var(--color-main-background);
 	}
 }
 </style>
