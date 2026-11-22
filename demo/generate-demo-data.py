@@ -5,9 +5,8 @@
 The dataset tells a small, positive story over a few years (by default from
 2022-01-01 up to today): someone cutting down on alcohol (with believable
 lapses, but trending the right way) while building an exercise habit, cutting
-down on sweets, and keeping their coffee steady. Partway in they also take up
-daily affirmations, and later set up a nightly backup whose cron job reports
-to Tickbuddy through Tickcli. One winter they follow a Couch to 5k plan to the
+down on sweets, and keeping their coffee steady. Partway in they set up a
+nightly backup whose cron job reports to Tickbuddy through Tickcli. One winter they follow a Couch to 5k plan to the
 end, then archive the track. They weigh themselves most mornings (a Number
 track, slowly going down as the drinking does) and rate their mood each
 evening (a Choice track, an ordered scale that lifts on active, dry days).
@@ -77,22 +76,23 @@ ALCOHOL_SEGMENTS = [
     (0.94, 1.01, 0.04),   # the odd glass on special occasions
 ]
 
+# Alcohol is private, so screenshots and manual checks show the eye at work.
+# Weight and Mood are a Number and a Choice track, with their settings as the
+# export writes them.
 TRACKS = [
-    {"name": "Cups of coffee", "type": "counter", "sortOrder": 1, "private": False},
-    {"name": "Alcohol", "type": "boolean", "sortOrder": 2, "private": False},
-    {"name": "Sweets", "type": "counter", "sortOrder": 3, "private": False},
-    {"name": "Act of kindness", "type": "boolean", "sortOrder": 4, "private": False},
-    {"name": "Exercise", "type": "boolean", "sortOrder": 5, "private": False},
-    {"name": "Affirmations", "type": "boolean", "sortOrder": 6, "private": False},
-    {"name": "Nightly backup", "type": "boolean", "sortOrder": 7, "private": False},
-    # A Number and a Choice track, with their settings as the export writes them
-    {"name": "Weight", "type": "number", "sortOrder": 8, "private": False,
+    {"name": "Exercise", "type": "boolean", "sortOrder": 1, "private": False},
+    {"name": "Cups of coffee", "type": "counter", "sortOrder": 2, "private": False},
+    {"name": "Alcohol", "type": "boolean", "sortOrder": 3, "private": True},
+    {"name": "Sweets", "type": "counter", "sortOrder": 4, "private": False},
+    {"name": "Weight", "type": "number", "sortOrder": 5, "private": False,
      "unit": "kg", "decimalPlaces": 1, "allowNegative": False},
-    {"name": "Mood", "type": "choice", "sortOrder": 9, "private": False,
+    {"name": "Act of kindness", "type": "boolean", "sortOrder": 6, "private": False},
+    {"name": "Mood", "type": "choice", "sortOrder": 7, "private": False,
      "options": ["Awful", "Low", "Okay", "Good", "Great"], "orderedScale": True},
+    {"name": "Nightly backup", "type": "boolean", "sortOrder": 8, "private": False},
     # Archived, so screenshots and manual checks show the archived list. Only
     # archived tracks carry the key, as the export writes them.
-    {"name": "Couch to 5k", "type": "boolean", "sortOrder": 10, "private": False,
+    {"name": "Couch to 5k", "type": "boolean", "sortOrder": 9, "private": False,
      "archivedAt": "2026-03-02"},
 ]
 
@@ -113,10 +113,6 @@ MOOD_OPTIONS = 5
 C25K_START = date(2025, 12, 1)
 C25K_END = date(2026, 3, 2)
 C25K_DAYS = (0, 2, 4)
-
-# Affirmations are taken up during the first dry month, so the track has no
-# history before this point (fraction of the whole range).
-AFFIRMATIONS_START = 0.28
 
 # The backup cron job is set up here (fraction of the whole range).
 BACKUP_START = 0.40
@@ -239,21 +235,6 @@ NOTES = {
             5: ["Hiking in the sun!", "Got the promotion", "Best day in ages", "Holiday starts tomorrow"],
         },
     },
-    "Affirmations": {
-        "ticked": 0.05, "unticked": 0.008,
-        "texts_ticked": [
-            "I am patient with myself.",
-            "I can do hard things",
-            "Mirror, morning, three times",
-            "\"Progress, not perfection\"",
-            "Wrote them down instead of saying them",
-            "I deserve rest.",
-        ],
-        "texts_unticked": [
-            "Forgot, morning was chaos",
-            "Felt silly today",
-        ],
-    },
 }
 
 # Couch to 5k: the plan's week and run on some run days, written differently
@@ -289,10 +270,9 @@ def generate(start: date, end: date, seed: int) -> dict:
     if end < start:
         raise SystemExit("--end must not be before --start")
     random.seed(seed)
-    # The later tracks draw from their own stream, so adding them left the
-    # original tracks' ticks unchanged for a given seed.
-    habits = random.Random(seed + 1)
-    # Its own stream again, so adding Couch to 5k changed no other track's ticks.
+    # The later tracks draw from their own streams, so adding or dropping one
+    # leaves the other tracks' ticks unchanged for a given seed (seed + 1 was
+    # Affirmations', since dropped).
     c25k = random.Random(seed + 2)
     # And again for notes and the backup, so they never shift any ticks.
     notes_rng = random.Random(seed + 3)
@@ -301,7 +281,6 @@ def generate(start: date, end: date, seed: int) -> dict:
     # left every other track's ticks and notes unchanged for a given seed.
     weight_rng = random.Random(seed + 5)
     mood_rng = random.Random(seed + 6)
-    affirmed_yesterday = False
 
     days = []
     d = start
@@ -388,22 +367,6 @@ def generate(start: date, end: date, seed: int) -> dict:
         sweets = min(5, max(0, round(random.gauss(sweets_mean + craving, 1.1))))
         add("Sweets", day, sweets)
         maybe_note("Sweets", day, sweets >= 1)
-
-        # Affirmations: none before they're taken up, then a streaky habit (a
-        # day done makes the next more likely) that firms up over time. The
-        # streak bonus lifts the realised rate above the base, so a 0.73 base
-        # peaks at roughly 80% of days.
-        affirmed = False
-        if f >= AFFIRMATIONS_START:
-            af_p = lerp(0.35, 0.73, (f - AFFIRMATIONS_START) / (1 - AFFIRMATIONS_START))
-            af_p += 0.15 if affirmed_yesterday else -0.10
-            if weekend:
-                af_p -= 0.08              # routines slip at weekends
-            affirmed = habits.random() < min(0.95, max(0.05, af_p))
-            if affirmed:
-                add("Affirmations", day)
-            maybe_note("Affirmations", day, affirmed)
-        affirmed_yesterday = affirmed
 
         # Nightly backup: the cron job ticks the day of every successful run
         # and always writes its one-line report. Failures are rare and come
@@ -497,16 +460,15 @@ def print_summary(data: dict, start: date, end: date) -> None:
     def mean(xs: list[float]) -> str:
         return f"{sum(xs) / len(xs):.1f}" if xs else "-"
 
-    print(f"{'year':6}{'days':>6}{'alcohol%':>10}{'exercise%':>11}{'affirm%':>9}{'backup%':>9}{'kg':>7}{'mood':>6}")
+    print(f"{'year':6}{'days':>6}{'alcohol%':>10}{'exercise%':>11}{'backup%':>9}{'kg':>7}{'mood':>6}")
     for y in sorted(per_year_days):
         dd = per_year_days[y]
         alcohol = 100 * counts[("Alcohol", y)] / dd
         ex = 100 * counts[("Exercise", y)] / dd
-        affirm = 100 * counts[("Affirmations", y)] / dd
         backed_up = 100 * counts[("Nightly backup", y)] / dd
         kg = mean(values[("Weight", y)])
         mood = mean(values[("Mood", y)])
-        print(f"{y:<6}{dd:>6}{alcohol:>9.0f}%{ex:>10.0f}%{affirm:>8.0f}%{backed_up:>8.0f}%{kg:>7}{mood:>6}")
+        print(f"{y:<6}{dd:>6}{alcohol:>9.0f}%{ex:>10.0f}%{backed_up:>8.0f}%{kg:>7}{mood:>6}")
     print("Notes per track: " + ", ".join(f"{t} {c}" for t, c in sorted(note_counts.items())))
 
 
