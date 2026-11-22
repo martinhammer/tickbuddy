@@ -49,16 +49,16 @@ Feel free to get in touch and/or submit an issue.
 ### Screenshots
 
 Today screen
-![Screenshot of view journal screen](img/Today_20261030.png)
+![Screenshot of view journal screen](img/Today_20261122.png)
 
 Journal screen
-![Screenshot of edit journal screen](img/Journal_20261030.png)
+![Screenshot of edit journal screen](img/Journal_20261122.png)
 
 Analytics screen
-![Screenshot of analytics screen](img/Analytics_20261030.png)
+![Screenshot of analytics screen](img/Analytics_20261122.png)
 
 Tracks screen
-![Screenshot of settings screen](img/Tracks_20261030.png)
+![Screenshot of settings screen](img/Tracks_20261122.png)
 
 Dashboard Widget
-![Screenshot of dashboard widget](img/Dashboard_20261030.png)
+![Screenshot of dashboard widget](img/Dashboard_20261122.png)
