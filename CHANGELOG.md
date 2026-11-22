@@ -5,16 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [3.2.0] - 2026-11-22
 
 ### Added
-- Number tracks: a reading typed in each day (km run, weight, a greenhouse's overnight low), with an optional unit, 0 to 3 decimal places, and optionally negative values; shown and typed with the separators of your Nextcloud locale
-- Choice tracks: one option a day from the track's own list of 2 to 99 (mood, pain, which exercise), optionally an ordered scale; options can be renamed later
-- Both new types on Today, in both Journal layouts, on the dashboard widget and in Analytics (as days with an entry for now), with their settings in New track and in the track's Details
+- Number tracks: a numeric entry with an optional unit, 0 to 3 decimal places, and optionally negative values
+- Choice tracks: select an option from a user-defined list
+- Both new types on Today, Journal, dashboard widget, Analytics (as days with an entry for now), export/import
 - API: track types `number` and `choice`, with `unit`, `decimalPlaces`, `allowNegative`, `options` and `orderedScale` on every track; `POST /api/ticks/set` sets and clears their days; `PUT /api/tracks/{id}/options/{value}` renames an option (flags `numberTracks`, `choiceTracks`)
-- API: `includeAllTypes` on `GET /api/tracks`, `/api/ticks`, `/api/notes`, `/api/stats` and the reorder's answer; without it, older clients see only Yes/No and Counter tracks, as before
-- Public links tick Number and Choice tracks with a value (`value=72.4`, `value=2`)
-- Export and import carry both types, their settings and their values
+- API: `includeAllTypes` on `GET /api/tracks`, `/api/ticks`, `/api/notes`, `/api/stats` and the reorder response; without it, older clients see only Yes/No and Counter tracks
+- Public links tick Number and Choice tracks via a `value` parameter
 
 ### Notes
 - Downgrading Tickbuddy once Number or Choice tracks exist is not supported: an older version would read them as counters. An older version refuses to import an export holding them.
@@ -42,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - API: database errors no longer send the database's own text to the client
 - Import: miscellaneous fixes for Tickmate files
 - Journal: cell hover focus does not get stuck after a tick or a note
+
 
 ## [3.0.0] - 2026-10-30
 
