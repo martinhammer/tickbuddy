@@ -8,6 +8,7 @@ import NcEmptyContent from '@nextcloud/vue/components/NcEmptyContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
 import NcLoadingIcon from '@nextcloud/vue/components/NcLoadingIcon'
 import NcSelect from '@nextcloud/vue/components/NcSelect'
+import { generateOcsUrl } from '@nextcloud/router'
 import { createPublicLink, fetchPublicLinks, renamePublicLink, revokePublicLink } from '../api.ts'
 import { todayStr } from '../dates.ts'
 import { EDITABLE_DAYS, EDITABLE_DAYS_LABELS } from '../editableDays.ts'
@@ -188,10 +189,13 @@ async function confirmRevoke(): Promise<void> {
 
 // --- How to use public links ---
 
-// This server's address up to the token, from the first link; `…` stands for
-// any token, so none is ever shown. One string per block, a line per command.
+// This server's address up to the token, from the first link (the server's
+// own idea of its address), else built here as the API calls are, so the help
+// shows before the first link exists; `…` stands for any token, so none is
+// ever shown. One string per block, a line per command.
 const examples = computed(() => {
 	const base = exampleBase(links.value[0]?.url ?? '')
+		|| generateOcsUrl('/apps/tickbuddy/ping/')
 	const { yesterday, from, to } = exampleDates(todayStr())
 	const short = '…/ping/…'
 	// Addresses with a `?` are quoted: zsh refuses an unquoted one
@@ -325,49 +329,47 @@ const examples = computed(() => {
 					New public link
 				</NcButton>
 
-				<template v-if="links.length > 0">
-					<NcButton variant="tertiary"
-						alignment="start-reverse"
-						:aria-expanded="String(howToOpen)"
-						aria-controls="tickbuddy-public-links-how-to"
-						:class="$style.howToToggle"
-						@click="howToOpen = !howToOpen">
-						<template #icon>
-							<!-- directional: the closed chevron points left in right-to-left languages -->
-							<NcIconSvgWrapper :path="howToOpen ? MDI_CHEVRON_DOWN : MDI_CHEVRON_RIGHT" directional />
-						</template>
-						<span :class="$style.howToLabel">
-							How to use public links
-							<NcIconSvgWrapper :path="MDI_INFORMATION_OUTLINE"
-								:size="16"
-								:class="$style.infoIcon"
-								aria-hidden="true" />
-						</span>
-					</NcButton>
-					<div v-show="howToOpen" id="tickbuddy-public-links-how-to" :class="$style.howTo">
-						<p>Create one link for each script or device, so that each one can be revoked separately.</p>
-						<p>
-							<strong>A Tick only link</strong> ticks a Yes/No track for today; calling it again the same day changes nothing. On a Counter track, it adds 1 each time it's called. GET, POST and HEAD all tick, so don't paste the link into chats or emails: their link previews would call it.
-						</p>
-						<template v-if="track.type === 'number'">
-							<p>On a Number track, like this one, a Tick only link needs a value: a call without one is refused. This records 72.4:</p>
-							<pre :class="$style.code">{{ examples.number }}</pre>
-						</template>
-						<template v-else-if="track.type === 'choice'">
-							<p>On a Choice track, like this one, a Tick only link needs a value: a call without one is refused. This picks the second option:</p>
-							<pre :class="$style.code">{{ examples.choice }}</pre>
-						</template>
-						<pre v-else :class="$style.code">{{ examples.plain }}</pre>
-						<p>Add a line to the day's note, tick another day, or set an exact value:</p>
-						<pre :class="$style.code">{{ examples.tickMore }}</pre>
-						<p>
-							<strong>A View only link</strong> answers today's tick as JSON:
-						</p>
-						<pre :class="$style.code">{{ examples.plain }}</pre>
-						<p>Include the notes, or ask for several days:</p>
-						<pre :class="$style.code">{{ examples.viewMore }}</pre>
-					</div>
-				</template>
+				<NcButton variant="tertiary"
+					alignment="start-reverse"
+					:aria-expanded="String(howToOpen)"
+					aria-controls="tickbuddy-public-links-how-to"
+					:class="$style.howToToggle"
+					@click="howToOpen = !howToOpen">
+					<template #icon>
+						<!-- directional: the closed chevron points left in right-to-left languages -->
+						<NcIconSvgWrapper :path="howToOpen ? MDI_CHEVRON_DOWN : MDI_CHEVRON_RIGHT" directional />
+					</template>
+					<span :class="$style.howToLabel">
+						How to use public links
+						<NcIconSvgWrapper :path="MDI_INFORMATION_OUTLINE"
+							:size="16"
+							:class="$style.infoIcon"
+							aria-hidden="true" />
+					</span>
+				</NcButton>
+				<div v-show="howToOpen" id="tickbuddy-public-links-how-to" :class="$style.howTo">
+					<p>Create one link for each script or device, so that each one can be revoked separately.</p>
+					<p>
+						<strong>A Tick only link</strong> ticks a Yes/No track for today; calling it again the same day changes nothing. On a Counter track, it adds 1 each time it's called. GET, POST and HEAD all tick, so don't paste the link into chats or emails: their link previews would call it.
+					</p>
+					<template v-if="track.type === 'number'">
+						<p>On a Number track, like this one, a Tick only link needs a value: a call without one is refused. This records 72.4:</p>
+						<pre :class="$style.code">{{ examples.number }}</pre>
+					</template>
+					<template v-else-if="track.type === 'choice'">
+						<p>On a Choice track, like this one, a Tick only link needs a value: a call without one is refused. This picks the second option:</p>
+						<pre :class="$style.code">{{ examples.choice }}</pre>
+					</template>
+					<pre v-else :class="$style.code">{{ examples.plain }}</pre>
+					<p>Add a line to the day's note, tick another day, or set an exact value:</p>
+					<pre :class="$style.code">{{ examples.tickMore }}</pre>
+					<p>
+						<strong>A View only link</strong> answers today's tick as JSON:
+					</p>
+					<pre :class="$style.code">{{ examples.plain }}</pre>
+					<p>Include the notes, or ask for several days:</p>
+					<pre :class="$style.code">{{ examples.viewMore }}</pre>
+				</div>
 			</template>
 		</template>
 
