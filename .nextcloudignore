@@ -1,0 +1,50 @@
+# --- Shared: nextcloud plugin, app-project-files skill. Keep identical across apps. ---
+# What stays out of the release. Read by `make package` and `make stage`
+# (rsync --exclude-from), so: gitignore-style patterns, but no `!` lines.
+#
+# From nextcloud/app_template
+.git
+.github
+.gitignore
+.tx
+.vscode
+.php-cs-fixer.*
+/.eslintrc.cjs
+/.gitignore
+/.nextcloudignore
+/.nvmrc
+/build
+/CODE_OF_CONDUCT.md
+/composer.*
+/node_modules
+/src
+/tests
+/krankerl.toml
+/package-lock.json
+/package.json
+/psalm.xml
+/rector.php
+/stylelint.config.cjs
+/tsconfig.json
+/vite.config.ts
+/vendor-bin
+/vendor/bin
+/*.md
+
+# Additions for these apps
+/.claude
+.env*
+/.deploy-target
+/deploy.sh
+/docs
+/Makefile
+/vitest.config.ts
+/openapi*.json
+# Store-listing screenshots (info.xml links them from GitHub); icons are SVG
+/img/*.png
+/img/*.jpg
+/img/*.jpeg
+/img/*.webp
+
+# --- App-specific (below this line) ---
+/demo

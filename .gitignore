@@ -1,4 +1,5 @@
-/.claude/
+# --- Shared: nextcloud plugin, app-project-files skill. Keep identical across apps. ---
+# From nextcloud/app_template
 /.idea/
 /*.iml
 
@@ -11,8 +12,23 @@
 /node_modules/
 /js/
 /css/
+
+# Build output (make build, package, stage)
 /build/
 
-/tickmate*
+# Claude Code: settings.json and rules/ are shared; everything else is local
+/.claude/*
+!/.claude/settings.json
+!/.claude/rules/
+/CLAUDE.local.md
 
+# Secrets and local deployment helpers
+.env
+.env.*
+!.env.example
+/deploy.sh
+/.deploy-target
+
+# --- App-specific (below this line) ---
+/tickmate*
 /docs-internal/
