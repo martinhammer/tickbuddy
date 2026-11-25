@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { emit } from '@nextcloud/event-bus'
 import NcAppContent from '@nextcloud/vue/components/NcAppContent'
 import NcAppNavigation from '@nextcloud/vue/components/NcAppNavigation'
 import NcAppNavigationItem from '@nextcloud/vue/components/NcAppNavigationItem'
 import NcContent from '@nextcloud/vue/components/NcContent'
 import NcIconSvgWrapper from '@nextcloud/vue/components/NcIconSvgWrapper'
+import { useIsMobile } from '@nextcloud/vue/composables/useIsMobile'
 import { todayStr } from './dates.ts'
 import { MDI_CALENDAR_MONTH_OUTLINE, MDI_CHART_BAR, MDI_CHECKBOX_MARKED_OUTLINE, MDI_FORMAT_LIST_CHECKS } from './icons.ts'
 import { loadPreferences } from './preferences.ts'
@@ -17,6 +19,8 @@ import TracksView from './components/TracksView.vue'
 
 // Four screens with one job each: tick (Today), review (Journal), understand
 // (Analytics), set up (Tracks). The screen lives in the URL hash; see routes.ts.
+
+const isMobile = useIsMobile()
 
 const route = ref<Route>(parseHash(window.location.hash, todayStr()).route)
 // The last track the Analytics picker lists that it showed, for the
@@ -48,6 +52,21 @@ function replaceRoute(next: Route): void {
 function navigate(next: Route): void {
 	// Assigning the hash is the navigation; hashchange feeds it back into state.
 	window.location.hash = hashFor(next)
+}
+
+/**
+ * On a phone, put the navigation drawer away once a screen is picked.
+ *
+ * NcAppNavigationItem does this itself only for router links; ours are plain
+ * hash links, so the drawer stayed over the screen just picked. NcAppNavigation
+ * has no controlled `open` prop, so its event bus is the way to say so. A click
+ * with a modifier key opens a new tab or window, and leaves the drawer as it is;
+ * on desktop the navigation is not a drawer and stays put.
+ * @param event the click on a navigation item
+ */
+function closeNavigationOnMobile(event: MouseEvent): void {
+	if (!isMobile.value || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
+	emit('toggle-navigation', { open: false })
 }
 
 function setTodayDay(day: string | null): void {
@@ -96,32 +115,36 @@ onBeforeUnmount(() => {
 
 <template>
 	<NcContent app-name="tickbuddy">
-		<NcAppNavigation>
+		<NcAppNavigation aria-label="Tickbuddy screens">
 			<template #list>
 				<NcAppNavigationItem name="Today"
 					href="#today"
-					:active="route.screen === 'today'">
+					:active="route.screen === 'today'"
+					@click="closeNavigationOnMobile">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_CHECKBOX_MARKED_OUTLINE" />
 					</template>
 				</NcAppNavigationItem>
 				<NcAppNavigationItem name="Journal"
 					href="#journal"
-					:active="route.screen === 'journal'">
+					:active="route.screen === 'journal'"
+					@click="closeNavigationOnMobile">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_CALENDAR_MONTH_OUTLINE" />
 					</template>
 				</NcAppNavigationItem>
 				<NcAppNavigationItem name="Analytics"
 					:href="hashFor({ screen: 'analytics', trackId: analyticsTrackId })"
-					:active="route.screen === 'analytics'">
+					:active="route.screen === 'analytics'"
+					@click="closeNavigationOnMobile">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_CHART_BAR" />
 					</template>
 				</NcAppNavigationItem>
 				<NcAppNavigationItem name="Tracks"
 					href="#tracks"
-					:active="route.screen === 'tracks'">
+					:active="route.screen === 'tracks'"
+					@click="closeNavigationOnMobile">
 					<template #icon>
 						<NcIconSvgWrapper :path="MDI_FORMAT_LIST_CHECKS" />
 					</template>
