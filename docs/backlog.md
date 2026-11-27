@@ -5,6 +5,7 @@ Open work for this project, including where it deviates from the shared skills
 start. One line per item: date, the skill it concerns, what to do.
 
 ## Deviations from shared skills
+- 2026-11-27 · vue-frontend · `PrivateToggle.vue` sets `aria-pressed` on a button whose name changes ("Show / Hide private tracks"), so a screen reader announces "Hide private tracks, pressed". Drop `aria-pressed` and keep the changing name (the eye icon shows the state).
 - 2026-11-24 · eslint-v9-migration · Still on `@nextcloud/eslint-config` 8 with `.eslintrc.cjs`, base `@nextcloud` config with a custom parser. Migrate to v9 (flat config).
 
 ## Known gaps / future work
