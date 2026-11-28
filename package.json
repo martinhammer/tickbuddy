@@ -27,7 +27,7 @@
     "chart.js": "^4.6.1",
     "chartjs-plugin-zoom": "^2.2.0",
     "sortablejs": "^1.15.7",
-    "vue": "^3.5.45",
+    "vue": "^3.5.46",
     "vue-chartjs": "^5.3.4"
   },
   "devDependencies": {
