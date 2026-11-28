@@ -51,8 +51,6 @@ The reasons are in the nextcloud `vue-frontend` skill. Don't remove these:
   `margin: 0 !important`.
 - `JournalCell.vue` zeroes core's checkbox label margin under `.cell .checkboxSlot`;
   core and library classes in `<style module>` are written `:global(...)`.
-- `TracksView.vue` uses three classes (`.archivedItem .handleSpace.handleSpace`) to
-  outrank a library component's scoped root rule.
 - Icon buttons carry a native `title` matching their `aria-label` (v9 has no Tooltip directive).
 - The navigation items are hash links, not router links, so `NcAppNavigationItem`
   doesn't close the drawer on a phone: `App.vue`'s `closeNavigationOnMobile` emits
