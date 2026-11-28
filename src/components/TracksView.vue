@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, useCssModule, watch } from 'vue'
 import axios from '@nextcloud/axios'
+import { insertNodeAt, removeNode, useSortable } from '@vueuse/integrations/useSortable'
 import { showError, showSuccess } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
 import NcActionButton from '@nextcloud/vue/components/NcActionButton'
@@ -32,7 +33,6 @@ import {
 import { ocsErrorMessage } from '../ocsError.ts'
 import { errorReason, httpStatus } from '../strictHandling.ts'
 import { trackSubname } from '../publicLinks.ts'
-import { dropIndex, gapAt } from '../trackMenu.ts'
 import type { TrackMenuItem } from '../trackMenu.ts'
 import type { Track, TrackOption } from '../types.ts'
 import { useToday } from '../useToday.ts'
@@ -70,9 +70,7 @@ const status = ref<'loading' | 'ready' | 'error'>('loading')
 const showArchived = ref(false)
 const trackPendingDelete = ref<Track | null>(null)
 const trackPendingArchive = ref<Track | null>(null)
-const dragIndex = ref<number | null>(null)
-// The gap the drag points at: above row i is i, after the last row is tracks.length
-const dragGap = ref<number | null>(null)
+const trackList = ref<HTMLUListElement | null>(null)
 const dialog = ref<'new' | 'import' | 'export' | null>(null)
 
 const { loaded } = useToday(() => { loadTracks().catch(() => {}) })
@@ -309,46 +307,23 @@ async function move(fromIndex: number, toIndex: number) {
 	}
 }
 
-function onDragStart(index: number, event: DragEvent) {
-	dragIndex.value = index
-	if (event.dataTransfer) {
-		event.dataTransfer.effectAllowed = 'move'
-	}
-}
-
-// Above the row over its upper half, below it over its lower half
-function gapFor(index: number, event: DragEvent): number {
-	return gapAt(index, event.clientY, (event.currentTarget as HTMLElement).getBoundingClientRect())
-}
-
-function onDragOver(index: number, event: DragEvent) {
-	// Only a drag started on a handle here, not a link dragged in from elsewhere
-	if (dragIndex.value === null) return
-	event.preventDefault()
-	if (event.dataTransfer) {
-		event.dataTransfer.dropEffect = 'move'
-	}
-	dragGap.value = gapFor(index, event)
-}
-
-function onDragLeave() {
-	dragGap.value = null
-}
-
-function onDrop(index: number, event: DragEvent) {
-	const fromIndex = dragIndex.value
-	dragIndex.value = null
-	dragGap.value = null
-	if (fromIndex === null) return
-	// move() does nothing when this is where the track already is (dropped just
-	// above or just below it), and undoes a refused save at this index too
-	move(fromIndex, dropIndex(fromIndex, gapFor(index, event)))
-}
-
-function onDragEnd() {
-	dragIndex.value = null
-	dragGap.value = null
-}
+// Drag to reorder with Sortable.js, as server's Dashboard and Theming do. A drag
+// starts only on the handle. Sortable's default `ignore: 'a, img'` makes the
+// NcListItem's link not draggable, so Firefox drags the row, not the link around
+// the handle. Sortable has already moved the row in the DOM; put it back and let
+// move() reorder the array, so Vue renders the order and a refused save undoes it.
+const style = useCssModule()
+useSortable(trackList, tracks, {
+	handle: `.${style.dragHandle}`,
+	watchElement: true,
+	onUpdate: (event) => {
+		const { item, from, oldIndex, newIndex } = event
+		if (oldIndex === undefined || newIndex === undefined) return
+		removeNode(item)
+		insertNodeAt(from, item, oldIndex)
+		move(oldIndex, newIndex)
+	},
+})
 
 // --- Dialogs ---
 async function onCreated() {
@@ -411,29 +386,20 @@ onMounted(() => {
 				</template>
 			</NcEmptyContent>
 			<template v-else>
-				<ul v-if="tracks.length > 0" :class="$style.list">
-					<NcListItem v-for="(track, index) in tracks"
+				<ul v-if="tracks.length > 0" ref="trackList" :class="$style.list">
+					<NcListItem v-for="track in tracks"
 						:key="track.id"
 						:name="track.name"
 						:href="`#tracks/${track.id}`"
 						:active="track.id === trackId"
 						force-display-actions
-						:class="[$style.trackRow, {
-							[$style.dragOver]: dragGap === index,
-							[$style.dragOverEnd]: dragGap === tracks.length && index === tracks.length - 1,
-						}]"
-						@click="openTrack(track, $event)"
-						@dragover="onDragOver(index, $event)"
-						@dragleave="onDragLeave"
-						@drop="onDrop(index, $event)"
-						@dragend="onDragEnd">
+						:class="$style.trackRow"
+						@click="openTrack(track, $event)">
 						<template #icon>
 							<span :class="$style.dragHandle"
-								draggable="true"
 								aria-hidden="true"
 								title="Drag to reorder"
-								@click.stop.prevent
-								@dragstart.stop="onDragStart(index, $event)">
+								@click.stop.prevent>
 								<NcIconSvgWrapper :path="MDI_DRAG" />
 							</span>
 						</template>
@@ -591,13 +557,10 @@ onMounted(() => {
 	cursor: grabbing;
 }
 
-/* The line at the drag's gap: on top of the row below it, or under the last row */
-.dragOver {
-	box-shadow: inset 0 2px 0 var(--color-primary-element);
-}
-
-.dragOverEnd {
-	box-shadow: inset 0 -2px 0 var(--color-primary-element);
+/* Sortable's placeholder: the row, faded, where the drop would put it.
+   Server's Dashboard fades its panels the same way. */
+.trackRow:global(.sortable-ghost) {
+	opacity: 0.5;
 }
 
 .danger :global(.action-button) {
