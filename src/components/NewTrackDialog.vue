@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, useCssModule } from 'vue'
 import axios from '@nextcloud/axios'
 import { showError } from '@nextcloud/dialogs'
 import { generateOcsUrl } from '@nextcloud/router'
+import { insertNodeAt, removeNode, useSortable } from '@vueuse/integrations/useSortable'
 import NcButton from '@nextcloud/vue/components/NcButton'
 import NcCheckboxRadioSwitch from '@nextcloud/vue/components/NcCheckboxRadioSwitch'
 import NcDialog from '@nextcloud/vue/components/NcDialog'
@@ -11,7 +12,6 @@ import NcSelect from '@nextcloud/vue/components/NcSelect'
 import NcTextField from '@nextcloud/vue/components/NcTextField'
 import { MDI_CLOSE, MDI_DRAG, MDI_EYE_OUTLINE, MDI_PLUS } from '../icons.ts'
 import { ocsErrorMessage } from '../ocsError.ts'
-import { dropIndex, gapAt } from '../trackMenu.ts'
 
 // The server's limit (TrackService::MAX_NAME_LENGTH), so a longer paste is cut
 // here instead of refused. maxlength counts UTF-16 units, so names with emoji
@@ -99,33 +99,22 @@ function moveOption(from: number, to: number): void {
 	options.value.splice(to, 0, moved)
 }
 
-// Dragged by the handle, as the Tracks page's rows; the arrow keys on the
-// handle are the keyboard's way
-const dragIndex = ref<number | null>(null)
-const dragGap = ref<number | null>(null)
-
-function onDragStart(index: number, event: DragEvent): void {
-	dragIndex.value = index
-	if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-}
-
-function onDragOver(index: number, event: DragEvent): void {
-	if (dragIndex.value === null) return
-	event.preventDefault()
-	dragGap.value = gapAt(index, event.clientY, (event.currentTarget as HTMLElement).getBoundingClientRect())
-}
-
-function onDrop(event: DragEvent): void {
-	event.preventDefault()
-	if (dragIndex.value !== null && dragGap.value !== null) moveOption(dragIndex.value, dropIndex(dragIndex.value, dragGap.value))
-	dragIndex.value = null
-	dragGap.value = null
-}
-
-function onDragEnd(): void {
-	dragIndex.value = null
-	dragGap.value = null
-}
+// Dragged by the handle with Sortable.js, as the Tracks page's rows; the arrow
+// keys on the handle are the keyboard's way. Sortable has already moved the row
+// in the DOM; put it back and let moveOption() reorder the array, so Vue renders
+// the order.
+const style = useCssModule()
+useSortable(optionList, options, {
+	handle: `.${style.handle}`,
+	watchElement: true,
+	onUpdate: (event) => {
+		const { item, from, oldIndex, newIndex } = event
+		if (oldIndex === undefined || newIndex === undefined) return
+		removeNode(item)
+		insertNodeAt(from, item, oldIndex)
+		moveOption(oldIndex, newIndex)
+	},
+})
 
 async function onHandleKey(index: number, delta: number, event: KeyboardEvent): Promise<void> {
 	const to = index + delta
@@ -250,22 +239,13 @@ async function add(): Promise<void> {
 				<ol ref="optionList" :class="$style.options">
 					<li v-for="(option, index) in options"
 						:key="option.id"
-						:class="[$style.option, {
-							[$style.dragOver]: dragGap === index,
-							[$style.dragOverEnd]: dragGap === options.length && index === options.length - 1,
-						}]"
-						@dragover="onDragOver(index, $event)"
-						@dragleave="dragGap = null"
-						@drop="onDrop"
-						@dragend="onDragEnd">
+						:class="$style.option">
 						<span :class="$style.handle"
 							data-handle
-							draggable="true"
 							tabindex="0"
 							role="button"
 							aria-label="Move option"
 							title="Move option"
-							@dragstart="onDragStart(index, $event)"
 							@keydown.up="onHandleKey(index, -1, $event)"
 							@keydown.down="onHandleKey(index, 1, $event)">
 							<NcIconSvgWrapper :path="MDI_DRAG" />
@@ -404,11 +384,8 @@ async function add(): Promise<void> {
 	min-width: 0;
 }
 
-.dragOver {
-	box-shadow: 0 -2px 0 var(--color-primary-element);
-}
-
-.dragOverEnd {
-	box-shadow: 0 2px 0 var(--color-primary-element);
+/* Sortable's placeholder: the option, faded, where the drop would put it */
+.option:global(.sortable-ghost) {
+	opacity: 0.5;
 }
 </style>
