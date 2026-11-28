@@ -5,7 +5,6 @@ Open work for this project, including where it deviates from the shared skills
 start. One line per item: date, the skill it concerns, what to do.
 
 ## Deviations from shared skills
-- 2026-11-28 · vue-frontend · New track's Choice options (`NewTrackDialog.vue`) reorder with hand-written native drag (`gapAt`/`dropIndex` in `trackMenu.ts`). Move to `useSortable` with a handle, as the Tracks list, and drop the two helpers once nothing uses them.
 - 2026-11-27 · vue-frontend · `PrivateToggle.vue` sets `aria-pressed` on a button whose name changes ("Show / Hide private tracks"), so a screen reader announces "Hide private tracks, pressed". Drop `aria-pressed` and keep the changing name (the eye icon shows the state).
 - 2026-11-24 · eslint-v9-migration · Still on `@nextcloud/eslint-config` 8 with `.eslintrc.cjs`, base `@nextcloud` config with a custom parser. Migrate to v9 (flat config).
 
